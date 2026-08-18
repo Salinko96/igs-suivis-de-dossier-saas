@@ -40,6 +40,38 @@ const badgeStyle = (value?: string | null) =>
     ? "bg-[#fff5df] text-[#9e6a08]"
     : "bg-[#edf5f1] text-[#2d7664]";
 
+import * as XLSX from "xlsx";
+
+function normalizeHeaderKey(h: string): string {
+  const clean = h.trim().toLowerCase();
+  if (clean.includes("client dossier") || clean.includes("n° client") || clean.includes("dossier client") || clean.includes("ref client") || clean.includes("num client")) return "clientDossierNumber";
+  if (clean.includes("client") || clean.includes("destinataire") || clean.includes("societe")) return "client";
+  if (clean.includes("bl") || clean.includes("lta") || clean.includes("connaissement") || clean.includes("waybill")) return "blLtaNumber";
+  if (clean.includes("marchandise") || clean.includes("cargo") || clean.includes("nature") || clean.includes("description")) return "cargoNature";
+  if (clean.includes("transport") || clean.includes("mode")) return "transportMode";
+  if (clean.includes("eta") || clean.includes("arrivee") || clean.includes("date eta")) return "eta";
+  if (clean.includes("pol") || clean.includes("origine") || clean.includes("port origine")) return "originPort";
+  if (clean.includes("pod") || clean.includes("destination") || clean.includes("port dest")) return "destinationPort";
+  if (clean.includes("conteneur") || clean.includes("tc") || clean.includes("container")) return "container";
+  if (clean.includes("vrac") || clean.includes("bulk") || clean.includes("pkg") || clean.includes("colis")) return "bulk";
+  if (clean.includes("sortie") || clean.includes("release") || clean.includes("date sortie") || clean.includes("bae")) return "goodsReleaseDate";
+  if (clean.includes("declaration") || clean.includes("n° decl") || clean.includes("sydonia") || clean.includes("ddi")) return "declarationNumber";
+  if (clean.includes("bulletin") || clean.includes("bld") || clean.includes("liquidation")) return "bulletinNumber";
+  if (clean.includes("definitive") || clean.includes("decl def")) return "finalDeclarationNumber";
+  if (clean.includes("regime")) return "regime";
+  if (clean.includes("livraison") || clean.includes("lieu")) return "deliveryLocation";
+  if (clean.includes("alerte") || clean.includes("blocage")) return "fieldAlert";
+  if (clean.includes("action")) return "nextAction";
+  if (clean.includes("statut douane")) return "customsStatus";
+  if (clean.includes("statut port")) return "portStatus";
+  if (clean.includes("statut financier") || clean.includes("finance")) return "financialStatus";
+  if (clean.includes("responsable") || clean.includes("agent")) return "responsible";
+  if (clean.includes("declarant")) return "declarant";
+  if (clean.includes("service")) return "service";
+  if (clean.includes("note") || clean.includes("observation")) return "notes";
+  return h;
+}
+
 function parseCSV(text: string): Array<Record<string, string>> {
   const lines = text
     .split(/\r?\n/)
@@ -50,36 +82,8 @@ function parseCSV(text: string): Array<Record<string, string>> {
   // Detect delimiter
   const firstLine = lines[0];
   const delimiter = firstLine.includes(";") ? ";" : firstLine.includes("\t") ? "\t" : ",";
-
-  const headers = firstLine.split(delimiter).map(h => h.replace(/^["']|["']$/g, "").trim().toLowerCase());
-
-  const normalizeKey = (h: string): string => {
-    if (h.includes("client dossier") || h.includes("n° client") || h.includes("dossier client") || h.includes("ref client")) return "clientDossierNumber";
-    if (h.includes("client") || h.includes("destinataire")) return "client";
-    if (h.includes("bl") || h.includes("lta") || h.includes("connaissement")) return "blLtaNumber";
-    if (h.includes("marchandise") || h.includes("cargo") || h.includes("nature")) return "cargoNature";
-    if (h.includes("transport") || h.includes("mode")) return "transportMode";
-    if (h.includes("eta") || h.includes("arrivee") || h.includes("date eta")) return "eta";
-    if (h.includes("pol") || h.includes("origine") || h.includes("port origine")) return "originPort";
-    if (h.includes("pod") || h.includes("destination") || h.includes("port dest")) return "destinationPort";
-    if (h.includes("conteneur") || h.includes("tc") || h.includes("container")) return "container";
-    if (h.includes("vrac") || h.includes("bulk") || h.includes("pkg")) return "bulk";
-    if (h.includes("sortie") || h.includes("release") || h.includes("date sortie")) return "goodsReleaseDate";
-    if (h.includes("declaration") || h.includes("n° decl") || h.includes("sydonia")) return "declarationNumber";
-    if (h.includes("bulletin") || h.includes("bld") || h.includes("liquidation")) return "bulletinNumber";
-    if (h.includes("definitive") || h.includes("decl def")) return "finalDeclarationNumber";
-    if (h.includes("regime")) return "regime";
-    if (h.includes("livraison") || h.includes("lieu")) return "deliveryLocation";
-    if (h.includes("alerte")) return "fieldAlert";
-    if (h.includes("action")) return "nextAction";
-    if (h.includes("statut douane")) return "customsStatus";
-    if (h.includes("statut port")) return "portStatus";
-    if (h.includes("statut financier")) return "financialStatus";
-    if (h.includes("note")) return "notes";
-    return h;
-  };
-
-  const mappedHeaders = headers.map(normalizeKey);
+  const headers = firstLine.split(delimiter).map(h => h.replace(/^["']|["']$/g, "").trim());
+  const mappedHeaders = headers.map(normalizeHeaderKey);
 
   const rows: Array<Record<string, string>> = [];
   for (let i = 1; i < lines.length; i++) {
@@ -92,6 +96,28 @@ function parseCSV(text: string): Array<Record<string, string>> {
     rows.push(row);
   }
   return rows;
+}
+
+function parseExcelBuffer(buffer: ArrayBuffer): Array<Record<string, string>> {
+  const workbook = XLSX.read(buffer, { type: "array", cellDates: true });
+  const firstSheetName = workbook.SheetNames[0];
+  const worksheet = workbook.Sheets[firstSheetName];
+  const rawJson = XLSX.utils.sheet_to_json<Record<string, any>>(worksheet, { defval: "" });
+
+  if (rawJson.length === 0) return [];
+
+  return rawJson.map(rawRow => {
+    const normalizedRow: Record<string, string> = {};
+    for (const [key, value] of Object.entries(rawRow)) {
+      const normKey = normalizeHeaderKey(key);
+      if (value instanceof Date) {
+        normalizedRow[normKey] = value.toISOString().slice(0, 10);
+      } else {
+        normalizedRow[normKey] = String(value || "").trim();
+      }
+    }
+    return normalizedRow;
+  });
 }
 
 function DossiersContent() {
@@ -244,26 +270,49 @@ function DossiersContent() {
     toast.success("Exportation CSV téléchargée avec succès.");
   };
 
-  // Handle File Selected for Import
+  // Handle File Selected for Import (CSV & Excel)
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
     setImportFileName(file.name);
-    const reader = new FileReader();
-    reader.onload = evt => {
-      const content = evt.target?.result as string;
-      if (content) {
-        const parsed = parseCSV(content);
-        if (parsed.length === 0) {
-          toast.error("Le fichier sélectionné ne contient pas de données valides.");
-        } else {
-          setImportRows(parsed);
-          toast.info(`${parsed.length} dossier(s) détecté(s) dans le fichier.`);
+    const fileName = file.name.toLowerCase();
+
+    if (fileName.endsWith(".xlsx") || fileName.endsWith(".xls")) {
+      const reader = new FileReader();
+      reader.onload = evt => {
+        const buffer = evt.target?.result as ArrayBuffer;
+        if (buffer) {
+          try {
+            const parsed = parseExcelBuffer(buffer);
+            if (parsed.length === 0) {
+              toast.error("Le fichier Excel ne contient pas de données valides.");
+            } else {
+              setImportRows(parsed);
+              toast.success(`${parsed.length} dossier(s) détecté(s) dans le fichier Excel.`);
+            }
+          } catch (err: any) {
+            toast.error("Erreur de lecture du fichier Excel : " + err.message);
+          }
         }
-      }
-    };
-    reader.readAsText(file, "UTF-8");
+      };
+      reader.readAsArrayBuffer(file);
+    } else {
+      const reader = new FileReader();
+      reader.onload = evt => {
+        const content = evt.target?.result as string;
+        if (content) {
+          const parsed = parseCSV(content);
+          if (parsed.length === 0) {
+            toast.error("Le fichier CSV ne contient pas de données valides.");
+          } else {
+            setImportRows(parsed);
+            toast.success(`${parsed.length} dossier(s) détecté(s) dans le fichier CSV.`);
+          }
+        }
+      };
+      reader.readAsText(file, "UTF-8");
+    }
   };
 
   // Confirm Import
@@ -629,10 +678,10 @@ function DossiersContent() {
         <DialogContent className="max-w-3xl rounded-3xl bg-white p-6 shadow-2xl">
           <DialogHeader>
             <DialogTitle className="font-[Georgia] text-2xl text-[#15372f]">
-              Importer des dossiers (CSV / Excel)
+              Importer des dossiers (Excel / CSV)
             </DialogTitle>
             <DialogDescription className="text-sm text-[#677b75]">
-              Chargez un fichier CSV pour intégrer automatiquement de nouveaux dossiers de transit avec calcul instantané de régularisation.
+              Chargez un classeur Excel (.xlsx, .xls) ou un fichier CSV pour intégrer automatiquement de nouveaux dossiers de transit avec calcul instantané de régularisation.
             </DialogDescription>
           </DialogHeader>
 
@@ -642,14 +691,14 @@ function DossiersContent() {
               className="cursor-pointer rounded-2xl border-2 border-dashed border-[#c2d7ce] bg-[#f8faf9] p-6 text-center transition hover:border-[#1d7764] hover:bg-[#f0f6f3]"
             >
               <FileSpreadsheet className="mx-auto mb-2 text-[#1d7764]" size={36} />
-              <p className="text-sm font-medium text-[#204036]">
-                {importFileName ? `Fichier sélectionné : ${importFileName}` : "Cliquez ou glissez-déposez un fichier CSV ici"}
+              <p className="text-sm font-semibold text-[#204036]">
+                {importFileName ? `Fichier sélectionné : ${importFileName}` : "Cliquez ou glissez-déposez un fichier Excel (.xlsx, .xls) ou CSV ici"}
               </p>
-              <p className="mt-1 text-xs text-[#80918c]">Séparateurs supportés : virgule (,), point-virgule (;), tabulation (\t)</p>
+              <p className="mt-1 text-xs text-[#80918c]">Formats supportés : Microsoft Excel (.xlsx, .xls) et CSV (séparateurs: virgule, point-virgule, tabulation)</p>
               <input
                 ref={fileInputRef}
                 type="file"
-                accept=".csv,.txt"
+                accept=".xlsx,.xls,.csv,.txt"
                 onChange={handleFileChange}
                 className="hidden"
               />
