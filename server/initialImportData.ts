@@ -1,4 +1,4 @@
-// Données réelles extraites du fichier Excel fourni.
+// Données réelles extraites du fichier Excel fourni avec enrichissement logistique Ouest-Africain & Guinéen.
 export const initialImportData = {
   "dossiers": [
     {
@@ -1615,6 +1615,411 @@ export const initialImportData = {
       "category": "service",
       "label": "Suivi client",
       "sortOrder": 6
+    },
+    {
+      "category": "port_origine",
+      "label": "Port Autonome de Conakry (PAC)",
+      "sortOrder": 1
+    },
+    {
+      "category": "port_origine",
+      "label": "Port Minéralier de Kamsar",
+      "sortOrder": 2
+    },
+    {
+      "category": "port_origine",
+      "label": "Port de Boffa",
+      "sortOrder": 3
+    },
+    {
+      "category": "port_origine",
+      "label": "Port Autonome de San Pedro (Côte d'Ivoire)",
+      "sortOrder": 4
+    },
+    {
+      "category": "port_origine",
+      "label": "Port Autonome d'Abidjan (Côte d'Ivoire)",
+      "sortOrder": 5
+    },
+    {
+      "category": "port_origine",
+      "label": "Port Autonome de Dakar (Sénégal)",
+      "sortOrder": 6
+    },
+    {
+      "category": "port_origine",
+      "label": "Port de Tema (Ghana)",
+      "sortOrder": 7
+    },
+    {
+      "category": "port_origine",
+      "label": "Port de Lomé (Togo)",
+      "sortOrder": 8
+    },
+    {
+      "category": "port_origine",
+      "label": "Port de Cotonou (Bénin)",
+      "sortOrder": 9
+    },
+    {
+      "category": "port_origine",
+      "label": "Ningbo port-china",
+      "sortOrder": 10
+    },
+    {
+      "category": "port_origine",
+      "label": "Shanghai Port (Chine)",
+      "sortOrder": 11
+    },
+    {
+      "category": "port_origine",
+      "label": "Qingdao Port (Chine)",
+      "sortOrder": 12
+    },
+    {
+      "category": "port_origine",
+      "label": "Tianjin Port (Chine)",
+      "sortOrder": 13
+    },
+    {
+      "category": "port_origine",
+      "label": "Lianyunggang-China",
+      "sortOrder": 14
+    },
+    {
+      "category": "port_origine",
+      "label": "Port d'Anvers (Belgique)",
+      "sortOrder": 15
+    },
+    {
+      "category": "port_origine",
+      "label": "Port de Rotterdam (Pays-Bas)",
+      "sortOrder": 16
+    },
+    {
+      "category": "port_origine",
+      "label": "Port de Valence (Espagne)",
+      "sortOrder": 17
+    },
+    {
+      "category": "port_origine",
+      "label": "Port de Dubaï (Jebel Ali)",
+      "sortOrder": 18
+    },
+    {
+      "category": "port_origine",
+      "label": "Port d'Istanbul (Turquie)",
+      "sortOrder": 19
+    },
+    {
+      "category": "port_destination",
+      "label": "Port Autonome de Conakry",
+      "sortOrder": 1
+    },
+    {
+      "category": "port_destination",
+      "label": "Port Minéralier de Kamsar",
+      "sortOrder": 2
+    },
+    {
+      "category": "port_destination",
+      "label": "Port de Boffa",
+      "sortOrder": 3
+    },
+    {
+      "category": "port_destination",
+      "label": "Port de Boké",
+      "sortOrder": 4
+    },
+    {
+      "category": "port_destination",
+      "label": "Port de Taressa",
+      "sortOrder": 5
+    },
+    {
+      "category": "port_destination",
+      "label": "Port de Konta",
+      "sortOrder": 6
+    },
+    {
+      "category": "port_destination",
+      "label": "Boffa-Conakry",
+      "sortOrder": 7
+    },
+    {
+      "category": "port_destination",
+      "label": "Conakry",
+      "sortOrder": 8
+    },
+    {
+      "category": "port_destination",
+      "label": "Port Autonome de San Pedro (Côte d'Ivoire)",
+      "sortOrder": 9
+    },
+    {
+      "category": "port_destination",
+      "label": "Port Autonome d'Abidjan (Côte d'Ivoire)",
+      "sortOrder": 10
+    },
+    {
+      "category": "port_destination",
+      "label": "Port Autonome de Dakar (Sénégal)",
+      "sortOrder": 11
+    },
+    {
+      "category": "port_destination",
+      "label": "Aéroport International Ahmed Sékou Touré (Conakry)",
+      "sortOrder": 12
+    },
+    {
+      "category": "devise",
+      "label": "GNF (Franc Guinéen)",
+      "sortOrder": 1
+    },
+    {
+      "category": "devise",
+      "label": "USD (Dollar US)",
+      "sortOrder": 2
+    },
+    {
+      "category": "devise",
+      "label": "EUR (Euro)",
+      "sortOrder": 3
+    },
+    {
+      "category": "devise",
+      "label": "XOF (Franc CFA)",
+      "sortOrder": 4
+    },
+    {
+      "category": "regime",
+      "label": "Mise à la consommation directe (IM4 - TTC)",
+      "sortOrder": 4
+    },
+    {
+      "category": "regime",
+      "label": "Mise à la consommation sous exonération (IM4 - EXO)",
+      "sortOrder": 5
+    },
+    {
+      "category": "regime",
+      "label": "Régime Minier / Convention (EXO-MIN)",
+      "sortOrder": 6
+    },
+    {
+      "category": "regime",
+      "label": "Transit National / International (IM8 - DDI / TRIE)",
+      "sortOrder": 7
+    },
+    {
+      "category": "regime",
+      "label": "Admission Temporaire (IM5 - AT)",
+      "sortOrder": 8
+    },
+    {
+      "category": "regime",
+      "label": "Entrepôt de Douane (IM7 - ED)",
+      "sortOrder": 9
+    },
+    {
+      "category": "regime",
+      "label": "Exportation / Réexportation (EX)",
+      "sortOrder": 10
+    },
+    {
+      "category": "statut_douane",
+      "label": "DDI initiée (GUCEG)",
+      "sortOrder": 11
+    },
+    {
+      "category": "statut_douane",
+      "label": "DDI approuvée",
+      "sortOrder": 12
+    },
+    {
+      "category": "statut_douane",
+      "label": "En cours de déclaration (SYDONIA)",
+      "sortOrder": 13
+    },
+    {
+      "category": "statut_douane",
+      "label": "Bulletin de liquidation émis",
+      "sortOrder": 14
+    },
+    {
+      "category": "statut_douane",
+      "label": "Visite douane / Scanner",
+      "sortOrder": 15
+    },
+    {
+      "category": "statut_douane",
+      "label": "Bon à Enlever (BAE) obtenu",
+      "sortOrder": 16
+    },
+    {
+      "category": "statut_port",
+      "label": "Navire en rade",
+      "sortOrder": 8
+    },
+    {
+      "category": "statut_port",
+      "label": "Navire à quai / Déchargement",
+      "sortOrder": 9
+    },
+    {
+      "category": "statut_port",
+      "label": "Conteneur sous douane (Terre-plein)",
+      "sortOrder": 10
+    },
+    {
+      "category": "statut_port",
+      "label": "Frais portuaires réglés (PAC / ALPORT / Bolloré)",
+      "sortOrder": 11
+    },
+    {
+      "category": "statut_port",
+      "label": "Surestaries en cours",
+      "sortOrder": 12
+    },
+    {
+      "category": "statut_financier",
+      "label": "Avance reçue",
+      "sortOrder": 6
+    },
+    {
+      "category": "statut_financier",
+      "label": "Paiement droits & taxes effectué",
+      "sortOrder": 7
+    },
+    {
+      "category": "statut_financier",
+      "label": "Payé intégralement (GNF / USD)",
+      "sortOrder": 8
+    },
+    {
+      "category": "statut_financier",
+      "label": "En attente quitus client",
+      "sortOrder": 9
+    },
+    {
+      "category": "document_guinee",
+      "label": "DDI - Demande de Déclaration d'Importation (GUCEG)",
+      "sortOrder": 13
+    },
+    {
+      "category": "document_guinee",
+      "label": "Bordereau de suivi des cargaisons (BSC / BESC Guinée)",
+      "sortOrder": 14
+    },
+    {
+      "category": "document_guinee",
+      "label": "Déclaration douane SYDONIA World",
+      "sortOrder": 15
+    },
+    {
+      "category": "document_guinee",
+      "label": "Quittance / Preuve de paiement douane",
+      "sortOrder": 16
+    },
+    {
+      "category": "document_guinee",
+      "label": "Bon à Enlever douane (BAE)",
+      "sortOrder": 17
+    },
+    {
+      "category": "document_guinee",
+      "label": "Bon de sortie port PAC",
+      "sortOrder": 18
+    },
+    {
+      "category": "document_guinee",
+      "label": "Autorisation spéciale matières dangereuses / Cyanure",
+      "sortOrder": 19
+    },
+    {
+      "category": "alerte_terrain",
+      "label": "ETA imminente (< 48h)",
+      "sortOrder": 9
+    },
+    {
+      "category": "alerte_terrain",
+      "label": "DDI manquante ou expirée",
+      "sortOrder": 10
+    },
+    {
+      "category": "alerte_terrain",
+      "label": "Surestaries / Magasinage risque élevé",
+      "sortOrder": 11
+    },
+    {
+      "category": "alerte_terrain",
+      "label": "Blocage visite Douane / Scanner",
+      "sortOrder": 12
+    },
+    {
+      "category": "alerte_terrain",
+      "label": "Document spécial requis (Cyanure/Minier)",
+      "sortOrder": 13
+    },
+    {
+      "category": "prochaine_action",
+      "label": "Soumettre la DDI sur GUCEG",
+      "sortOrder": 10
+    },
+    {
+      "category": "prochaine_action",
+      "label": "Préparer la déclaration SYDONIA",
+      "sortOrder": 11
+    },
+    {
+      "category": "prochaine_action",
+      "label": "Effectuer passage scanner / Visite",
+      "sortOrder": 12
+    },
+    {
+      "category": "prochaine_action",
+      "label": "Obtenir le Bon à Enlever (BAE)",
+      "sortOrder": 13
+    },
+    {
+      "category": "prochaine_action",
+      "label": "Émettre la facture (GNF / USD)",
+      "sortOrder": 14
+    },
+    {
+      "category": "lieu_livraison",
+      "label": "Zone Industrielle Kagbélen",
+      "sortOrder": 9
+    },
+    {
+      "category": "lieu_livraison",
+      "label": "Ratoma",
+      "sortOrder": 10
+    },
+    {
+      "category": "lieu_livraison",
+      "label": "Boké",
+      "sortOrder": 11
+    },
+    {
+      "category": "lieu_livraison",
+      "label": "Siguiri (Zone minière)",
+      "sortOrder": 12
+    },
+    {
+      "category": "lieu_livraison",
+      "label": "Kindia",
+      "sortOrder": 13
+    },
+    {
+      "category": "lieu_livraison",
+      "label": "Mamou",
+      "sortOrder": 14
+    },
+    {
+      "category": "lieu_livraison",
+      "label": "Kankan",
+      "sortOrder": 15
     }
   ]
 } as const;
