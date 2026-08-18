@@ -1,0 +1,25 @@
+# Project TODO
+
+- [x] Créer le modèle de données des dossiers, référentiels et données opérationnelles
+- [x] Importer les 54 dossiers depuis le classeur Excel fourni
+- [x] Calculer automatiquement le numéro de dossier, le statut et la priorité
+- [x] Créer le tableau de bord de pilotage et les indicateurs opérationnels
+- [x] Créer la liste des dossiers avec recherche, filtres et actions métier
+- [x] Créer la fiche dossier avec création, modification et navigation rapide
+- [x] Implémenter les contrôles qualité, alertes et analyse par client
+- [x] Connecter exclusivement les listes déroulantes aux référentiels importés
+- [x] Mettre en place l’interface raffinée, responsive et accessible
+- [x] Écrire et exécuter les tests unitaires métier et d’intégration
+- [x] Vérifier visuellement les parcours essentiels et corriger les défauts
+- [x] Ajouter les états d’erreur visibles sur les écrans métier et la validation de saisie
+- [x] Ajouter une vue actionnable des dossiers en anomalie dans les contrôles qualité
+- [x] Vérifier les pages authentifiées et la version mobile avant livraison
+- [x] Ajouter des tests d’intégration des procédures dossiers, tableau de bord et référentiels
+- [x] Renforcer les erreurs de validation visibles champ par champ dans la fiche dossier
+- [x] Documenter la vérification des parcours authentifiés sur ordinateur et mobile
+- [x] Conserver une preuve traçable de la revue visuelle authentifiée des parcours métier
+- [x] Ajouter le logo IGS fourni dans la navigation et l’écran d’accès
+- [x] Vérifier le rendu du logo sur ordinateur et mobile
+- [x] Intégrer le logo IGS comme élément dynamique de l’arrière-plan et de la composition visuelle
+- [x] Vérifier la nouvelle intégration dynamique du logo sur ordinateur et mobile
+- [x] Conserver une revue visuelle explicite du filigrane dynamique IGS sur ordinateur et mobile
