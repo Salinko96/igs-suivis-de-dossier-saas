@@ -32,13 +32,13 @@ import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { DashboardLayoutSkeleton } from "./DashboardLayoutSkeleton";
 
-const menuItems = [
-  { icon: LayoutDashboard, label: "Pilotage & KPI", path: "/" },
-  { icon: FolderKanban, label: "Tous les Dossiers", path: "/dossiers" },
-  { icon: CircleDollarSign, label: "Finances & Facturation", path: "/finances" },
-  { icon: CalendarDays, label: "Planning & Échéances", path: "/planning" },
-  { icon: ShieldAlert, label: "Contrôles Douane & PAC", path: "/controles" },
-  { icon: Globe, label: "Portail Client Externe", path: "/portail-client" },
+const allMenuItems = [
+  { icon: LayoutDashboard, label: "Pilotage & KPI", path: "/", roles: ["admin", "comptable", "manager"] },
+  { icon: FolderKanban, label: "Tous les Dossiers", path: "/dossiers", roles: ["admin", "declarant", "comptable", "manager", "client"] },
+  { icon: CircleDollarSign, label: "Finances & Facturation", path: "/finances", roles: ["admin", "comptable", "manager"] },
+  { icon: CalendarDays, label: "Planning & Échéances", path: "/planning", roles: ["admin", "declarant", "manager"] },
+  { icon: ShieldAlert, label: "Contrôles Douane & PAC", path: "/controles", roles: ["admin", "declarant", "manager"] },
+  { icon: Globe, label: "Portail Client Externe", path: "/portail-client", roles: ["admin", "client"] },
 ];
 
 const SIDEBAR_WIDTH_KEY = "igs-sidebar-width";
@@ -60,7 +60,11 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const handleAccess = async (role: "admin" | "declarant" | "comptable" | "manager" | "client" = "admin") => {
     setIsSigningIn(true);
     try {
-      await login({ role });
+      let name = "Ibrahima Gold Service (Admin)";
+      if (role === "declarant") name = "Mamadou Diallo (Déclarant PAC)";
+      if (role === "comptable") name = "Fatoumata Camara (Comptable)";
+      if (role === "client") name = "Guinean Birimian Gold S.A";
+      await login({ role, name });
     } catch (e) {
       console.error("Login error:", e);
     } finally {
@@ -166,7 +170,10 @@ function LayoutContent({ children, setSidebarWidth }: { children: React.ReactNod
   const sidebarRef = useRef<HTMLDivElement>(null);
   const isMobile = useIsMobile();
   const isCollapsed = state === "collapsed";
-  const active = menuItems.find(item => item.path === location || (item.path !== "/" && location.startsWith(item.path)));
+
+  const userRole = user?.role || "admin";
+  const visibleMenuItems = allMenuItems.filter(item => !item.roles || item.roles.includes(userRole));
+  const active = visibleMenuItems.find(item => item.path === location || (item.path !== "/" && location.startsWith(item.path)));
 
   const notificationsQuery = trpc.notification.list.useQuery(undefined, { refetchInterval: 30000 });
   const notifications = notificationsQuery.data || [];
@@ -176,7 +183,32 @@ function LayoutContent({ children, setSidebarWidth }: { children: React.ReactNod
   });
 
   const switchRole = async (role: "admin" | "declarant" | "comptable" | "manager" | "client") => {
-    await login({ role });
+    let name = "Ibrahima Gold Service (Admin)";
+    if (role === "declarant") name = "Mamadou Diallo (Déclarant PAC)";
+    if (role === "comptable") name = "Fatoumata Camara (Comptable)";
+    if (role === "client") name = "Guinean Birimian Gold S.A";
+
+    await login({ role, name });
+
+    if (role === "declarant") {
+      setLocation("/planning");
+    } else if (role === "comptable") {
+      setLocation("/finances");
+    } else if (role === "client") {
+      setLocation("/portail-client");
+    } else {
+      setLocation("/");
+    }
+  };
+
+  const getRoleBadgeLabel = (r?: string) => {
+    switch (r) {
+      case "declarant": return "Déclarant PAC";
+      case "comptable": return "Comptable";
+      case "client": return "Client";
+      case "manager": return "Manager";
+      default: return "Admin";
+    }
   };
 
   useEffect(() => {
@@ -227,13 +259,13 @@ function LayoutContent({ children, setSidebarWidth }: { children: React.ReactNod
               <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-[#7aa195]">
                 Espace SaaS Pro
               </span>
-              <Badge variant="outline" className="border-[#d9a94b] text-[#d9a94b] text-[10px] uppercase">
-                {user?.role || "Admin"}
+              <Badge variant="outline" className="border-[#d9a94b] text-[#d9a94b] text-[10px] uppercase font-semibold">
+                {getRoleBadgeLabel(user?.role)}
               </Badge>
             </div>
 
             <SidebarMenu className="gap-1">
-              {menuItems.map(item => (
+              {visibleMenuItems.map(item => (
                 <SidebarMenuItem key={item.path}>
                   <SidebarMenuButton
                     isActive={active?.path === item.path}
@@ -270,7 +302,9 @@ function LayoutContent({ children, setSidebarWidth }: { children: React.ReactNod
                   </Avatar>
                   <div className="min-w-0 group-data-[collapsible=icon]:hidden flex-1">
                     <p className="truncate text-xs font-semibold text-white">{user?.name || "Utilisateur IGS"}</p>
-                    <p className="mt-0.5 truncate text-[10px] text-[#91b7aa] capitalize">Rôle: {user?.role || "admin"}</p>
+                    <p className="mt-0.5 truncate text-[10px] text-[#91b7aa] capitalize">
+                      {getRoleBadgeLabel(user?.role)}
+                    </p>
                   </div>
                   <ChevronDown size={14} className="text-[#91b7aa] group-data-[collapsible=icon]:hidden" />
                 </button>

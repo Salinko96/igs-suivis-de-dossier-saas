@@ -20,9 +20,16 @@ import { useLocation } from "wouter";
 
 export default function PlanningPage() {
   const [, setLocation] = useLocation();
+  const utils = trpc.useUtils();
   const dossiersQuery = trpc.dossier.list.useQuery();
   const tasksQuery = trpc.task.list.useQuery();
   const [filterMode, setFilterMode] = useState<"all" | "overdue" | "upcoming">("all");
+
+  const updateTaskStatusMutation = trpc.task.updateStatus.useMutation({
+    onSuccess: () => {
+      utils.task.list.invalidate();
+    },
+  });
 
   const dossiers = dossiersQuery.data || [];
   const tasks = tasksQuery.data || [];
@@ -148,23 +155,69 @@ export default function PlanningPage() {
 
           {/* Colonne Tâches & Échéances */}
           <div className="space-y-3">
-            <h2 className="font-[Georgia] text-lg font-semibold text-[#102c26]">Tâches Opérationnelles Assignées</h2>
+            <div className="flex items-center justify-between">
+              <h2 className="font-[Georgia] text-lg font-semibold text-[#102c26]">Tâches Assignées</h2>
+              <Badge variant="outline" className="text-[10px] font-semibold border-emerald-800 text-emerald-900">
+                {tasks.filter(t => t.status !== "Termine").length} en attente
+              </Badge>
+            </div>
             <Card className="border border-emerald-950/10 bg-white p-4 shadow-sm space-y-3">
               {tasks.length === 0 ? (
                 <p className="text-xs text-muted-foreground text-center py-4">Toutes les tâches sont terminées.</p>
               ) : (
-                tasks.map(t => (
-                  <div key={t.id} className="p-3 rounded-xl bg-gray-50 border border-gray-100 text-xs space-y-1">
-                    <div className="flex items-center justify-between font-semibold text-emerald-950">
-                      <span>{t.title}</span>
-                      <Badge variant="outline" className="text-[10px]">{t.status.replace("_", " ")}</Badge>
+                tasks.map(t => {
+                  const isDone = t.status === "Termine";
+                  return (
+                    <div
+                      key={t.id}
+                      className={`p-3 rounded-xl border text-xs space-y-2 transition ${
+                        isDone ? "bg-emerald-50/40 border-emerald-200/60 opacity-75" : "bg-gray-50 border-gray-100 hover:border-[#d9a94b]/50"
+                      }`}
+                    >
+                      <div className="flex items-start gap-2.5">
+                        <input
+                          type="checkbox"
+                          checked={isDone}
+                          onChange={() => {
+                            updateTaskStatusMutation.mutate({
+                              id: t.id,
+                              status: isDone ? "A_faire" : "Termine",
+                            });
+                          }}
+                          className="mt-0.5 h-4 w-4 rounded border-gray-300 text-[#0b3b32] focus:ring-[#0b3b32] cursor-pointer"
+                        />
+                        <div className="flex-1 min-w-0">
+                          <p className={`font-semibold text-xs text-emerald-950 leading-snug ${isDone ? "line-through text-muted-foreground" : ""}`}>
+                            {t.title}
+                          </p>
+                          <div className="mt-1.5 flex items-center justify-between text-[11px] text-muted-foreground">
+                            <span className="font-medium text-[#18493d]">👤 {t.assignedTo}</span>
+                            <span className="flex items-center gap-1">
+                              📅 {t.dueDate ? new Date(t.dueDate).toLocaleDateString("fr-FR") : "Immédiat"}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="flex items-center justify-between pt-1 border-t border-gray-100/80">
+                        <Badge
+                          className={`text-[9px] px-1.5 py-0 ${
+                            t.priority === "Haute"
+                              ? "bg-rose-100 text-rose-800"
+                              : "bg-amber-100 text-amber-800"
+                          }`}
+                        >
+                          {t.priority} Priorité
+                        </Badge>
+                        <button
+                          onClick={() => setLocation(`/dossiers/${t.dossierId}`)}
+                          className="text-[10px] text-emerald-800 hover:text-emerald-950 hover:underline flex items-center gap-1 font-medium"
+                        >
+                          Voir dossier <ExternalLink size={10} />
+                        </button>
+                      </div>
                     </div>
-                    <div className="flex items-center justify-between text-[11px] text-muted-foreground">
-                      <span>👤 {t.assignedTo}</span>
-                      <span>📅 {t.dueDate ? new Date(t.dueDate).toLocaleDateString("fr-FR") : "Immédiat"}</span>
-                    </div>
-                  </div>
-                ))
+                  );
+                })
               )}
             </Card>
           </div>
