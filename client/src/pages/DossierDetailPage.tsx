@@ -36,9 +36,11 @@ import {
   Plus,
   Printer,
   QrCode,
+  RotateCcw,
   Save,
   Share2,
   ShieldAlert,
+  ShieldCheck,
   Trash2,
   UploadCloud,
   User,
@@ -259,12 +261,12 @@ function DetailContent() {
   const [, params] = useRoute("/dossiers/:id");
   const [location, setLocation] = useLocation();
   const isNew = location === "/dossiers/nouveau";
-  const id = Number(params?.id);
+  const rawId = params?.id;
   const perms = usePermissions();
 
-  const { data: dossier, isLoading } = trpc.dossier.get.useQuery(
-    { id },
-    { enabled: !isNew && Number.isFinite(id) }
+  const { data: dossier, isLoading, isError, error, refetch } = trpc.dossier.get.useQuery(
+    { id: rawId! },
+    { enabled: !isNew && Boolean(rawId), retry: 1 }
   );
   const { data: references = [] } = trpc.reference.list.useQuery();
   const { data: dossiers = [] } = trpc.dossier.list.useQuery();
@@ -287,12 +289,15 @@ function DetailContent() {
     perms.isDeclarant ? "Mamadou Diallo" : perms.isComptable ? "Fatoumata Camara" : "Mamadou Diallo"
   );
 
+  // ID numérique résolu du dossier chargé
+  const numericId = dossier?.id || (rawId && Number.isFinite(Number(rawId)) ? Number(rawId) : 0);
+
   // Requêtes additionnelles pour les onglets
-  const docsQuery = trpc.document.list.useQuery({ dossierId: id }, { enabled: !isNew && Boolean(id) });
-  const auditQuery = trpc.audit.list.useQuery({ dossierId: id }, { enabled: !isNew && Boolean(id) && perms.canViewAudit });
-  const invoicesQuery = trpc.finance.listInvoices.useQuery({ dossierId: id }, { enabled: !isNew && Boolean(id) && perms.canViewFinances });
-  const tasksQuery = trpc.task.list.useQuery({ dossierId: id }, { enabled: !isNew && Boolean(id) });
-  const commentsQuery = trpc.comment.list.useQuery({ dossierId: id }, { enabled: !isNew && Boolean(id) });
+  const docsQuery = trpc.document.list.useQuery({ dossierId: numericId }, { enabled: !isNew && Boolean(numericId) });
+  const auditQuery = trpc.audit.list.useQuery({ dossierId: numericId }, { enabled: !isNew && Boolean(numericId) && perms.canViewAudit });
+  const invoicesQuery = trpc.finance.listInvoices.useQuery({ dossierId: numericId }, { enabled: !isNew && Boolean(numericId) && perms.canViewFinances });
+  const tasksQuery = trpc.task.list.useQuery({ dossierId: numericId }, { enabled: !isNew && Boolean(numericId) });
+  const commentsQuery = trpc.comment.list.useQuery({ dossierId: numericId }, { enabled: !isNew && Boolean(numericId) });
 
   // Mutations
   const uploadDocMutation = trpc.document.upload.useMutation({
@@ -302,6 +307,7 @@ function DetailContent() {
       docsQuery.refetch();
       auditQuery.refetch();
     },
+    onError: err => toast.error(err.message || "Erreur de téléversement"),
   });
 
   const deleteDocMutation = trpc.document.remove.useMutation({
@@ -309,15 +315,17 @@ function DetailContent() {
       toast.success("Document supprimé");
       docsQuery.refetch();
     },
+    onError: err => toast.error(err.message || "Erreur de suppression"),
   });
 
   const createInvoiceMutation = trpc.finance.createInvoice.useMutation({
     onSuccess: () => {
-      toast.success("Facture générée avec succès");
+      toast.success("Facture émise et enregistrée avec succès");
       setCreateInvoiceOpen(false);
       invoicesQuery.refetch();
-      utils.dossier.get.invalidate({ id });
+      utils.dossier.get.invalidate({ id: rawId! });
     },
+    onError: err => toast.error(err.message || "Erreur d'émission de facture"),
   });
 
   const createTaskMutation = trpc.task.create.useMutation({
@@ -327,17 +335,34 @@ function DetailContent() {
       setNewTaskTitle("");
       tasksQuery.refetch();
     },
+    onError: err => toast.error(err.message || "Erreur de création de tâche"),
   });
 
   const updateTaskMutation = trpc.task.updateStatus.useMutation({
-    onSuccess: () => tasksQuery.refetch(),
+    onSuccess: () => {
+      toast.success("Statut de la tâche mis à jour");
+      tasksQuery.refetch();
+    },
+    onError: err => toast.error(err.message || "Erreur de mise à jour"),
   });
 
   const addCommentMutation = trpc.comment.add.useMutation({
     onSuccess: () => {
+      toast.success("Commentaire publié");
       setNewComment("");
       commentsQuery.refetch();
     },
+    onError: err => toast.error(err.message || "Erreur d'envoi du commentaire"),
+  });
+
+  const updateCustomsQuickMutation = trpc.dossier.updateCustoms.useMutation({
+    onSuccess: updated => {
+      toast.success(`Statut douanier mis à jour (${updated.dossierNumber})`);
+      utils.dossier.get.invalidate({ id: rawId! });
+      utils.dossier.list.invalidate();
+      auditQuery.refetch();
+    },
+    onError: err => toast.error(err.message || "Erreur de mise à jour douanière"),
   });
 
   useEffect(() => {
@@ -390,7 +415,7 @@ function DetailContent() {
     () => [...dossiers].sort((a, b) => a.dossierNumber.localeCompare(b.dossierNumber)),
     [dossiers]
   );
-  const currentIndex = sortedDossiers.findIndex(item => item.id === id);
+  const currentIndex = sortedDossiers.findIndex(item => item.id === numericId || item.dossierNumber === rawId);
   const prev = currentIndex > 0 ? sortedDossiers[currentIndex - 1] : null;
   const next = currentIndex >= 0 && currentIndex < sortedDossiers.length - 1 ? sortedDossiers[currentIndex + 1] : null;
 
@@ -427,7 +452,19 @@ function DetailContent() {
   const handleSubmit = (event: React.FormEvent) => {
     event.preventDefault();
     setShowValidation(true);
-    const requiredKeys = ["clientDossierNumber", "client", "blLtaNumber", "cargoNature", "transportMode", "eta", "originPort", "destinationPort", "goodsReleaseDate", "declarationNumber", "bulletinNumber"];
+    const requiredKeys = [
+      "clientDossierNumber",
+      "client",
+      "blLtaNumber",
+      "cargoNature",
+      "transportMode",
+      "eta",
+      "originPort",
+      "destinationPort",
+      "goodsReleaseDate",
+      "declarationNumber",
+      "bulletinNumber",
+    ];
     const isMissingRequired = requiredKeys.some(key => !form[key]);
     const hasPackaging = Boolean(form.container || form.bulk);
 
@@ -471,18 +508,18 @@ function DetailContent() {
 
     if (isNew) {
       createMutation.mutate(payload);
-    } else {
-      updateMutation.mutate({ id, data: payload });
+    } else if (numericId) {
+      updateMutation.mutate({ id: numericId, data: payload });
     }
   };
 
   const handleFileUploadMock = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file) return;
+    if (!file || !numericId) return;
     const reader = new FileReader();
     reader.onload = () => {
       uploadDocMutation.mutate({
-        dossierId: id,
+        dossierId: numericId,
         name: file.name,
         type: newDocType,
         fileUrl: String(reader.result),
@@ -493,11 +530,97 @@ function DetailContent() {
     reader.readAsDataURL(file);
   };
 
-  if (isLoading) {
+  // 1. ÉTAT DE CHARGEMENT VISUEL (SKELETON + SPINNER IGS)
+  if (!isNew && isLoading) {
     return (
       <div className="space-y-6">
-        <Skeleton className="h-28 w-full rounded-2xl" />
-        <Skeleton className="h-96 w-full rounded-2xl" />
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-center gap-3">
+            <Skeleton className="h-10 w-24 rounded-xl" />
+            <div className="space-y-2">
+              <Skeleton className="h-8 w-64 rounded-lg" />
+              <Skeleton className="h-4 w-96 rounded-lg" />
+            </div>
+          </div>
+          <div className="flex gap-2">
+            <Skeleton className="h-9 w-32 rounded-xl" />
+            <Skeleton className="h-9 w-24 rounded-xl" />
+          </div>
+        </div>
+
+        <Skeleton className="h-11 w-full max-w-2xl rounded-2xl" />
+
+        <div className="relative rounded-2xl border border-[#dfe8e4] bg-white p-8 shadow-sm">
+          <div className="flex flex-col items-center justify-center py-12 text-center">
+            <div className="relative flex h-14 w-14 items-center justify-center rounded-2xl bg-[#e7f1ed] text-[#1d7764]">
+              <Loader2 className="h-7 w-7 animate-spin text-[#1d7764]" />
+            </div>
+            <h3 className="mt-4 font-[Georgia] text-lg font-bold text-[#173b32]">
+              Chargement du dossier logistique...
+            </h3>
+            <p className="mt-1 max-w-sm text-xs text-[#73847f]">
+              Récupération des données maritimes, déclarations Sydonia et pièces jointes depuis le serveur sécurisé IGS.
+            </p>
+          </div>
+          <div className="mt-6 grid gap-4 md:grid-cols-3">
+            <Skeleton className="h-20 w-full rounded-xl" />
+            <Skeleton className="h-20 w-full rounded-xl" />
+            <Skeleton className="h-20 w-full rounded-xl" />
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // 2. ÉTAT D'ERREUR OU DOSSIER INTROUVABLE
+  if (!isNew && (isError || (!isLoading && !dossier))) {
+    console.error("[DossierDetailPage] Dossier introuvable ou erreur de chargement:", {
+      rawId,
+      error: error?.message,
+    });
+
+    return (
+      <div className="mx-auto max-w-2xl py-12 text-center">
+        <div className="rounded-3xl border border-red-100 bg-white p-8 shadow-[0_12px_36px_rgba(200,50,50,0.08)]">
+          <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-red-50 text-red-600">
+            <AlertCircle className="h-8 w-8" />
+          </div>
+          <h2 className="mt-4 font-[Georgia] text-2xl font-bold text-[#1b2f29]">
+            Dossier introuvable ou inaccessible
+          </h2>
+          <p className="mt-2 text-sm text-[#667772]">
+            Le dossier avec l'identifiant <strong className="font-mono text-red-700">« {rawId || "inconnu"} »</strong> n'a pas pu être chargé. Il se peut qu'il ait été archivé, supprimé, ou que vos droits d'accès soient restreints.
+          </p>
+          {error?.message && (
+            <div className="mt-4 rounded-xl bg-red-50/60 p-3 text-xs text-red-800 font-mono">
+              Erreur serveur : {error.message}
+            </div>
+          )}
+          <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
+            <Button
+              onClick={() => setLocation("/dossiers")}
+              className="rounded-xl bg-[#0b3b32] text-white hover:bg-[#164d41] px-5"
+            >
+              <ArrowLeft size={16} className="mr-2" /> Retour à la liste des dossiers
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => refetch()}
+              className="rounded-xl border-[#dfe8e4] text-[#2b4c42] hover:bg-[#edf5f1]"
+            >
+              <RotateCcw size={16} className="mr-2" /> Réessayer
+            </Button>
+            {perms.canCreateDossier && (
+              <Button
+                variant="outline"
+                onClick={() => setLocation("/dossiers/nouveau")}
+                className="rounded-xl border-emerald-300 text-emerald-800 hover:bg-emerald-50"
+              >
+                <Plus size={16} className="mr-2" /> Créer un nouveau dossier
+              </Button>
+            )}
+          </div>
+        </div>
       </div>
     );
   }
@@ -539,10 +662,10 @@ function DetailContent() {
           </div>
         </div>
 
-        {!isNew && (
+        {!isNew && dossier && (
           <div className="flex flex-wrap items-center gap-2">
             {/* Action Rapide Douane pour Déclarant & Admin */}
-            {perms.canEditCustoms && dossier && (
+            {perms.canEditCustoms && (
               <Button
                 variant="outline"
                 size="sm"
@@ -595,6 +718,9 @@ function DetailContent() {
           </TabsTrigger>
           {!isNew && (
             <>
+              <TabsTrigger value="customs" className="rounded-xl text-xs data-[state=active]:bg-[#0b3b32] data-[state=active]:text-white">
+                <ShieldCheck size={14} className="mr-1.5" /> Suivi Douane & PAC
+              </TabsTrigger>
               <TabsTrigger value="documents" className="rounded-xl text-xs data-[state=active]:bg-[#0b3b32] data-[state=active]:text-white">
                 <Paperclip size={14} className="mr-1.5" /> Documents & Preuves ({docsQuery.data?.length || 0})
               </TabsTrigger>
@@ -676,7 +802,7 @@ function DetailContent() {
             {/* Boutons d'action */}
             <div className="flex items-center justify-between pt-2">
               {!isNew && perms.canDeleteDossier && (
-                <Button type="button" variant="ghost" onClick={() => removeMutation.mutate({ id })} className="text-rose-600 hover:bg-rose-50 rounded-xl">
+                <Button type="button" variant="ghost" onClick={() => removeMutation.mutate({ id: numericId })} className="text-rose-600 hover:bg-rose-50 rounded-xl">
                   <Trash2 size={16} className="mr-1.5" /> Supprimer ce dossier
                 </Button>
               )}
@@ -692,6 +818,102 @@ function DetailContent() {
             </div>
           </form>
         </TabsContent>
+
+        {/* ONGLET 2: Suivi Douane & Port PAC */}
+        {!isNew && dossier && (
+          <TabsContent value="customs" className="space-y-4">
+            <Card className="border-0 bg-white shadow-[0_10px_28px_rgba(23,54,46,0.06)]">
+              <CardContent className="p-6 space-y-6">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h2 className="font-[Georgia] text-xl font-semibold text-[#173b32]">Suivi Opérationnel Douane & Port Autonome de Conakry</h2>
+                    <p className="text-xs text-muted-foreground">Mise à jour en temps réel des documents clés SYDONIA, GUCEG et statut PAC.</p>
+                  </div>
+                  {perms.canEditCustoms && (
+                    <Button onClick={() => setCustomsModalOpen(true)} className="rounded-xl bg-[#0b3b32] text-white hover:bg-[#164d41] text-xs">
+                      <Edit3 size={14} className="mr-1.5" /> Modifier les identifiants
+                    </Button>
+                  )}
+                </div>
+
+                <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                  <div className="p-4 rounded-2xl bg-emerald-50/50 border border-emerald-100">
+                    <span className="text-xs font-semibold text-emerald-800">DDI GUCEG</span>
+                    <p className="text-sm font-bold text-emerald-950 mt-1 font-mono">{dossier.ddiGucegNumber || "Non renseigné"}</p>
+                    <div className="mt-3 flex gap-2">
+                      <Badge className={dossier.ddiGucegNumber ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"}>
+                        {dossier.ddiGucegNumber ? "Déposée" : "En attente"}
+                      </Badge>
+                    </div>
+                  </div>
+
+                  <div className="p-4 rounded-2xl bg-emerald-50/50 border border-emerald-100">
+                    <span className="text-xs font-semibold text-emerald-800">Déclaration Sydonia</span>
+                    <p className="text-sm font-bold text-emerald-950 mt-1 font-mono">{dossier.declarationNumber || "Non renseigné"}</p>
+                    <div className="mt-3 flex gap-2">
+                      <Badge className={dossier.declarationNumber ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"}>
+                        {dossier.declarationNumber ? "Validée" : "Manquante"}
+                      </Badge>
+                    </div>
+                  </div>
+
+                  <div className="p-4 rounded-2xl bg-emerald-50/50 border border-emerald-100">
+                    <span className="text-xs font-semibold text-emerald-800">Bulletin de Liquidation (BLD)</span>
+                    <p className="text-sm font-bold text-emerald-950 mt-1 font-mono">{dossier.bulletinNumber || "Non renseigné"}</p>
+                    <div className="mt-3 flex gap-2">
+                      <Badge className={dossier.bulletinNumber ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"}>
+                        {dossier.bulletinNumber ? "Émis" : "En attente"}
+                      </Badge>
+                    </div>
+                  </div>
+
+                  <div className="p-4 rounded-2xl bg-emerald-50/50 border border-emerald-100">
+                    <span className="text-xs font-semibold text-emerald-800">Bon à Enlever (BAE) & BAD</span>
+                    <p className="text-sm font-bold text-emerald-950 mt-1">BAE : {dossier.baeStatus || "En attente"} • BAD : {dossier.badStatus || "En attente"}</p>
+                    <div className="mt-3 flex gap-2">
+                      <Badge className={dossier.baeStatus === "Accordé" ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"}>
+                        {dossier.baeStatus || "En attente"}
+                      </Badge>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Bascule Rapide de Statut Terrain */}
+                {perms.canEditCustoms && (
+                  <div className="p-4 rounded-2xl border border-gray-100 bg-gray-50/70 space-y-3">
+                    <h3 className="text-xs font-bold text-emerald-950 uppercase tracking-wider">Actions Rapides Déclarant PAC</h3>
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => updateCustomsQuickMutation.mutate({ id: numericId, data: { badStatus: "Obtenu" } })}
+                        className="rounded-xl border-emerald-300 text-emerald-900 hover:bg-emerald-100 text-xs"
+                      >
+                        <Check size={13} className="mr-1 text-emerald-700" /> Marquer BAD Obtenu
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => updateCustomsQuickMutation.mutate({ id: numericId, data: { baeStatus: "Accordé" } })}
+                        className="rounded-xl border-emerald-300 text-emerald-900 hover:bg-emerald-100 text-xs"
+                      >
+                        <Check size={13} className="mr-1 text-emerald-700" /> Marquer BAE Accordé
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => updateCustomsQuickMutation.mutate({ id: numericId, data: { customsStatus: "Déclaration Validée" } })}
+                        className="rounded-xl border-emerald-300 text-emerald-900 hover:bg-emerald-100 text-xs"
+                      >
+                        <Check size={13} className="mr-1 text-emerald-700" /> Valider Déclaration Douane
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+        )}
 
         {/* ONGLET 2: Documents & Preuves */}
         <TabsContent value="documents" className="space-y-4">
@@ -917,7 +1139,7 @@ function DetailContent() {
                   </div>
                 </div>
                 <DialogFooter>
-                  <Button onClick={() => createTaskMutation.mutate({ dossierId: id, title: newTaskTitle, assignedTo: newTaskAssignee })} className="rounded-xl bg-[#0b3b32] text-white">
+                  <Button onClick={() => createTaskMutation.mutate({ dossierId: numericId, title: newTaskTitle, assignedTo: newTaskAssignee })} className="rounded-xl bg-[#0b3b32] text-white">
                     Créer la tâche
                   </Button>
                 </DialogFooter>
@@ -967,7 +1189,7 @@ function DetailContent() {
             </div>
             <div className="flex gap-2">
               <Input value={newComment} onChange={e => setNewComment(e.target.value)} placeholder="Ajouter une instruction ou remarque..." className="rounded-xl text-xs" />
-              <Button size="sm" onClick={() => newComment.trim() && addCommentMutation.mutate({ dossierId: id, message: newComment.trim() })} className="rounded-xl bg-[#0b3b32] text-white">
+              <Button size="sm" onClick={() => newComment.trim() && addCommentMutation.mutate({ dossierId: numericId, message: newComment.trim() })} className="rounded-xl bg-[#0b3b32] text-white">
                 Envoyer
               </Button>
             </div>
@@ -1009,7 +1231,7 @@ function DetailContent() {
           isOpen={customsModalOpen}
           onClose={() => setCustomsModalOpen(false)}
           dossier={dossier}
-          onSuccess={() => utils.dossier.get.invalidate({ id })}
+          onSuccess={() => utils.dossier.get.invalidate({ id: rawId! })}
         />
       )}
     </div>

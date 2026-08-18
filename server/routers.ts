@@ -229,11 +229,12 @@ export const appRouter = router({
         return db.listDossiers(filters);
       }),
     get: protectedProcedure
-      .input(z.object({ id: z.number().int().positive() }))
+      .input(z.object({ id: z.union([z.number(), z.string()]) }))
       .query(async ({ ctx, input }) => {
         const dossier = await db.getDossier(input.id);
         if (!dossier) {
-          throw new TRPCError({ code: "NOT_FOUND", message: "Dossier introuvable" });
+          console.error(`[tRPC] Dossier introuvable pour l'identifiant: "${input.id}"`);
+          throw new TRPCError({ code: "NOT_FOUND", message: `Dossier introuvable pour l'identifiant "${input.id}"` });
         }
         if (ctx.user?.role === "client" && ctx.user?.clientCompany && dossier.client !== ctx.user.clientCompany) {
           throw new TRPCError({ code: "FORBIDDEN", message: "Accès refusé pour ce dossier" });

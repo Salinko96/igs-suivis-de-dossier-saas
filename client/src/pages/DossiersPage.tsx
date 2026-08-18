@@ -1,4 +1,5 @@
 import DashboardLayout from "@/components/DashboardLayout";
+import { CustomsEditModal, CustomsEditDossier } from "@/components/CustomsEditModal";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -6,12 +7,14 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { trpc } from "@/lib/trpc";
+import { usePermissions } from "@/hooks/usePermissions";
 import {
   AlertTriangle,
   CalendarDays,
   CheckCircle2,
   ChevronRight,
   Download,
+  Edit3,
   FileSpreadsheet,
   Filter,
   FolderKanban,
@@ -20,6 +23,7 @@ import {
   Loader2,
   Plus,
   Search,
+  ShieldAlert,
   SlidersHorizontal,
   Upload,
   X,
@@ -84,7 +88,6 @@ function parseCSV(text: string): Array<Record<string, string>> {
     .filter(Boolean);
   if (lines.length < 2) return [];
 
-  // Detect delimiter
   const firstLine = lines[0];
   const delimiter = firstLine.includes(";") ? ";" : firstLine.includes("\t") ? "\t" : ",";
   const headers = firstLine.split(delimiter).map(h => h.replace(/^["']|["']$/g, "").trim());
@@ -114,7 +117,6 @@ async function parseExcelBuffer(buffer: ArrayBuffer): Promise<Array<Record<strin
 
   if (rawRows.length === 0) return [];
 
-  // Auto-detect header row index by scoring logistics terms in the first 10 rows
   let headerRowIdx = 0;
   let maxScore = -1;
 
@@ -163,6 +165,8 @@ async function parseExcelBuffer(buffer: ArrayBuffer): Promise<Array<Record<strin
 
 function DossiersContent() {
   const [location, setLocation] = useLocation();
+  const perms = usePermissions();
+
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState("");
   const [priority, setPriority] = useState("");
@@ -171,6 +175,9 @@ function DossiersContent() {
   const [etaFrom, setEtaFrom] = useState("");
   const [etaTo, setEtaTo] = useState("");
   const [viewMode, setViewMode] = useState<"table" | "cards">("table");
+
+  // State for quick customs edit modal
+  const [editingCustomsDossier, setEditingCustomsDossier] = useState<CustomsEditDossier | null>(null);
 
   // Advanced drill-down URL parameters state
   const [urlParams, setUrlParams] = useState<Record<string, string>>({});
@@ -303,20 +310,15 @@ function DossiersContent() {
       }
     });
 
-    // 1. Overdue ETA filter: ?eta=depassee&statut_sortie=non_renseigne
     if (urlParams.eta === "depassee" || urlParams.overdue === "true") {
       list = list.filter(d => d.eta && new Date(d.eta) < now && !d.goodsReleaseDate);
     }
     if (urlParams.statut_sortie === "non_renseigne") {
       list = list.filter(d => !d.goodsReleaseDate);
     }
-
-    // 2. Late to regularize: ?retard=true&a_regulariser=true
     if (urlParams.retard === "true") {
       list = list.filter(d => d.calculatedStatus === "À régulariser" && d.eta && new Date(d.eta) < now);
     }
-
-    // 3. Next 7 days ETA range: ?eta_range=next_7_days
     if (urlParams.eta_range === "next_7_days") {
       list = list.filter(d => {
         if (!d.eta || d.goodsReleaseDate) return false;
@@ -325,8 +327,6 @@ function DossiersContent() {
         return days >= 0 && days <= 7;
       });
     }
-
-    // 4. Monthly ETA: ?eta_month=juil. 26 or ?eta_month=2026-07
     if (urlParams.eta_month) {
       list = list.filter(d => {
         if (!d.eta) return false;
@@ -336,8 +336,6 @@ function DossiersContent() {
         return keyFr.toLowerCase() === urlParams.eta_month.toLowerCase() || keyIso === urlParams.eta_month;
       });
     }
-
-    // 5. Quality Vigilance: ?vigilance=incomplets | doublon_bl | declaration_manquante | sortie_manquante
     if (urlParams.vigilance === "incomplets") {
       list = list.filter(d => !d.clientDossierNumber || !d.eta || !d.declarationNumber || !d.bulletinNumber || !d.goodsReleaseDate);
     } else if (urlParams.vigilance === "doublon_bl") {
@@ -347,8 +345,6 @@ function DossiersContent() {
     } else if (urlParams.vigilance === "sortie_manquante") {
       list = list.filter(d => !d.goodsReleaseDate);
     }
-
-    // 6. Has Anomalies: ?has_anomalies=true
     if (urlParams.has_anomalies === "true") {
       list = list.filter(d =>
         !d.clientDossierNumber ||
@@ -402,7 +398,6 @@ function DossiersContent() {
 
   const activeFilters = [status, priority, client, transportMode, etaFrom, etaTo, drillDownLabel].filter(Boolean).length;
 
-  // Handle Export CSV
   const handleExportCSV = () => {
     if (!dossiers || dossiers.length === 0) {
       toast.error("Aucun dossier à exporter.");
@@ -489,7 +484,6 @@ function DossiersContent() {
     toast.success("Exportation CSV téléchargée avec succès.");
   };
 
-  // Handle File Selected for Import (CSV & Excel)
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -534,7 +528,6 @@ function DossiersContent() {
     }
   };
 
-  // Confirm Import
   const handleConfirmImport = () => {
     if (importRows.length === 0) return;
 
@@ -587,24 +580,46 @@ function DossiersContent() {
             <Download className="mr-2" size={16} />
             Exporter CSV
           </Button>
-          <Button
-            variant="outline"
-            onClick={() => {
-              setIsImportOpen(true);
-              setImportRows([]);
-              setImportFileName("");
-            }}
-            className="h-10 rounded-xl border-[#d1ded8] bg-white text-[#194b3e] hover:bg-[#f0f6f3]"
-          >
-            <Upload className="mr-2" size={16} />
-            Importer CSV / Excel
-          </Button>
-          <Button onClick={() => setLocation("/dossiers/nouveau")} className="h-10 rounded-xl bg-[#0f4035] px-5 hover:bg-[#195847]">
-            <Plus className="mr-2" size={17} />
-            Nouveau dossier
-          </Button>
+
+          {perms.canCreateDossier && (
+            <Button
+              variant="outline"
+              onClick={() => {
+                setIsImportOpen(true);
+                setImportRows([]);
+                setImportFileName("");
+              }}
+              className="h-10 rounded-xl border-[#d1ded8] bg-white text-[#194b3e] hover:bg-[#f0f6f3]"
+            >
+              <Upload className="mr-2" size={16} />
+              Importer CSV / Excel
+            </Button>
+          )}
+
+          {perms.canCreateDossier && (
+            <Button onClick={() => setLocation("/dossiers/nouveau")} className="h-10 rounded-xl bg-[#0f4035] px-5 hover:bg-[#195847] text-white">
+              <Plus className="mr-2" size={17} />
+              Nouveau dossier
+            </Button>
+          )}
         </div>
       </div>
+
+      {/* Drill-Down Active Badge Banner */}
+      {drillDownLabel && (
+        <div className="flex items-center justify-between rounded-2xl border border-emerald-900/15 bg-emerald-50/70 p-3.5 shadow-sm">
+          <div className="flex items-center gap-2 text-xs font-medium text-emerald-950">
+            <Filter size={15} className="text-emerald-800" />
+            <span>Filtre actif : <strong>{drillDownLabel}</strong> ({dossiers?.length || 0} résultat{(dossiers?.length || 0) > 1 ? "s" : ""})</span>
+          </div>
+          <button
+            onClick={reset}
+            className="flex items-center gap-1 text-xs font-semibold text-rose-700 hover:underline"
+          >
+            <X size={13} /> Effacer le filtre
+          </button>
+        </div>
+      )}
 
       {/* Filter Card */}
       <Card className="border-0 bg-white shadow-[0_10px_28px_rgba(23,54,46,0.06)]">
@@ -652,18 +667,24 @@ function DossiersContent() {
             </select>
           </div>
           <div className="mt-3 grid gap-3 border-t border-[#edf2ef] pt-3 lg:grid-cols-[minmax(240px,0.7fr)_1fr_auto]">
-            <select
-              value={client}
-              onChange={event => setClient(event.target.value)}
-              className="h-10 rounded-xl border border-[#e3ebe7] bg-white px-3 text-sm text-[#3f5851] focus:outline-none focus:ring-2 focus:ring-[#2f826d]/30"
-            >
-              <option value="">Tous les clients</option>
-              {clients.map(item => (
-                <option key={item.id} value={item.label}>
-                  {item.label}
-                </option>
-              ))}
-            </select>
+            {perms.canViewAllCompanies ? (
+              <select
+                value={client}
+                onChange={event => setClient(event.target.value)}
+                className="h-10 rounded-xl border border-[#e3ebe7] bg-white px-3 text-sm text-[#3f5851] focus:outline-none focus:ring-2 focus:ring-[#2f826d]/30"
+              >
+                <option value="">Tous les clients</option>
+                {clients.map(item => (
+                  <option key={item.id} value={item.label}>
+                    {item.label}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <div className="flex items-center text-xs text-muted-foreground px-2">
+                Filtre automatique sur votre société
+              </div>
+            )}
             <div className="flex flex-1 flex-wrap items-center gap-2 text-xs text-[#74847f]">
               <CalendarDays size={15} />
               <span className="font-medium">Plage ETA</span>
@@ -715,30 +736,6 @@ function DossiersContent() {
         </CardContent>
       </Card>
 
-      {/* Active Drill-Down Banner */}
-      {drillDownLabel && (
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-emerald-300/80 bg-[#e8f1ed]/90 px-5 py-3 text-xs text-emerald-950 shadow-sm animate-in fade-in duration-200">
-          <div className="flex items-center gap-2.5">
-            <span className="flex h-2.5 w-2.5 rounded-full bg-[#176653] animate-pulse" />
-            <span>
-              🎯 Filtrage actif depuis le tableau de bord :{" "}
-              <strong className="text-[#103b32] font-bold underline decoration-[#d9a94b] decoration-2">
-                {drillDownLabel}
-              </strong>{" "}
-              ({dossiers.length} dossier{dossiers.length > 1 ? "s" : ""})
-            </span>
-          </div>
-          <Button
-            size="sm"
-            variant="ghost"
-            onClick={reset}
-            className="h-7 rounded-lg text-xs font-semibold text-[#8a4a38] hover:bg-rose-50 hover:text-[#ad4c38] px-2.5 gap-1"
-          >
-            <X size={13} /> Effacer le filtre
-          </Button>
-        </div>
-      )}
-
       {/* Main Table / Cards Content */}
       {error ? (
         <Card className="border-0 bg-white">
@@ -769,11 +766,10 @@ function DossiersContent() {
                 : dossiers?.map(dossier => (
                     <div
                       key={dossier.id}
-                      onClick={() => setLocation(`/dossiers/${dossier.id}`)}
-                      className="group cursor-pointer rounded-2xl border border-[#edf3f0] bg-white p-4 transition-all hover:border-[#1d7764]/40 hover:shadow-md"
+                      className="group rounded-2xl border border-[#edf3f0] bg-white p-4 transition-all hover:border-[#1d7764]/40 hover:shadow-md"
                     >
                       <div className="flex items-start justify-between gap-2">
-                        <div>
+                        <div onClick={() => setLocation(`/dossiers/${dossier.id}`)} className="cursor-pointer">
                           <p className="font-semibold text-[#176b55] group-hover:underline">{dossier.dossierNumber}</p>
                           <p className="text-xs text-[#687e77]">{dossier.client || "Client non renseigné"}</p>
                         </div>
@@ -797,7 +793,22 @@ function DossiersContent() {
                       </div>
                       <div className="mt-3 flex items-center justify-between border-t border-[#edf3f0] pt-2 text-[11px]">
                         <span className="text-[#849690]">{dossier.transportMode || "Maritime"}</span>
-                        <span className="font-medium text-[#1d7764]">Voir détails →</span>
+                        <div className="flex items-center gap-2">
+                          {perms.canEditCustoms && (
+                            <button
+                              onClick={() => setEditingCustomsDossier(dossier)}
+                              className="font-semibold text-emerald-800 hover:text-emerald-950 flex items-center gap-1"
+                            >
+                              <Edit3 size={12} /> Douane
+                            </button>
+                          )}
+                          <button
+                            onClick={() => setLocation(`/dossiers/${dossier.id}`)}
+                            className="font-medium text-[#1d7764] hover:underline"
+                          >
+                            Voir détails →
+                          </button>
+                        </div>
                       </div>
                     </div>
                   ))}
@@ -825,7 +836,7 @@ function DossiersContent() {
                       "Décl. définitive",
                       "Statut",
                       "Priorité",
-                      "",
+                      "Actions",
                     ].map(label => (
                       <th key={label} className="px-4 py-3 text-[10px] font-bold uppercase tracking-[0.12em] text-[#7b8c86]">
                         {label}
@@ -858,7 +869,7 @@ function DossiersContent() {
                           <td className="max-w-[180px] px-4 py-3">
                             <p className="truncate text-sm font-medium text-[#27463e]">{dossier.client || "—"}</p>
                           </td>
-                          <td className="px-4 py-3 text-sm text-[#536863]">{dossier.blLtaNumber || "—"}</td>
+                          <td className="px-4 py-3 text-sm font-mono text-emerald-950 font-medium">{dossier.blLtaNumber || "—"}</td>
                           <td className="max-w-[220px] px-4 py-3">
                             <p className="truncate text-sm text-[#536863]">{dossier.cargoNature || "—"}</p>
                           </td>
@@ -873,9 +884,9 @@ function DossiersContent() {
                           <td className="px-4 py-3 text-sm text-[#536863]">{dossier.container || "—"}</td>
                           <td className="px-4 py-3 text-sm text-[#536863]">{dossier.bulk || "—"}</td>
                           <td className="px-4 py-3 text-sm text-[#536863]">{dateLabel(dossier.goodsReleaseDate)}</td>
-                          <td className="px-4 py-3 text-sm text-[#536863]">{dossier.declarationNumber || "—"}</td>
-                          <td className="px-4 py-3 text-sm text-[#536863]">{dossier.bulletinNumber || "—"}</td>
-                          <td className="px-4 py-3 text-sm text-[#536863]">{dossier.finalDeclarationNumber || "—"}</td>
+                          <td className="px-4 py-3 text-sm font-mono text-[#194c3f]">{dossier.declarationNumber || "—"}</td>
+                          <td className="px-4 py-3 text-sm font-mono text-[#8b5516]">{dossier.bulletinNumber || "—"}</td>
+                          <td className="px-4 py-3 text-sm font-mono text-[#536863]">{dossier.finalDeclarationNumber || "—"}</td>
                           <td className="px-4 py-3">
                             <Badge className={`whitespace-nowrap border-0 ${badgeStyle(dossier.calculatedStatus)}`}>
                               {dossier.calculatedStatus}
@@ -887,13 +898,24 @@ function DossiersContent() {
                             </Badge>
                           </td>
                           <td className="px-4 py-3">
-                            <button
-                              aria-label={`Ouvrir ${dossier.dossierNumber}`}
-                              onClick={() => setLocation(`/dossiers/${dossier.id}`)}
-                              className="grid h-8 w-8 place-items-center rounded-lg text-[#789088] transition hover:bg-[#e6f0eb] hover:text-[#176b55]"
-                            >
-                              <ChevronRight size={17} />
-                            </button>
+                            <div className="flex items-center gap-1.5">
+                              {perms.canEditCustoms && (
+                                <button
+                                  onClick={() => setEditingCustomsDossier(dossier)}
+                                  title="Édition rapide douane"
+                                  className="h-8 px-2 rounded-lg bg-emerald-50 text-emerald-800 hover:bg-emerald-100 text-xs font-medium flex items-center gap-1"
+                                >
+                                  <Edit3 size={13} /> Douane
+                                </button>
+                              )}
+                              <button
+                                aria-label={`Ouvrir ${dossier.dossierNumber}`}
+                                onClick={() => setLocation(`/dossiers/${dossier.id}`)}
+                                className="grid h-8 w-8 place-items-center rounded-lg text-[#789088] transition hover:bg-[#e6f0eb] hover:text-[#176b55]"
+                              >
+                                <ChevronRight size={17} />
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       ))}
@@ -1021,18 +1043,21 @@ function DossiersContent() {
             <Button
               disabled={importRows.length === 0 || importBatchMutation.isPending}
               onClick={handleConfirmImport}
-              className="h-10 rounded-xl bg-[#0f4035] px-5 hover:bg-[#195847]"
+              className="rounded-xl bg-[#0b3b32] text-white hover:bg-[#195847]"
             >
-              {importBatchMutation.isPending ? (
-                <Loader2 className="mr-2 animate-spin" size={16} />
-              ) : (
-                <CheckCircle2 className="mr-2" size={16} />
-              )}
-              Valider et intégrer ({importRows.length})
+              {importBatchMutation.isPending && <Loader2 className="mr-2 animate-spin" size={16} />}
+              Confirmer l'importation ({importRows.length} dossiers)
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Customs Fast Edit Modal */}
+      <CustomsEditModal
+        isOpen={Boolean(editingCustomsDossier)}
+        onClose={() => setEditingCustomsDossier(null)}
+        dossier={editingCustomsDossier}
+      />
     </div>
   );
 }

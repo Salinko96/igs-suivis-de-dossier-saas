@@ -10,5 +10,18 @@
 | challenger_m1_2 | teamwork_preview_challenger | APPROVE (27 new stress tests, 159/159 pass) | handoff.md |
 | auditor_m1 | teamwork_preview_auditor | CLEAN | handoff.md |
 
-Gate Result: **PASS**
-Milestone 1 is APPROVED and officially marked DONE.
+Gate Result: **PASS** (Milestone 1 APPROVED & DONE)
+
+---
+
+## Gate — Milestones 2, 3, 4 (Frontend RBAC, Simulator UX, Déclarant PAC & Comptable Views)
+| Agent | Role | Verdict | Source |
+|-------|------|---------|--------|
+| worker_frontend | teamwork_preview_worker | DONE (159 tests passed, 0 TS errors, clean build) | handoff.md |
+| reviewer_fe_1 | teamwork_preview_reviewer | PENDING | handoff.md |
+| reviewer_fe_2 | teamwork_preview_reviewer | PENDING | handoff.md |
+| challenger_fe_1 | teamwork_preview_challenger | PENDING | handoff.md |
+| challenger_fe_2 | teamwork_preview_challenger | PENDING | handoff.md |
+| auditor_fe | teamwork_preview_auditor | PENDING | handoff.md |
+
+Gate Result: **IN_EVALUATION**

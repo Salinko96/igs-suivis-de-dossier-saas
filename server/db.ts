@@ -510,15 +510,44 @@ export async function listDossiers(filters: DossierFilters = {}) {
   return list.sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime());
 }
 
-export async function getDossier(id: number) {
+export async function getDossier(idOrIdentifier: number | string) {
   const db = await getDb();
+  const rawStr = String(idOrIdentifier).trim();
+  const numId = Number(idOrIdentifier);
+  const isValidNum = !isNaN(numId) && Number.isInteger(numId) && numId > 0;
+  const formattedNum = isValidNum ? formatDossierNumber(numId) : null;
+  const upperStr = rawStr.toUpperCase();
+
   if (db) {
     try {
-      const row = (await db.select().from(dossiers).where(eq(dossiers.id, id)).limit(1))[0];
+      const conditions = [];
+      if (isValidNum) {
+        conditions.push(eq(dossiers.id, numId));
+      }
+      if (formattedNum) {
+        conditions.push(eq(dossiers.dossierNumber, formattedNum));
+      }
+      conditions.push(eq(dossiers.dossierNumber, upperStr));
+      conditions.push(eq(dossiers.portalAccessCode, upperStr));
+      conditions.push(eq(dossiers.blLtaNumber, upperStr));
+      conditions.push(eq(dossiers.clientDossierNumber, upperStr));
+
+      const row = (await db.select().from(dossiers).where(or(...conditions)).limit(1))[0];
       if (row) return row;
-    } catch (e) {}
+    } catch (e) {
+      console.error("[DB] getDossier database query error:", e);
+    }
   }
-  return _memoryDossiers.find(d => d.id === id);
+
+  return _memoryDossiers.find(d => {
+    if (isValidNum && d.id === numId) return true;
+    if (formattedNum && d.dossierNumber?.toUpperCase() === formattedNum.toUpperCase()) return true;
+    if (d.dossierNumber?.toUpperCase() === upperStr) return true;
+    if (d.portalAccessCode?.toUpperCase() === upperStr) return true;
+    if (d.blLtaNumber?.toUpperCase() === upperStr) return true;
+    if (d.clientDossierNumber?.toUpperCase() === upperStr) return true;
+    return false;
+  });
 }
 
 export async function getDossierByPortalCode(portalAccessCode: string) {

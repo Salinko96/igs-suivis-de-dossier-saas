@@ -20,6 +20,7 @@ import {
   Landmark,
   PackageOpen,
   ReceiptText,
+  RotateCcw,
   ShieldAlert,
   TimerReset,
 } from "lucide-react";
@@ -41,19 +42,32 @@ function ControlsContent() {
   const [selectedAlert, setSelectedAlert] = useState<string | null>(null);
   const [editingCustomsDossier, setEditingCustomsDossier] = useState<CustomsEditDossier | null>(null);
 
-  const { data, isLoading, error } = trpc.dashboard.get.useQuery();
-  const { data: dossiers = [], error: dossiersError } = trpc.dossier.list.useQuery();
+  const { data, isLoading, error, refetch } = trpc.dashboard.get.useQuery();
+  const { data: dossiers = [], error: dossiersError, refetch: refetchDossiers } = trpc.dossier.list.useQuery();
 
-  if (error)
+  if (error || dossiersError) {
+    console.error("[ControlsPage] Erreur de chargement des contrôles douaniers:", error || dossiersError);
     return (
       <Card className="border-0 bg-white">
         <CardContent className="p-10 text-center">
-          <AlertTriangle className="mx-auto text-[#c4543e]" />
+          <AlertTriangle className="mx-auto text-[#c4543e] h-10 w-10" />
           <p className="mt-4 font-semibold text-[#ad4c38]">Impossible de charger les contrôles</p>
-          <p className="mt-2 text-sm text-[#71817b]">{error.message}</p>
+          <p className="mt-2 text-sm text-[#71817b]">{(error || dossiersError)?.message}</p>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              refetch();
+              refetchDossiers();
+            }}
+            className="mt-4 rounded-xl border-[#dfe8e4] text-[#2b4c42] hover:bg-[#edf5f1] text-xs"
+          >
+            <RotateCcw size={14} className="mr-1.5" /> Réessayer
+          </Button>
         </CardContent>
       </Card>
     );
+  }
 
   if (isLoading || !data)
     return (

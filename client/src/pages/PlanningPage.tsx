@@ -5,6 +5,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Skeleton } from "@/components/ui/skeleton";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { usePermissions } from "@/hooks/usePermissions";
@@ -21,6 +22,7 @@ import {
   Loader2,
   MapPin,
   Plus,
+  RotateCcw,
   Ship,
   Sparkles,
   UserCheck,
@@ -143,6 +145,75 @@ export default function PlanningPage() {
       priority: newTaskPriority,
     });
   };
+
+  const isAnyLoading = dossiersQuery.isLoading || tasksQuery.isLoading;
+  const isAnyError = dossiersQuery.isError || tasksQuery.isError;
+  const firstError = dossiersQuery.error || tasksQuery.error;
+
+  if (isAnyLoading) {
+    return (
+      <DashboardLayout>
+        <div className="space-y-6 pb-12">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="space-y-2">
+              <Skeleton className="h-4 w-40 rounded-lg" />
+              <Skeleton className="h-8 w-72 rounded-xl" />
+              <Skeleton className="h-4 w-96 rounded-lg" />
+            </div>
+            <div className="flex gap-2">
+              <Skeleton className="h-9 w-36 rounded-xl" />
+              <Skeleton className="h-9 w-24 rounded-xl" />
+            </div>
+          </div>
+          <div className="grid gap-6 lg:grid-cols-3">
+            <div className="space-y-4 lg:col-span-2">
+              <Skeleton className="h-48 rounded-2xl" />
+              <Skeleton className="h-48 rounded-2xl" />
+            </div>
+            <Skeleton className="h-96 rounded-2xl" />
+          </div>
+        </div>
+      </DashboardLayout>
+    );
+  }
+
+  if (isAnyError) {
+    console.error("[PlanningPage] Erreur de chargement du planning:", firstError);
+    return (
+      <DashboardLayout>
+        <div className="mx-auto max-w-xl py-12 text-center">
+          <div className="rounded-3xl border border-red-100 bg-white p-8 shadow-sm">
+            <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-red-50 text-red-600">
+              <AlertCircle className="h-7 w-7" />
+            </div>
+            <h2 className="mt-4 font-[Georgia] text-xl font-bold text-[#1b2f29]">
+              Impossible de charger le planning
+            </h2>
+            <p className="mt-2 text-xs text-[#667772]">
+              Une erreur est survenue lors de la récupération des arrivées de navires et des tâches terrain.
+            </p>
+            {firstError?.message && (
+              <p className="mt-3 font-mono text-[11px] text-red-700 bg-red-50 p-2 rounded-xl">
+                {firstError.message}
+              </p>
+            )}
+            <div className="mt-6 flex justify-center gap-3">
+              <Button
+                variant="outline"
+                onClick={() => {
+                  dossiersQuery.refetch();
+                  tasksQuery.refetch();
+                }}
+                className="rounded-xl border-[#dfe8e4] text-[#2b4c42] hover:bg-[#edf5f1] text-xs"
+              >
+                <RotateCcw size={14} className="mr-1.5" /> Réessayer
+              </Button>
+            </div>
+          </div>
+        </div>
+      </DashboardLayout>
+    );
+  }
 
   return (
     <DashboardLayout>

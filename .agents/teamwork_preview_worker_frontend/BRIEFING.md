@@ -1,4 +1,4 @@
-# BRIEFING — 2026-08-18T16:04:28Z
+# BRIEFING — 2026-08-18T16:11:00Z
 
 ## Mission
 Frontend & Role Simulator Implementation for Milestones 2, 3, and 4: RBAC permissions hook, ProtectedRoute, DashboardLayout navigation/simulator, CustomsEditModal, PlanningPage checklist, ControlsPage integration, DossierDetailPage/DossiersPage permissions & customs integration, FinancesPage multi-currency & invoices & receipts.
@@ -17,7 +17,7 @@ Frontend & Role Simulator Implementation for Milestones 2, 3, and 4: RBAC permis
 
 ## Current Parent
 - Conversation ID: 3bba92c2-33c3-493f-8daa-7cb66a8d90a8
-- Updated: not yet
+- Updated: 2026-08-18T16:11:00Z
 
 ## Task Summary
 - **What to build**:
@@ -34,20 +34,35 @@ Frontend & Role Simulator Implementation for Milestones 2, 3, and 4: RBAC permis
 - **Success criteria**: All items implemented cleanly, 0 build/type errors, tests pass.
 
 ## Change Tracker
-- **Files modified**: TBD
-- **Build status**: TBD
-- **Pending issues**: None
+- **Files modified**:
+  - `client/src/hooks/usePermissions.ts` (Created)
+  - `client/src/components/ProtectedRoute.tsx` (Created)
+  - `client/src/components/CustomsEditModal.tsx` (Created)
+  - `client/src/App.tsx` (Modified)
+  - `client/src/components/DashboardLayout.tsx` (Modified)
+  - `client/src/pages/PlanningPage.tsx` (Modified)
+  - `client/src/pages/ControlsPage.tsx` (Modified)
+  - `client/src/pages/DossierDetailPage.tsx` (Modified)
+  - `client/src/pages/DossiersPage.tsx` (Modified)
+  - `client/src/pages/FinancesPage.tsx` (Modified)
+  - `client/src/hooks/usePermissions.test.ts` (Created)
+- **Build status**: PASS (Vite client + esbuild server: 0 errors)
+- **Test status**: PASS (17 test files, 159 tests passed)
+- **Typecheck status**: PASS (tsc --noEmit: 0 errors)
 
 ## Quality Status
-- **Build/test result**: TBD
-- **Lint status**: TBD
-- **Tests added/modified**: TBD
+- **Build/test result**: 100% PASS
+- **Lint status**: 0 errors
+- **Tests added/modified**: `usePermissions.test.ts` added
 
 ## Loaded Skills
 None required.
 
 ## Key Decisions Made
-- Starting investigation of existing files and survey handoffs.
+- Centralized RBAC capabilities in `usePermissions.ts` and `resolvePermissions` matching backend procedures.
+- Created `ProtectedRoute.tsx` with friendly warning toasts on unauthorized accesses and automatic fallback redirection to persona default routes.
+- Added fast inline modal `CustomsEditModal` for field declarants to quickly update Sydonia and transit numbers.
+- Built multi-currency GNF / USD support and printable receipt/proforma generation in `FinancesPage.tsx`.
 
 ## Artifact Index
 - `.agents/teamwork_preview_worker_frontend/handoff.md` — Final handoff report
