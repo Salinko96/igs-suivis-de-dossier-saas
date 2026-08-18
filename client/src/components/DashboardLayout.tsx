@@ -1,22 +1,48 @@
 import { useAuth } from "@/_core/hooks/useAuth";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Sidebar, SidebarContent, SidebarFooter, SidebarHeader, SidebarInset, SidebarMenu, SidebarMenuButton, SidebarMenuItem, SidebarProvider, SidebarTrigger, useSidebar } from "@/components/ui/sidebar";
-import { startLogin } from "@/const";
+import { trpc } from "@/lib/trpc";
 import { useIsMobile } from "@/hooks/useMobile";
-import { BarChart3, ClipboardCheck, FolderKanban, LayoutDashboard, Loader2, LogOut, PanelLeft, Plus, ShieldAlert } from "lucide-react";
+import { 
+  Bell, 
+  CalendarDays, 
+  CheckCircle2, 
+  ChevronDown, 
+  CircleDollarSign, 
+  ClipboardCheck, 
+  ExternalLink, 
+  FileText, 
+  FolderKanban, 
+  Globe, 
+  History, 
+  LayoutDashboard, 
+  Loader2, 
+  LogOut, 
+  PanelLeft, 
+  Plus, 
+  ShieldAlert, 
+  UserCheck, 
+  Users 
+} from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { DashboardLayoutSkeleton } from "./DashboardLayoutSkeleton";
 
 const menuItems = [
-  { icon: LayoutDashboard, label: "Pilotage", path: "/" },
-  { icon: FolderKanban, label: "Dossiers", path: "/dossiers" },
-  { icon: ShieldAlert, label: "Contrôles", path: "/controles" },
+  { icon: LayoutDashboard, label: "Pilotage & KPI", path: "/" },
+  { icon: FolderKanban, label: "Tous les Dossiers", path: "/dossiers" },
+  { icon: CircleDollarSign, label: "Finances & Facturation", path: "/finances" },
+  { icon: CalendarDays, label: "Planning & Échéances", path: "/planning" },
+  { icon: ShieldAlert, label: "Contrôles Douane & PAC", path: "/controles" },
+  { icon: Globe, label: "Portail Client Externe", path: "/portail-client" },
 ];
+
 const SIDEBAR_WIDTH_KEY = "igs-sidebar-width";
-const DEFAULT_WIDTH = 264;
+const DEFAULT_WIDTH = 270;
 const MIN_WIDTH = 220;
 const MAX_WIDTH = 380;
 const IGS_LOGO = "/manus-storage/igs-logo-source_05d3b628.png";
@@ -25,17 +51,14 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const [sidebarWidth, setSidebarWidth] = useState(() => Number(localStorage.getItem(SIDEBAR_WIDTH_KEY)) || DEFAULT_WIDTH);
   const { loading, user, login } = useAuth();
   const [isSigningIn, setIsSigningIn] = useState(false);
+  const [selectedRole, setSelectedRole] = useState<"admin" | "declarant" | "comptable" | "manager" | "client">("admin");
 
   useEffect(() => localStorage.setItem(SIDEBAR_WIDTH_KEY, String(sidebarWidth)), [sidebarWidth]);
 
-  const handleAccess = async () => {
+  const handleAccess = async (role: "admin" | "declarant" | "comptable" | "manager" | "client" = "admin") => {
     setIsSigningIn(true);
     try {
-      if (import.meta.env.VITE_OAUTH_PORTAL_URL) {
-        startLogin();
-      } else {
-        await login({ name: "Ibrahima Gold Service (Admin)", role: "admin" });
-      }
+      await login({ role });
     } catch (e) {
       console.error("Login error:", e);
     } finally {
@@ -46,30 +69,81 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   if (loading) return <DashboardLayoutSkeleton />;
   if (!user) {
     return (
-      <div className="relative grid min-h-screen place-items-center overflow-hidden bg-[#f5f7f6] px-5">
+      <div className="relative grid min-h-screen place-items-center overflow-hidden bg-[#f5f7f6] px-5 py-10">
         <div aria-hidden="true" className="pointer-events-none absolute -right-48 -top-24 w-[42rem] mix-blend-multiply opacity-[0.08]">
           <img src={IGS_LOGO} alt="" className="igs-logo-drift w-full" />
         </div>
         <div aria-hidden="true" className="pointer-events-none absolute -bottom-60 -left-56 w-[40rem] mix-blend-multiply opacity-[0.05]">
           <img src={IGS_LOGO} alt="" className="igs-logo-drift igs-logo-drift-delayed w-full" />
         </div>
-        <div className="relative z-10 w-full max-w-md rounded-[1.75rem] border border-white/80 bg-white/90 p-9 text-center shadow-[0_24px_70px_rgba(20,50,43,0.12)] backdrop-blur-sm">
-          <div className="mx-auto mb-5 flex h-20 w-44 items-center justify-center rounded-2xl bg-white p-2">
+        <div className="relative z-10 w-full max-w-lg rounded-[1.75rem] border border-white/80 bg-white/90 p-8 text-center shadow-[0_24px_70px_rgba(20,50,43,0.12)] backdrop-blur-sm">
+          <div className="mx-auto mb-4 flex h-16 w-36 items-center justify-center rounded-2xl bg-white p-2 shadow-sm border border-emerald-950/5">
             <img src={IGS_LOGO} alt="IGS — Ibrahima Gold Service" className="h-full w-full object-contain" />
           </div>
-          <p className="text-xs font-bold uppercase tracking-[0.18em] text-[#8c9a96]">IGS Dossiers Guinée & Transit</p>
-          <h1 className="mt-3 font-[Georgia] text-3xl font-semibold tracking-tight text-[#102c26]">Espace opérationnel</h1>
-          <p className="mt-4 text-sm leading-6 text-[#66736f]">
-            Plateforme de suivi des dossiers de transit maritime, dédouanement (Port Autonome de Conakry, SYDONIA, DDI) et régularisation.
+          <p className="text-xs font-bold uppercase tracking-[0.18em] text-[#8c9a96]">IGS Logistics & Dédouanement Guinée</p>
+          <h1 className="mt-2 font-[Georgia] text-2xl font-semibold tracking-tight text-[#102c26]">Connexion & Sélection de Rôle</h1>
+          <p className="mt-3 text-xs leading-5 text-[#66736f]">
+            Choisissez votre profil pour accéder à votre espace personnalisé (Gestion documentaire, Factures GNF/USD, Dédouanement Sydonia, Planning).
           </p>
-          <Button
-            onClick={handleAccess}
-            disabled={isSigningIn}
-            className="mt-7 h-11 w-full rounded-xl bg-[#0b3b32] text-white hover:bg-[#164d41]"
-          >
-            {isSigningIn ? <Loader2 className="mr-2 animate-spin" size={18} /> : null}
-            Accéder à l’application
-          </Button>
+
+          <div className="mt-6 grid grid-cols-2 gap-2.5 text-left">
+            <button
+              onClick={() => handleAccess("admin")}
+              disabled={isSigningIn}
+              className="flex flex-col rounded-xl border border-emerald-900/15 bg-white p-3.5 shadow-sm transition hover:border-[#d9a94b] hover:bg-emerald-50/50"
+            >
+              <div className="flex items-center justify-between">
+                <span className="font-semibold text-xs text-emerald-950">Administrateur</span>
+                <Badge className="bg-emerald-900 text-white text-[10px]">Tous droits</Badge>
+              </div>
+              <span className="mt-1 text-[11px] text-muted-foreground">Accès complet, contrôle & suppression</span>
+            </button>
+
+            <button
+              onClick={() => handleAccess("declarant")}
+              disabled={isSigningIn}
+              className="flex flex-col rounded-xl border border-emerald-900/15 bg-white p-3.5 shadow-sm transition hover:border-[#d9a94b] hover:bg-emerald-50/50"
+            >
+              <div className="flex items-center justify-between">
+                <span className="font-semibold text-xs text-emerald-950">Déclarant PAC</span>
+                <Badge variant="outline" className="text-emerald-800 border-emerald-800 text-[10px]">Opérations</Badge>
+              </div>
+              <span className="mt-1 text-[11px] text-muted-foreground">Saisie SYDONIA, DDI, BAE et BL</span>
+            </button>
+
+            <button
+              onClick={() => handleAccess("comptable")}
+              disabled={isSigningIn}
+              className="flex flex-col rounded-xl border border-emerald-900/15 bg-white p-3.5 shadow-sm transition hover:border-[#d9a94b] hover:bg-emerald-50/50"
+            >
+              <div className="flex items-center justify-between">
+                <span className="font-semibold text-xs text-emerald-950">Comptable</span>
+                <Badge variant="outline" className="text-amber-800 border-amber-800 text-[10px]">Finances</Badge>
+              </div>
+              <span className="mt-1 text-[11px] text-muted-foreground">Facturation GNF/USD, surestaries, marges</span>
+            </button>
+
+            <button
+              onClick={() => handleAccess("client")}
+              disabled={isSigningIn}
+              className="flex flex-col rounded-xl border border-emerald-900/15 bg-white p-3.5 shadow-sm transition hover:border-[#d9a94b] hover:bg-emerald-50/50"
+            >
+              <div className="flex items-center justify-between">
+                <span className="font-semibold text-xs text-emerald-950">Portail Client</span>
+                <Badge variant="outline" className="text-blue-800 border-blue-800 text-[10px]">Birimian Gold</Badge>
+              </div>
+              <span className="mt-1 text-[11px] text-muted-foreground">Vue filtrée et suivi direct sans appel</span>
+            </button>
+          </div>
+
+          <div className="mt-5 border-t border-gray-100 pt-4">
+            <a
+              href="/portail-client"
+              className="inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-800 hover:text-emerald-950"
+            >
+              <Globe size={14} /> Accéder au portail public par code de suivi BL
+            </a>
+          </div>
         </div>
       </div>
     );
@@ -83,7 +157,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 }
 
 function LayoutContent({ children, setSidebarWidth }: { children: React.ReactNode; setSidebarWidth: (width: number) => void }) {
-  const { user, logout } = useAuth();
+  const { user, logout, login } = useAuth();
   const [location, setLocation] = useLocation();
   const { state, toggleSidebar } = useSidebar();
   const [isResizing, setIsResizing] = useState(false);
@@ -91,6 +165,17 @@ function LayoutContent({ children, setSidebarWidth }: { children: React.ReactNod
   const isMobile = useIsMobile();
   const isCollapsed = state === "collapsed";
   const active = menuItems.find(item => item.path === location || (item.path !== "/" && location.startsWith(item.path)));
+
+  const notificationsQuery = trpc.notification.list.useQuery(undefined, { refetchInterval: 30000 });
+  const notifications = notificationsQuery.data || [];
+  const unreadCount = notifications.filter(n => n.isRead === 0).length;
+  const markReadMutation = trpc.notification.markAsRead.useMutation({
+    onSuccess: () => notificationsQuery.refetch(),
+  });
+
+  const switchRole = async (role: "admin" | "declarant" | "comptable" | "manager" | "client") => {
+    await login({ role });
+  };
 
   useEffect(() => {
     const move = (event: MouseEvent) => {
@@ -128,16 +213,23 @@ function LayoutContent({ children, setSidebarWidth }: { children: React.ReactNod
                 <PanelLeft size={18} />
               </button>
               {!isCollapsed && (
-                <div className="min-w-0 rounded-lg bg-white p-1">
+                <div className="min-w-0 rounded-lg bg-white p-1 shadow-sm">
                   <img src={IGS_LOGO} alt="IGS — Ibrahima Gold Service" className="h-10 w-[132px] object-contain" />
                 </div>
               )}
             </div>
           </SidebarHeader>
-          <SidebarContent className="px-3 pt-5">
-            <p className="mb-2 px-2 text-[10px] font-bold uppercase tracking-[0.16em] text-[#7aa195] group-data-[collapsible=icon]:hidden">
-              Navigation
-            </p>
+          
+          <SidebarContent className="px-3 pt-4">
+            <div className="mb-3 px-2 flex items-center justify-between group-data-[collapsible=icon]:hidden">
+              <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-[#7aa195]">
+                Espace SaaS Pro
+              </span>
+              <Badge variant="outline" className="border-[#d9a94b] text-[#d9a94b] text-[10px] uppercase">
+                {user?.role || "Admin"}
+              </Badge>
+            </div>
+
             <SidebarMenu className="gap-1">
               {menuItems.map(item => (
                 <SidebarMenuItem key={item.path}>
@@ -145,25 +237,27 @@ function LayoutContent({ children, setSidebarWidth }: { children: React.ReactNod
                     isActive={active?.path === item.path}
                     onClick={() => setLocation(item.path)}
                     tooltip={item.label}
-                    className="h-11 rounded-xl text-[#d7e7e0] hover:bg-white/10 hover:text-white data-[active=true]:bg-[#d9a94b] data-[active=true]:text-[#152d27]"
+                    className="h-10 rounded-xl text-[#d7e7e0] hover:bg-white/10 hover:text-white data-[active=true]:bg-[#d9a94b] data-[active=true]:text-[#152d27]"
                   >
-                    <item.icon size={18} />
-                    <span className="font-medium">{item.label}</span>
+                    <item.icon size={17} />
+                    <span className="font-medium text-xs">{item.label}</span>
                   </SidebarMenuButton>
                 </SidebarMenuItem>
               ))}
             </SidebarMenu>
-            <div className="mx-1 mt-8 rounded-2xl border border-white/10 bg-white/[0.05] p-3.5 group-data-[collapsible=icon]:hidden">
+
+            <div className="mx-1 mt-6 rounded-2xl border border-white/10 bg-white/[0.05] p-3 group-data-[collapsible=icon]:hidden">
               <div className="flex items-center gap-2 text-[#d9a94b]">
-                <ClipboardCheck size={16} />
-                <span className="text-xs font-semibold">Règles Guinée & PAC</span>
+                <ClipboardCheck size={15} />
+                <span className="text-xs font-semibold">Douane Guinée & PAC</span>
               </div>
-              <p className="mt-2 text-[11px] leading-5 text-[#afc8bf]">
-                Statut et priorité calculés en temps réel d’après la complétude du dossier (SYDONIA / DDI / BL).
+              <p className="mt-1.5 text-[11px] leading-4 text-[#afc8bf]">
+                Conakry Autonome, SYDONIA World, DDI GUCEG, Devises GNF/USD et gestion documentaire active.
               </p>
             </div>
           </SidebarContent>
-          <SidebarFooter className="p-3">
+
+          <SidebarFooter className="p-3 border-t border-white/10">
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <button className="flex w-full items-center gap-3 rounded-xl px-2 py-2 text-left transition hover:bg-white/10 focus-visible:ring-2 focus-visible:ring-white">
@@ -172,15 +266,30 @@ function LayoutContent({ children, setSidebarWidth }: { children: React.ReactNod
                       {user?.name?.charAt(0).toUpperCase() || "I"}
                     </AvatarFallback>
                   </Avatar>
-                  <div className="min-w-0 group-data-[collapsible=icon]:hidden">
-                    <p className="truncate text-sm font-medium text-white">{user?.name || "Utilisateur IGS"}</p>
-                    <p className="mt-0.5 truncate text-[11px] text-[#91b7aa]">Session active</p>
+                  <div className="min-w-0 group-data-[collapsible=icon]:hidden flex-1">
+                    <p className="truncate text-xs font-semibold text-white">{user?.name || "Utilisateur IGS"}</p>
+                    <p className="mt-0.5 truncate text-[10px] text-[#91b7aa] capitalize">Rôle: {user?.role || "admin"}</p>
                   </div>
+                  <ChevronDown size={14} className="text-[#91b7aa] group-data-[collapsible=icon]:hidden" />
                 </button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-48">
-                <DropdownMenuItem onClick={logout} className="cursor-pointer text-destructive focus:text-destructive">
-                  <LogOut className="mr-2 h-4 w-4" />
+              <DropdownMenuContent align="end" className="w-56">
+                <DropdownMenuLabel className="text-xs font-semibold">Changer de rôle (Simulateur)</DropdownMenuLabel>
+                <DropdownMenuItem onClick={() => switchRole("admin")} className="text-xs cursor-pointer">
+                  👑 Administrateur
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => switchRole("declarant")} className="text-xs cursor-pointer">
+                  📦 Déclarant PAC (Mamadou Diallo)
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => switchRole("comptable")} className="text-xs cursor-pointer">
+                  💰 Comptable (Fatoumata Camara)
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => switchRole("client")} className="text-xs cursor-pointer">
+                  🏢 Client (Guinean Birimian Gold)
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={logout} className="cursor-pointer text-destructive focus:text-destructive text-xs">
+                  <LogOut className="mr-2 h-3.5 w-3.5" />
                   Se déconnecter
                 </DropdownMenuItem>
               </DropdownMenuContent>
@@ -194,34 +303,74 @@ function LayoutContent({ children, setSidebarWidth }: { children: React.ReactNod
           />
         )}
       </div>
+
       <SidebarInset className="relative isolate overflow-hidden bg-[#f5f7f6]">
-        <div
-          aria-hidden="true"
-          className="pointer-events-none absolute -right-56 top-[20rem] z-0 w-[48rem] mix-blend-multiply opacity-[0.026]"
-        >
-          <img src={IGS_LOGO} alt="" className="igs-logo-drift w-full" />
-        </div>
-        <div
-          aria-hidden="true"
-          className="pointer-events-none absolute -left-60 bottom-28 z-0 w-[42rem] mix-blend-multiply opacity-[0.022]"
-        >
-          <img src={IGS_LOGO} alt="" className="igs-logo-drift igs-logo-drift-delayed w-full" />
-        </div>
-        {isMobile && (
-          <header className="sticky top-0 z-40 flex h-16 items-center justify-between border-b border-[#e4ebe8] bg-white/90 px-4 backdrop-blur">
-            <div className="flex items-center gap-2">
-              <SidebarTrigger />
-              <span className="font-semibold text-[#15362e]">{active?.label || "IGS Dossiers"}</span>
-            </div>
-            <button
+        {/* Barre supérieure permanente avec alertes et notifications proactives */}
+        <header className="sticky top-0 z-40 flex h-14 items-center justify-between border-b border-[#e4ebe8] bg-white/90 px-4 sm:px-6 backdrop-blur">
+          <div className="flex items-center gap-3">
+            {isMobile && <SidebarTrigger />}
+            <span className="font-semibold text-sm text-[#15362e] hidden sm:inline">{active?.label || "IGS Suivi"}</span>
+            {user?.role === "client" && (
+              <Badge className="bg-blue-100 text-blue-800 border-blue-200">
+                Espace Client : {user.clientCompany || "Société"}
+              </Badge>
+            )}
+          </div>
+
+          <div className="flex items-center gap-2.5">
+            {/* Cloche de notifications proactives */}
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button variant="ghost" size="icon" className="relative rounded-xl hover:bg-emerald-50">
+                  <Bell size={18} className="text-[#102c26]" />
+                  {unreadCount > 0 && (
+                    <span className="absolute -top-0.5 -right-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-rose-600 text-[10px] font-bold text-white shadow-sm">
+                      {unreadCount}
+                    </span>
+                  )}
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent align="end" className="w-80 p-0 shadow-lg border-emerald-950/10">
+                <div className="flex items-center justify-between border-b px-4 py-3 bg-[#f8faf9]">
+                  <span className="font-semibold text-xs text-[#102c26]">Alertes Proactives ({unreadCount})</span>
+                  <Badge variant="outline" className="text-[10px]">Guinée & PAC</Badge>
+                </div>
+                <div className="max-h-72 overflow-y-auto divide-y">
+                  {notifications.length === 0 ? (
+                    <div className="p-4 text-center text-xs text-muted-foreground">Aucune alerte pour le moment.</div>
+                  ) : (
+                    notifications.map(n => (
+                      <div key={n.id} className={`p-3 text-xs transition ${n.isRead ? "bg-white text-muted-foreground" : "bg-emerald-50/40 text-emerald-950 font-medium"}`}>
+                        <div className="flex items-start justify-between gap-1">
+                          <span className="font-semibold">{n.title}</span>
+                          {!n.isRead && (
+                            <button
+                              onClick={() => markReadMutation.mutate({ id: n.id })}
+                              className="text-[10px] text-emerald-700 hover:underline shrink-0"
+                            >
+                              Marquer lu
+                            </button>
+                          )}
+                        </div>
+                        <p className="mt-1 text-[11px] leading-4">{n.message}</p>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </PopoverContent>
+            </Popover>
+
+            <Button
               onClick={() => setLocation("/dossiers/nouveau")}
-              className="grid h-9 w-9 place-items-center rounded-xl bg-[#0b3b32] text-white"
+              size="sm"
+              className="rounded-xl bg-[#0b3b32] text-white hover:bg-[#164d41] h-8 text-xs font-medium"
             >
-              <Plus size={17} />
-            </button>
-          </header>
-        )}
-        <main className="relative z-10 min-h-screen p-4 sm:p-6 lg:p-8">{children}</main>
+              <Plus size={14} className="mr-1" /> Nouveau Dossier
+            </Button>
+          </div>
+        </header>
+
+        <main className="relative z-10 min-h-[calc(100vh-3.5rem)] p-4 sm:p-6 lg:p-8">{children}</main>
       </SidebarInset>
     </>
   );

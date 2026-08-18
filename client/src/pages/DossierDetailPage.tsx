@@ -2,22 +2,42 @@ import DashboardLayout from "@/components/DashboardLayout";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { trpc } from "@/lib/trpc";
 import {
+  AlertCircle,
   AlertTriangle,
   ArrowLeft,
+  Calendar,
   Check,
   CheckCircle2,
   ChevronLeft,
   ChevronRight,
+  CircleDollarSign,
+  Clock,
+  Coins,
+  Download,
   FileCheck2,
+  FileText,
+  History,
+  Info,
+  ListTodo,
   Loader2,
+  MessageSquare,
+  Paperclip,
+  Plus,
+  Printer,
+  QrCode,
   Save,
+  Share2,
   Trash2,
+  UploadCloud,
+  User,
   XCircle,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
@@ -131,7 +151,7 @@ function ReferenceSelectOrInput({
   placeholder?: string;
 }) {
   const choices = references.filter(item => item.category === category);
-  const datalistId = `list-${field}-${category}`;
+  const datalistId = `list-${category}`;
 
   return (
     <div className="space-y-1.5">
@@ -144,7 +164,7 @@ function ReferenceSelectOrInput({
           id={field}
           list={datalistId}
           value={form[field] || ""}
-          placeholder={placeholder || "Sélectionner ou saisir…"}
+          placeholder={placeholder || "Choisir ou saisir…"}
           aria-invalid={invalid}
           aria-describedby={invalid ? `${field}-error` : undefined}
           onChange={event => setForm(current => ({ ...current, [field]: event.target.value }))}
@@ -224,15 +244,82 @@ function DetailContent() {
   const [location, setLocation] = useLocation();
   const isNew = location === "/dossiers/nouveau";
   const id = Number(params?.id);
-  const { data: dossier, isLoading, error: dossierError } = trpc.dossier.get.useQuery(
+  const { data: dossier, isLoading } = trpc.dossier.get.useQuery(
     { id },
     { enabled: !isNew && Number.isFinite(id) }
   );
-  const { data: references = [], error: referencesError } = trpc.reference.list.useQuery();
+  const { data: references = [] } = trpc.reference.list.useQuery();
   const { data: dossiers = [] } = trpc.dossier.list.useQuery();
   const utils = trpc.useUtils();
   const [form, setForm] = useState<FormState>(blank);
   const [showValidation, setShowValidation] = useState(false);
+
+  // Nouvelles fonctionnalités (Documents, Audit, Factures, Tâches, Commentaires)
+  const [activeTab, setActiveTab] = useState("general");
+  const [newComment, setNewComment] = useState("");
+  const [uploadDocOpen, setUploadDocOpen] = useState(false);
+  const [newDocName, setNewDocName] = useState("");
+  const [newDocType, setNewDocType] = useState<any>("BL");
+  const [createInvoiceOpen, setCreateInvoiceOpen] = useState(false);
+  const [invoiceAmountHt, setInvoiceAmountHt] = useState(15000000);
+  const [invoiceCurrency, setInvoiceCurrency] = useState("GNF");
+  const [createTaskOpen, setCreateTaskOpen] = useState(false);
+  const [newTaskTitle, setNewTaskTitle] = useState("");
+  const [newTaskAssignee, setNewTaskAssignee] = useState("Mamadou Diallo");
+
+  // Requêtes additionnelles pour les onglets
+  const docsQuery = trpc.document.list.useQuery({ dossierId: id }, { enabled: !isNew && Boolean(id) });
+  const auditQuery = trpc.audit.list.useQuery({ dossierId: id }, { enabled: !isNew && Boolean(id) });
+  const invoicesQuery = trpc.finance.listInvoices.useQuery({ dossierId: id }, { enabled: !isNew && Boolean(id) });
+  const tasksQuery = trpc.task.list.useQuery({ dossierId: id }, { enabled: !isNew && Boolean(id) });
+  const commentsQuery = trpc.comment.list.useQuery({ dossierId: id }, { enabled: !isNew && Boolean(id) });
+
+  // Mutations
+  const uploadDocMutation = trpc.document.upload.useMutation({
+    onSuccess: () => {
+      toast.success("Document téléversé avec succès");
+      setUploadDocOpen(false);
+      setNewDocName("");
+      docsQuery.refetch();
+      auditQuery.refetch();
+    }
+  });
+
+  const deleteDocMutation = trpc.document.remove.useMutation({
+    onSuccess: () => {
+      toast.success("Document supprimé");
+      docsQuery.refetch();
+    }
+  });
+
+  const createInvoiceMutation = trpc.finance.createInvoice.useMutation({
+    onSuccess: () => {
+      toast.success("Facture générée avec succès");
+      setCreateInvoiceOpen(false);
+      invoicesQuery.refetch();
+      utils.dossier.get.invalidate({ id });
+    }
+  });
+
+  const createTaskMutation = trpc.task.create.useMutation({
+    onSuccess: () => {
+      toast.success("Tâche ajoutée à la check-list");
+      setCreateTaskOpen(false);
+      setNewTaskTitle("");
+      tasksQuery.refetch();
+    }
+  });
+
+  const updateTaskMutation = trpc.task.updateStatus.useMutation({
+    onSuccess: () => tasksQuery.refetch()
+  });
+
+  const addCommentMutation = trpc.comment.add.useMutation({
+    onSuccess: () => {
+      setNewComment("");
+      commentsQuery.refetch();
+    }
+  });
 
   useEffect(() => {
     if (!dossier) {
@@ -277,529 +364,588 @@ function DetailContent() {
     });
   }, [dossier, isNew]);
 
-  const payload = useMemo(
-    () => ({
-      ...Object.fromEntries(
-        Object.entries(form)
-          .filter(([key]) => key !== "eta" && key !== "goodsReleaseDate")
-          .map(([key, value]) => [key, toText(value)])
-      ),
-      eta: toDate(form.eta),
-      goodsReleaseDate: toDate(form.goodsReleaseDate),
-    }),
-    [form]
+  const sortedDossiers = useMemo(
+    () => [...dossiers].sort((a, b) => a.dossierNumber.localeCompare(b.dossierNumber)),
+    [dossiers]
   );
+  const currentIndex = sortedDossiers.findIndex(item => item.id === id);
+  const prev = currentIndex > 0 ? sortedDossiers[currentIndex - 1] : null;
+  const next = currentIndex >= 0 && currentIndex < sortedDossiers.length - 1 ? sortedDossiers[currentIndex + 1] : null;
 
-  const create = trpc.dossier.create.useMutation({
-    onSuccess: (created: any) => {
-      toast.success(`${created.dossierNumber} créé avec succès`);
-      utils.dossier.list.invalidate();
-      utils.dashboard.get.invalidate();
+  const createMutation = trpc.dossier.create.useMutation({
+    onSuccess: created => {
+      toast.success(`Dossier ${created.dossierNumber} créé avec succès`);
+      utils.dossier.invalidate();
+      utils.dashboard.invalidate();
       setLocation(`/dossiers/${created.id}`);
     },
-    onError: (error: any) => toast.error(error.message),
+    onError: err => toast.error(err.message || "Erreur de création"),
   });
 
-  const update = trpc.dossier.update.useMutation({
-    onSuccess: () => {
-      toast.success("Dossier enregistré avec succès");
-      utils.dossier.get.invalidate({ id });
-      utils.dossier.list.invalidate();
-      utils.dashboard.get.invalidate();
+  const updateMutation = trpc.dossier.update.useMutation({
+    onSuccess: updated => {
+      toast.success(`Dossier ${updated?.dossierNumber} mis à jour`);
+      utils.dossier.invalidate();
+      utils.dashboard.invalidate();
+      auditQuery.refetch();
     },
-    onError: (error: any) => toast.error(error.message),
+    onError: err => toast.error(err.message || "Erreur de mise à jour"),
   });
 
-  const remove = trpc.dossier.remove.useMutation({
+  const removeMutation = trpc.dossier.remove.useMutation({
     onSuccess: () => {
       toast.success("Dossier supprimé");
-      utils.dossier.list.invalidate();
-      utils.dashboard.get.invalidate();
+      utils.dossier.invalidate();
+      utils.dashboard.invalidate();
       setLocation("/dossiers");
     },
-    onError: (error: any) => toast.error(error.message),
   });
 
-  const currentIndex = dossiers.findIndex(item => item.id === id);
-  const previous = currentIndex > 0 ? dossiers[currentIndex - 1] : undefined;
-  const next = currentIndex >= 0 && currentIndex < dossiers.length - 1 ? dossiers[currentIndex + 1] : undefined;
+  const handleSubmit = (event: React.FormEvent) => {
+    event.preventDefault();
+    setShowValidation(true);
+    const requiredKeys = ["clientDossierNumber", "client", "blLtaNumber", "cargoNature", "transportMode", "eta", "originPort", "destinationPort", "goodsReleaseDate", "declarationNumber", "bulletinNumber"];
+    const isMissingRequired = requiredKeys.some(key => !form[key]);
+    const hasPackaging = Boolean(form.container || form.bulk);
 
-  const requiredFields = [
-    { key: "clientDossierNumber", label: "N° dossier client", valid: Boolean(form.clientDossierNumber) },
-    { key: "client", label: "Client / Importateur", valid: Boolean(form.client) },
-    { key: "blLtaNumber", label: "N° BL / LTA", valid: Boolean(form.blLtaNumber) },
-    { key: "cargoNature", label: "Nature marchandise", valid: Boolean(form.cargoNature) },
-    { key: "transportMode", label: "Mode de transport", valid: Boolean(form.transportMode) },
-    { key: "eta", label: "Date ETA", valid: Boolean(form.eta) },
-    { key: "originPort", label: "Port d’origine (POL)", valid: Boolean(form.originPort) },
-    { key: "destinationPort", label: "Port destination (POD)", valid: Boolean(form.destinationPort) },
-    { key: "packaging", label: "Conteneur ou Vrac", valid: Boolean(form.container || form.bulk) },
-    { key: "goodsReleaseDate", label: "Sortie marchandises", valid: Boolean(form.goodsReleaseDate) },
-    { key: "declarationNumber", label: "N° déclaration (Sydonia)", valid: Boolean(form.declarationNumber) },
-    { key: "bulletinNumber", label: "N° bulletin (BLD)", valid: Boolean(form.bulletinNumber) },
-  ];
+    if (isMissingRequired || !hasPackaging) {
+      toast.error("Veuillez renseigner tous les champs obligatoires (*) marqués en rouge.");
+      return;
+    }
 
-  const missingCount = requiredFields.filter(f => !f.valid).length;
-  const completionRate = Math.round(((requiredFields.length - missingCount) / requiredFields.length) * 100);
-  const liveStatus = missingCount === 0 ? "Régularisé" : "À régulariser";
-  const saving = create.isPending || update.isPending;
+    const payload = {
+      clientDossierNumber: toText(form.clientDossierNumber),
+      client: toText(form.client),
+      blLtaNumber: toText(form.blLtaNumber),
+      cargoNature: toText(form.cargoNature),
+      transportMode: toText(form.transportMode),
+      eta: toDate(form.eta),
+      originPort: toText(form.originPort),
+      destinationPort: toText(form.destinationPort),
+      container: toText(form.container),
+      bulk: toText(form.bulk),
+      goodsReleaseDate: toDate(form.goodsReleaseDate),
+      declarationNumber: toText(form.declarationNumber),
+      bulletinNumber: toText(form.bulletinNumber),
+      finalDeclarationNumber: toText(form.finalDeclarationNumber),
+      documentStatus: toText(form.documentStatus),
+      customsStatus: toText(form.customsStatus),
+      portStatus: toText(form.portStatus),
+      financialStatus: toText(form.financialStatus),
+      fieldOperation: toText(form.fieldOperation),
+      responsible: toText(form.responsible),
+      nextAction: toText(form.nextAction),
+      fieldAlert: toText(form.fieldAlert),
+      deliveryLocation: toText(form.deliveryLocation),
+      declarant: toText(form.declarant),
+      service: toText(form.service),
+      regime: toText(form.regime),
+      notes: toText(form.notes),
+    };
 
-  if (!isNew && isLoading)
+    if (isNew) {
+      createMutation.mutate(payload);
+    } else {
+      updateMutation.mutate({ id, data: payload });
+    }
+  };
+
+  const handleFileUploadMock = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setNewDocName(file.name);
+    // Simuler un encodage base64 pour stockage local immédiat
+    const reader = new FileReader();
+    reader.onload = () => {
+      uploadDocMutation.mutate({
+        dossierId: id,
+        name: file.name,
+        type: newDocType,
+        fileUrl: String(reader.result),
+        fileSize: file.size,
+        mimeType: file.type,
+      });
+    };
+    reader.readAsDataURL(file);
+  };
+
+  if (isLoading) {
     return (
-      <div className="space-y-5">
-        <Skeleton className="h-28 rounded-3xl" />
-        <Skeleton className="h-[600px] rounded-3xl" />
+      <div className="space-y-6">
+        <Skeleton className="h-28 w-full rounded-2xl" />
+        <Skeleton className="h-96 w-full rounded-2xl" />
       </div>
     );
-
-  if (!isNew && !dossier)
-    return (
-      <Card className="mx-auto max-w-xl border-0 bg-white">
-        <CardContent className="p-10 text-center">
-          <AlertTriangle className="mx-auto text-[#c4543e]" />
-          <p className="mt-4 font-semibold">{dossierError ? "Impossible de charger ce dossier" : "Dossier introuvable"}</p>
-          <p className="mt-2 text-sm text-[#71817b]">{dossierError?.message}</p>
-          <Button className="mt-4" onClick={() => setLocation("/dossiers")}>
-            Retour aux dossiers
-          </Button>
-        </CardContent>
-      </Card>
-    );
+  }
 
   return (
-    <div className="mx-auto max-w-[1540px] space-y-6">
-      {/* Top Header */}
-      <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
-        <div>
-          <button
+    <div className="space-y-6 pb-12">
+      {/* En-tête du Dossier */}
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-center gap-3">
+          <Button
+            variant="ghost"
+            size="sm"
             onClick={() => setLocation("/dossiers")}
-            className="mb-3 flex items-center gap-1 text-xs font-semibold text-[#3f7869] hover:underline"
+            className="rounded-xl border border-[#dfe8e4] bg-white text-[#3f5a52] hover:bg-[#ebf3f0]"
           >
-            <ArrowLeft size={14} />
-            Retour aux dossiers
-          </button>
-          <p className="text-xs font-bold uppercase tracking-[0.18em] text-[#81928c]">
-            {isNew ? "Nouvelle opération de transit" : "Fiche détaillée du dossier"}
-          </p>
-          <h1 className="mt-1 font-[Georgia] text-3xl font-semibold text-[#15372f]">
-            {isNew ? "Créer un dossier" : dossier?.dossierNumber}
-          </h1>
-          <p className="mt-1 text-sm text-[#73827d]">
-            {isNew
-              ? "Numérotation séquentielle automatique (DOS-xxxx) attribuée à l’enregistrement."
-              : `Dernière mise à jour le ${new Intl.DateTimeFormat("fr-FR", {
-                  dateStyle: "medium",
-                  timeStyle: "short",
-                }).format(new Date(dossier!.updatedAt))}`}
-          </p>
+            <ArrowLeft size={16} className="mr-1.5" /> Retour
+          </Button>
+          <div>
+            <div className="flex items-center gap-2">
+              <h1 className="font-[Georgia] text-2xl font-bold tracking-tight text-[#112f28]">
+                {isNew ? "Nouveau dossier logistique & transit" : `Dossier ${dossier?.dossierNumber}`}
+              </h1>
+              {!isNew && dossier && (
+                <Badge className={pillStyle(dossier.calculatedStatus)}>
+                  {dossier.calculatedStatus === "Régularisé" ? <Check size={12} className="mr-1" /> : <AlertTriangle size={12} className="mr-1" />}
+                  {dossier.calculatedStatus}
+                </Badge>
+              )}
+            </div>
+            {!isNew && dossier && (
+              <p className="mt-0.5 text-xs text-[#73847f]">
+                Client : <strong className="text-[#20473e]">{dossier.client || "Non renseigné"}</strong> • BL :{" "}
+                <strong className="text-[#20473e]">{dossier.blLtaNumber || "Non renseigné"}</strong> • Code Portail Client :{" "}
+                <Badge variant="outline" className="font-mono text-emerald-800 border-emerald-300">
+                  {dossier.portalAccessCode || `IGS-${1000 + dossier.id}`}
+                </Badge>
+              </p>
+            )}
+          </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
-          <Badge className={`border-0 px-3 py-1.5 ${pillStyle(liveStatus)}`}>{liveStatus}</Badge>
-          <Badge className={`border-0 px-3 py-1.5 ${pillStyle(liveStatus)}`}>
-            {liveStatus === "Régularisé" ? "Priorité basse" : "Priorité haute"}
-          </Badge>
-          {!isNew && (
-            <div className="ml-2 flex rounded-xl border border-[#dfebe5] bg-white p-1">
-              <button
-                disabled={!previous}
-                onClick={() => previous && setLocation(`/dossiers/${previous.id}`)}
-                className="grid h-8 w-8 place-items-center rounded-lg text-[#386157] disabled:opacity-30 hover:bg-[#edf5f1]"
-                title="Dossier précédent"
+        {!isNew && (
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => window.print()}
+              className="rounded-xl border-[#dfe8e4] bg-white text-[#35544c] hover:bg-[#edf5f1]"
+            >
+              <Printer size={15} className="mr-1.5" /> Imprimer / PDF
+            </Button>
+
+            <div className="flex items-center rounded-xl border border-[#dfe8e4] bg-white p-0.5">
+              <Button
+                variant="ghost"
+                size="icon"
+                disabled={!prev}
+                onClick={() => prev && setLocation(`/dossiers/${prev.id}`)}
+                className="h-8 w-8 rounded-lg"
               >
-                <ChevronLeft size={17} />
-              </button>
-              <button
+                <ChevronLeft size={16} />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
                 disabled={!next}
                 onClick={() => next && setLocation(`/dossiers/${next.id}`)}
-                className="grid h-8 w-8 place-items-center rounded-lg text-[#386157] disabled:opacity-30 hover:bg-[#edf5f1]"
-                title="Dossier suivant"
+                className="h-8 w-8 rounded-lg"
               >
-                <ChevronRight size={17} />
-              </button>
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Main Form and Sidebar Grid */}
-      <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_330px]">
-        <form
-          noValidate
-          onSubmit={event => {
-            event.preventDefault();
-            if (missingCount > 0) {
-              setShowValidation(true);
-              toast.error(`Veuillez compléter les ${missingCount} champ(s) obligatoire(s) pour la conformité.`);
-              return;
-            }
-            setShowValidation(false);
-            if (isNew) create.mutate(payload);
-            else update.mutate({ id, data: payload });
-          }}
-          className="space-y-5"
-        >
-          {referencesError && (
-            <div role="alert" className="rounded-xl border border-[#f2c6ba] bg-[#fff3ef] p-3 text-sm text-[#aa4934]">
-              Les référentiels n’ont pas pu être chargés : {referencesError.message}
-            </div>
-          )}
-
-          {/* Section 1: Informations de Transit & Transport */}
-          <Card className="border-0 bg-white shadow-[0_10px_28px_rgba(23,54,46,0.06)]">
-            <CardContent className="p-5 sm:p-6">
-              <div className="mb-5 flex items-center gap-3">
-                <div className="grid h-9 w-9 place-items-center rounded-xl bg-[#e7f1ed] text-[#1d7764]">
-                  <FileCheck2 size={18} />
-                </div>
-                <div>
-                  <h2 className="font-[Georgia] text-xl font-semibold text-[#173b32]">Informations de transit & fret</h2>
-                  <p className="text-xs text-[#81918b]">
-                    Données d’identification du fret maritime / aérien (Port de Conakry, POL/POD, conteneurs/vrac).
-                  </p>
-                </div>
-              </div>
-
-              <div className="grid gap-x-4 gap-y-4 md:grid-cols-2 lg:grid-cols-3">
-                <Field
-                  label="N° dossier client"
-                  field="clientDossierNumber"
-                  form={form}
-                  setForm={setForm}
-                  required
-                  invalid={showValidation && !form.clientDossierNumber}
-                  placeholder="ex: CKYSI26000340"
-                />
-                <ReferenceSelectOrInput
-                  label="Client / Destinataire"
-                  field="client"
-                  category="client"
-                  form={form}
-                  setForm={setForm}
-                  references={references}
-                  required
-                  invalid={showValidation && !form.client}
-                  placeholder="ex: Guinean Birimian Gold"
-                />
-                <Field
-                  label="N° BL / LTA"
-                  field="blLtaNumber"
-                  form={form}
-                  setForm={setForm}
-                  required
-                  invalid={showValidation && !form.blLtaNumber}
-                  placeholder="ex: HLCUNG12604AUQG1"
-                />
-                <Field
-                  label="Nature de marchandise"
-                  field="cargoNature"
-                  form={form}
-                  setForm={setForm}
-                  required
-                  invalid={showValidation && !form.cargoNature}
-                  placeholder="ex: Cyanure de sodium, Tubes acier"
-                />
-                <ReferenceSelect
-                  label="Mode transport"
-                  field="transportMode"
-                  category="mode_transport"
-                  form={form}
-                  setForm={setForm}
-                  references={references}
-                  required
-                  invalid={showValidation && !form.transportMode}
-                />
-                <Field
-                  label="Date ETA"
-                  field="eta"
-                  form={form}
-                  setForm={setForm}
-                  required
-                  type="date"
-                  invalid={showValidation && !form.eta}
-                />
-                <ReferenceSelectOrInput
-                  label="Port d’origine (POL)"
-                  field="originPort"
-                  category="port_origine"
-                  form={form}
-                  setForm={setForm}
-                  references={references}
-                  required
-                  invalid={showValidation && !form.originPort}
-                  placeholder="ex: Ningbo port-china"
-                />
-                <ReferenceSelectOrInput
-                  label="Port de destination (POD)"
-                  field="destinationPort"
-                  category="port_destination"
-                  form={form}
-                  setForm={setForm}
-                  references={references}
-                  required
-                  invalid={showValidation && !form.destinationPort}
-                  placeholder="ex: Port Autonome de Conakry"
-                />
-                <Field
-                  label="Conteneur(s)"
-                  field="container"
-                  form={form}
-                  setForm={setForm}
-                  placeholder="ex: 04TC20', 02TC40'"
-                  invalid={showValidation && !form.container && !form.bulk}
-                />
-                <Field
-                  label="Vrac / Colis (PKG)"
-                  field="bulk"
-                  form={form}
-                  setForm={setForm}
-                  placeholder="ex: 56 PKG, 120 Tonnes"
-                  invalid={showValidation && !form.container && !form.bulk}
-                />
-                <Field
-                  label="Date sortie marchandises"
-                  field="goodsReleaseDate"
-                  form={form}
-                  setForm={setForm}
-                  required
-                  type="date"
-                  invalid={showValidation && !form.goodsReleaseDate}
-                />
-                <Field
-                  label="N° déclaration (Sydonia)"
-                  field="declarationNumber"
-                  form={form}
-                  setForm={setForm}
-                  required
-                  invalid={showValidation && !form.declarationNumber}
-                  placeholder="ex: S 142- 27/07/2026"
-                />
-                <Field
-                  label="N° bulletin (BLD)"
-                  field="bulletinNumber"
-                  form={form}
-                  setForm={setForm}
-                  required
-                  invalid={showValidation && !form.bulletinNumber}
-                  placeholder="ex: L 1774 Du 28/07/2026"
-                />
-                <Field
-                  label="N° déclaration définitive"
-                  field="finalDeclarationNumber"
-                  form={form}
-                  setForm={setForm}
-                  placeholder="ex: C 1398-2026"
-                />
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Section 2: Procédures Douanières & Suivi Opérationnel Guinée */}
-          <Card className="border-0 bg-white shadow-[0_10px_28px_rgba(23,54,46,0.06)]">
-            <CardContent className="p-5 sm:p-6">
-              <h2 className="font-[Georgia] text-xl font-semibold text-[#173b32]">
-                Procédures douanières & suivi terrain (Guinée / Ouest-Africain)
-              </h2>
-              <p className="mt-1 text-xs text-[#81918b]">
-                Statuts SYDONIA, DDI (GUCEG), opérations Port Autonome de Conakry, régimes et alertes terrain.
-              </p>
-
-              <div className="mt-5 grid gap-x-4 gap-y-4 md:grid-cols-2 lg:grid-cols-3">
-                <ReferenceSelect
-                  label="Régime douanier"
-                  field="regime"
-                  category="regime"
-                  form={form}
-                  setForm={setForm}
-                  references={references}
-                />
-                <ReferenceSelect
-                  label="Statut douane (SYDONIA / DDI)"
-                  field="customsStatus"
-                  category="statut_douane"
-                  form={form}
-                  setForm={setForm}
-                  references={references}
-                />
-                <ReferenceSelect
-                  label="Statut portuaire (PAC / Bolloré)"
-                  field="portStatus"
-                  category="statut_port"
-                  form={form}
-                  setForm={setForm}
-                  references={references}
-                />
-                <ReferenceSelect
-                  label="Statut financier & devises"
-                  field="financialStatus"
-                  category="statut_financier"
-                  form={form}
-                  setForm={setForm}
-                  references={references}
-                />
-                <ReferenceSelect
-                  label="Statut documentaire"
-                  field="documentStatus"
-                  category="statut_documentaire"
-                  form={form}
-                  setForm={setForm}
-                  references={references}
-                />
-                <ReferenceSelect
-                  label="Alerte terrain"
-                  field="fieldAlert"
-                  category="alerte_terrain"
-                  form={form}
-                  setForm={setForm}
-                  references={references}
-                />
-                <ReferenceSelect
-                  label="Opération terrain en cours"
-                  field="fieldOperation"
-                  category="operation_terrain"
-                  form={form}
-                  setForm={setForm}
-                  references={references}
-                />
-                <ReferenceSelect
-                  label="Prochaine action"
-                  field="nextAction"
-                  category="prochaine_action"
-                  form={form}
-                  setForm={setForm}
-                  references={references}
-                />
-                <ReferenceSelect
-                  label="Lieu de livraison"
-                  field="deliveryLocation"
-                  category="lieu_livraison"
-                  form={form}
-                  setForm={setForm}
-                  references={references}
-                />
-                <ReferenceSelect
-                  label="Responsable dossier"
-                  field="responsible"
-                  category="responsable"
-                  form={form}
-                  setForm={setForm}
-                  references={references}
-                />
-                <ReferenceSelect
-                  label="Déclarant IGS"
-                  field="declarant"
-                  category="declarant_igs"
-                  form={form}
-                  setForm={setForm}
-                  references={references}
-                />
-                <ReferenceSelect
-                  label="Service"
-                  field="service"
-                  category="service"
-                  form={form}
-                  setForm={setForm}
-                  references={references}
-                />
-              </div>
-
-              <div className="mt-5 space-y-1.5">
-                <Label htmlFor="notes" className="text-xs font-semibold text-[#516760]">
-                  Notes internes, instructions particulières & contacts
-                </Label>
-                <Textarea
-                  id="notes"
-                  value={form.notes}
-                  onChange={event => setForm(current => ({ ...current, notes: event.target.value }))}
-                  className="min-h-24 rounded-xl border-[#dfe9e4]"
-                  placeholder="Précisions client, autorisations matières dangereuses, quitus fiscal, montant en GNF/USD…"
-                />
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Action Buttons */}
-          <div className="flex flex-col-reverse justify-between gap-3 sm:flex-row sm:items-center">
-            {!isNew ? (
-              <Button
-                type="button"
-                variant="ghost"
-                onClick={() => {
-                  if (window.confirm(`Supprimer définitivement le dossier ${dossier?.dossierNumber} ?`))
-                    remove.mutate({ id });
-                }}
-                disabled={remove.isPending}
-                className="justify-start text-[#bc4f38] hover:bg-[#fff0eb] hover:text-[#a23c27]"
-              >
-                <Trash2 className="mr-2" size={16} />
-                Supprimer le dossier
+                <ChevronRight size={16} />
               </Button>
-            ) : (
-              <span />
-            )}
-
-            <Button
-              type="submit"
-              disabled={saving}
-              className="h-11 rounded-xl bg-[#0f4035] px-6 text-white hover:bg-[#195847]"
-            >
-              {saving ? <Loader2 className="mr-2 animate-spin" size={16} /> : <Save className="mr-2" size={16} />}
-              {isNew ? "Créer le dossier" : "Enregistrer les modifications"}
-            </Button>
+            </div>
           </div>
-        </form>
-
-        {/* Right Sidebar: Automatic Compliance Engine */}
-        <aside className="space-y-4">
-          <Card className="border-0 bg-[#123e34] text-white shadow-[0_10px_28px_rgba(23,54,46,0.12)]">
-            <CardContent className="p-5">
-              <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#d9a94b]">Moteur de régularisation</p>
-              <h2 className="mt-2 font-[Georgia] text-xl font-semibold">État de conformité</h2>
-
-              <div className="mt-4 rounded-xl bg-white/10 p-4">
-                <p className="text-2xl font-semibold">{liveStatus}</p>
-                <p className="mt-1 text-xs leading-5 text-[#c4d9d1]">
-                  {missingCount === 0
-                    ? "Dossier 100% complet et conforme."
-                    : `${missingCount} élément(s) requis à compléter pour régulariser.`}
-                </p>
-              </div>
-
-              <div className="mt-4 flex items-center justify-between text-xs">
-                <span className="text-[#b7d0c6]">Taux de complétude</span>
-                <span className="font-semibold text-white">{completionRate}%</span>
-              </div>
-              <div className="mt-2 h-2 overflow-hidden rounded-full bg-white/15">
-                <div
-                  className="h-full rounded-full bg-[#d9a94b] transition-all duration-300"
-                  style={{ width: `${Math.max(4, completionRate)}%` }}
-                />
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Checklist Card */}
-          <Card className="border-0 bg-white shadow-[0_10px_28px_rgba(23,54,46,0.06)]">
-            <CardContent className="p-5">
-              <p className="text-xs font-bold uppercase tracking-[0.14em] text-[#81928c]">
-                Critères obligatoires ({requiredFields.filter(f => f.valid).length}/{requiredFields.length})
-              </p>
-              <div className="mt-3 space-y-2">
-                {requiredFields.map(f => (
-                  <div key={f.key} className="flex items-center justify-between gap-2 text-xs">
-                    <span className={f.valid ? "text-[#325248]" : "text-[#b8523c] font-medium"}>{f.label}</span>
-                    {f.valid ? (
-                      <Check className="h-4 w-4 shrink-0 text-[#177a62]" />
-                    ) : (
-                      <XCircle className="h-4 w-4 shrink-0 text-[#c75842]" />
-                    )}
-                  </div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-        </aside>
+        )}
       </div>
+
+      {/* Navigation par Onglets */}
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
+        <TabsList className="bg-white/80 p-1 border border-[#dfe8e4] rounded-2xl shadow-sm h-11">
+          <TabsTrigger value="general" className="rounded-xl text-xs data-[state=active]:bg-[#0b3b32] data-[state=active]:text-white">
+            <FileText size={14} className="mr-1.5" /> Fiche Opérationnelle
+          </TabsTrigger>
+          {!isNew && (
+            <>
+              <TabsTrigger value="documents" className="rounded-xl text-xs data-[state=active]:bg-[#0b3b32] data-[state=active]:text-white">
+                <Paperclip size={14} className="mr-1.5" /> Documents & Preuves ({docsQuery.data?.length || 0})
+              </TabsTrigger>
+              <TabsTrigger value="finances" className="rounded-xl text-xs data-[state=active]:bg-[#0b3b32] data-[state=active]:text-white">
+                <CircleDollarSign size={14} className="mr-1.5" /> Facturation & Marges
+              </TabsTrigger>
+              <TabsTrigger value="tasks" className="rounded-xl text-xs data-[state=active]:bg-[#0b3b32] data-[state=active]:text-white">
+                <ListTodo size={14} className="mr-1.5" /> Tâches & Suivi ({tasksQuery.data?.length || 0})
+              </TabsTrigger>
+              <TabsTrigger value="audit" className="rounded-xl text-xs data-[state=active]:bg-[#0b3b32] data-[state=active]:text-white">
+                <History size={14} className="mr-1.5" /> Audit & Historique
+              </TabsTrigger>
+            </>
+          )}
+        </TabsList>
+
+        {/* ONGLET 1: Fiche générale */}
+        <TabsContent value="general">
+          <form onSubmit={handleSubmit} className="space-y-6">
+            {/* Section Fret & Port */}
+            <Card className="border-0 bg-white shadow-[0_10px_28px_rgba(23,54,46,0.06)]">
+              <CardContent className="p-5 sm:p-6">
+                <div className="mb-5 flex items-center gap-3">
+                  <div className="grid h-9 w-9 place-items-center rounded-xl bg-[#e7f1ed] text-[#1d7764]">
+                    <FileCheck2 size={18} />
+                  </div>
+                  <div>
+                    <h2 className="font-[Georgia] text-xl font-semibold text-[#173b32]">Transit maritime & Marchandises</h2>
+                    <p className="text-xs text-[#81918b]">Données d’identification du fret (Port Autonome de Conakry, Kamsar, POL/POD).</p>
+                  </div>
+                </div>
+
+                <div className="grid gap-x-4 gap-y-4 md:grid-cols-2 lg:grid-cols-3">
+                  <Field label="N° dossier client" field="clientDossierNumber" form={form} setForm={setForm} required invalid={showValidation && !form.clientDossierNumber} placeholder="ex: CKYSI26000340" />
+                  <ReferenceSelectOrInput label="Client / Destinataire" field="client" category="client" form={form} setForm={setForm} references={references} required invalid={showValidation && !form.client} placeholder="ex: Guinean Birimian Gold" />
+                  <Field label="N° BL / LTA" field="blLtaNumber" form={form} setForm={setForm} required invalid={showValidation && !form.blLtaNumber} placeholder="ex: HLCUNG12604AUQG1" />
+                  <Field label="Nature de marchandise" field="cargoNature" form={form} setForm={setForm} required invalid={showValidation && !form.cargoNature} placeholder="ex: Cyanure, Tubes d'acier" />
+                  <ReferenceSelect label="Mode transport" field="transportMode" category="mode_transport" form={form} setForm={setForm} references={references} required invalid={showValidation && !form.transportMode} />
+                  <Field label="Date ETA" field="eta" form={form} setForm={setForm} required type="date" invalid={showValidation && !form.eta} />
+                  <ReferenceSelectOrInput label="Port d’origine (POL)" field="originPort" category="port_origine" form={form} setForm={setForm} references={references} required invalid={showValidation && !form.originPort} placeholder="ex: Ningbo-China" />
+                  <ReferenceSelectOrInput label="Port de destination (POD)" field="destinationPort" category="port_destination" form={form} setForm={setForm} references={references} required invalid={showValidation && !form.destinationPort} placeholder="ex: Port Autonome de Conakry" />
+                  <Field label="Conteneur(s)" field="container" form={form} setForm={setForm} placeholder="ex: 04TC20', 02TC40'" invalid={showValidation && !form.container && !form.bulk} />
+                  <Field label="Vrac / Colis (PKG)" field="bulk" form={form} setForm={setForm} placeholder="ex: 56 PKG, 120 Tonnes" invalid={showValidation && !form.container && !form.bulk} />
+                  <Field label="Date sortie marchandises" field="goodsReleaseDate" form={form} setForm={setForm} required type="date" invalid={showValidation && !form.goodsReleaseDate} />
+                  <Field label="N° déclaration (Sydonia)" field="declarationNumber" form={form} setForm={setForm} required invalid={showValidation && !form.declarationNumber} placeholder="ex: S 142- 27/07/2026" />
+                  <Field label="N° bulletin (BLD)" field="bulletinNumber" form={form} setForm={setForm} required invalid={showValidation && !form.bulletinNumber} placeholder="ex: L 1774 Du 28/07/2026" />
+                  <Field label="N° déclaration définitive" field="finalDeclarationNumber" form={form} setForm={setForm} placeholder="ex: C 1398-2026" />
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Section Procédures Douanières */}
+            <Card className="border-0 bg-white shadow-[0_10px_28px_rgba(23,54,46,0.06)]">
+              <CardContent className="p-5 sm:p-6">
+                <h2 className="font-[Georgia] text-xl font-semibold text-[#173b32] mb-4">Procédures Douane Guinée, PAC & Suivi</h2>
+                <div className="grid gap-x-4 gap-y-4 md:grid-cols-2 lg:grid-cols-3">
+                  <ReferenceSelect label="Statut douane" field="customsStatus" category="statut_douane" form={form} setForm={setForm} references={references} />
+                  <ReferenceSelect label="Statut portuaire (PAC)" field="portStatus" category="statut_port" form={form} setForm={setForm} references={references} />
+                  <ReferenceSelect label="Statut financier" field="financialStatus" category="statut_financier" form={form} setForm={setForm} references={references} />
+                  <ReferenceSelect label="Régime douanier" field="regime" category="regime" form={form} setForm={setForm} references={references} />
+                  <ReferenceSelectOrInput label="Responsable dossier" field="responsible" category="responsable" form={form} setForm={setForm} references={references} placeholder="ex: Mamadou Diallo" />
+                  <ReferenceSelectOrInput label="Déclarant" field="declarant" category="declarant" form={form} setForm={setForm} references={references} placeholder="ex: Alpha Barry" />
+                  <Field label="Lieu de livraison" field="deliveryLocation" form={form} setForm={setForm} placeholder="ex: Entrepôt IGS Kagbelen" />
+                  <Field label="Opération terrain" field="fieldOperation" form={form} setForm={setForm} placeholder="ex: Visite de douane quai 3" />
+                  <Field label="Alerte terrain" field="fieldAlert" form={form} setForm={setForm} placeholder="ex: Surestaries imminentes" />
+                  <div className="md:col-span-2 lg:col-span-3">
+                    <Label htmlFor="notes" className="text-xs font-semibold text-[#516760]">Notes internes & observations</Label>
+                    <Textarea id="notes" value={form.notes || ""} onChange={e => setForm(c => ({ ...c, notes: e.target.value }))} className="mt-1 min-h-[80px] rounded-xl border-[#dfe9e4]" placeholder="Historique et instructions spécifiques..." />
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Boutons d'action */}
+            <div className="flex items-center justify-between pt-2">
+              {!isNew && (
+                <Button type="button" variant="ghost" onClick={() => removeMutation.mutate({ id })} className="text-rose-600 hover:bg-rose-50 rounded-xl">
+                  <Trash2 size={16} className="mr-1.5" /> Supprimer ce dossier
+                </Button>
+              )}
+              <div className="ml-auto flex items-center gap-3">
+                <Button type="button" variant="outline" onClick={() => setLocation("/dossiers")} className="rounded-xl border-[#dfe8e4]">
+                  Annuler
+                </Button>
+                <Button type="submit" disabled={createMutation.isPending || updateMutation.isPending} className="rounded-xl bg-[#0b3b32] text-white hover:bg-[#164d41] px-6">
+                  {(createMutation.isPending || updateMutation.isPending) && <Loader2 size={16} className="mr-2 animate-spin" />}
+                  <Save size={16} className="mr-2" /> {isNew ? "Créer le dossier" : "Enregistrer les modifications"}
+                </Button>
+              </div>
+            </div>
+          </form>
+        </TabsContent>
+
+        {/* ONGLET 2: Documents & Preuves */}
+        <TabsContent value="documents" className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="font-[Georgia] text-lg font-semibold text-[#173b32]">Gestion Documentaire & Preuves de Conformité</h2>
+              <p className="text-xs text-muted-foreground">Téléversez les originaux scannés (BL, Déclaration Sydonia, Bulletin DDI, Factures, BAE, Photos).</p>
+            </div>
+            
+            <Dialog open={uploadDocOpen} onOpenChange={setUploadDocOpen}>
+              <DialogTrigger asChild>
+                <Button className="rounded-xl bg-[#0b3b32] text-white hover:bg-[#164d41] text-xs">
+                  <UploadCloud size={14} className="mr-1.5" /> Ajouter une pièce jointe
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="max-w-md">
+                <DialogHeader>
+                  <DialogTitle>Téléverser un document de preuve</DialogTitle>
+                  <DialogDescription>Associez un document scanné ou une photo de marchandise à ce dossier.</DialogDescription>
+                </DialogHeader>
+                <div className="space-y-4 py-3">
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Type de document</Label>
+                    <select
+                      value={newDocType}
+                      onChange={e => setNewDocType(e.target.value as any)}
+                      className="h-10 w-full rounded-xl border border-gray-200 bg-white px-3 text-sm"
+                    >
+                      <option value="BL">Connaissement Maritime (BL)</option>
+                      <option value="Declaration_Douane">Déclaration Sydonia World</option>
+                      <option value="Bulletin_Liquidation">Bulletin de Liquidation (BLD)</option>
+                      <option value="DDI">DDI (GUCEG Guinée)</option>
+                      <option value="BAE">Bon à Enlever (BAE)</option>
+                      <option value="Facture_Fournisseur">Facture Commerciale</option>
+                      <option value="Facture_Transitaire">Facture Transit / Débours</option>
+                      <option value="Photos_Marchandise">Photos de marchandise / Quai</option>
+                      <option value="Autre">Autre document</option>
+                    </select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Fichier (PDF, Image)</Label>
+                    <Input type="file" onChange={handleFileUploadMock} className="rounded-xl" />
+                  </div>
+                </div>
+              </DialogContent>
+            </Dialog>
+          </div>
+
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {docsQuery.data?.length === 0 ? (
+              <Card className="col-span-full border-dashed p-8 text-center bg-white/60">
+                <Paperclip className="mx-auto h-8 w-8 text-muted-foreground/50" />
+                <p className="mt-2 text-sm font-medium text-muted-foreground">Aucun document joint pour ce dossier.</p>
+                <p className="text-xs text-muted-foreground">Téléversez le BL scanné ou la déclaration de douane pour prouver la régularisation.</p>
+              </Card>
+            ) : (
+              docsQuery.data?.map(doc => (
+                <Card key={doc.id} className="border border-emerald-900/10 bg-white shadow-sm hover:shadow transition">
+                  <CardContent className="p-4 flex flex-col justify-between h-full">
+                    <div>
+                      <div className="flex items-center justify-between">
+                        <Badge variant="outline" className="text-[10px] font-mono border-emerald-800 text-emerald-900">
+                          {doc.type.replace("_", " ")}
+                        </Badge>
+                        <span className="text-[10px] text-muted-foreground">
+                          {new Date(doc.createdAt).toLocaleDateString("fr-FR")}
+                        </span>
+                      </div>
+                      <h3 className="mt-2 font-semibold text-xs text-emerald-950 truncate" title={doc.name}>
+                        {doc.name}
+                      </h3>
+                      <p className="text-[11px] text-muted-foreground mt-0.5">
+                        Ajouté par : {doc.uploaderName || "Opérateur IGS"}
+                      </p>
+                    </div>
+
+                    <div className="mt-4 flex items-center justify-between border-t pt-2.5">
+                      <a
+                        href={doc.fileUrl}
+                        download={doc.name}
+                        className="inline-flex items-center text-xs font-semibold text-emerald-800 hover:text-emerald-950"
+                      >
+                        <Download size={13} className="mr-1" /> Télécharger
+                      </a>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => deleteDocMutation.mutate({ id: doc.id })}
+                        className="h-7 w-7 text-rose-600 hover:bg-rose-50"
+                      >
+                        <Trash2 size={13} />
+                      </Button>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))
+            )}
+          </div>
+        </TabsContent>
+
+        {/* ONGLET 3: Facturation & Finances */}
+        <TabsContent value="finances" className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="font-[Georgia] text-lg font-semibold text-[#173b32]">Facturation, Débours & Marge Opérationnelle</h2>
+              <p className="text-xs text-muted-foreground">Générez des factures en Francs Guinéens (GNF) ou USD avec suivi des surestaries PAC.</p>
+            </div>
+
+            <Dialog open={createInvoiceOpen} onOpenChange={setCreateInvoiceOpen}>
+              <DialogTrigger asChild>
+                <Button className="rounded-xl bg-[#0b3b32] text-white hover:bg-[#164d41] text-xs">
+                  <Plus size={14} className="mr-1.5" /> Émettre une Facture
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="max-w-md">
+                <DialogHeader>
+                  <DialogTitle>Créer une facture de transit</DialogTitle>
+                  <DialogDescription>Générez la facture pour le client {dossier?.client}.</DialogDescription>
+                </DialogHeader>
+                <div className="space-y-3 py-2">
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="space-y-1">
+                      <Label className="text-xs">Devise</Label>
+                      <select value={invoiceCurrency} onChange={e => setInvoiceCurrency(e.target.value)} className="h-9 w-full rounded-xl border px-2 text-xs">
+                        <option value="GNF">GNF (Franc Guinéen)</option>
+                        <option value="USD">USD ($)</option>
+                        <option value="EUR">EUR (€)</option>
+                      </select>
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs">Montant HT</Label>
+                      <Input type="number" value={invoiceAmountHt} onChange={e => setInvoiceAmountHt(Number(e.target.value))} className="h-9 text-xs" />
+                    </div>
+                  </div>
+                  <div className="rounded-xl bg-emerald-50/70 p-3 text-xs space-y-1 text-emerald-950">
+                    <div className="flex justify-between"><span>TVA (18%) :</span><strong>{(invoiceAmountHt * 0.18).toLocaleString()} {invoiceCurrency}</strong></div>
+                    <div className="flex justify-between border-t pt-1 font-bold"><span>Total TTC :</span><strong>{(invoiceAmountHt * 1.18).toLocaleString()} {invoiceCurrency}</strong></div>
+                  </div>
+                </div>
+                <DialogFooter>
+                  <Button onClick={() => createInvoiceMutation.mutate({
+                    dossierId: id,
+                    client: dossier?.client || "Client",
+                    currency: invoiceCurrency,
+                    amountHt: invoiceAmountHt,
+                    amountTva: invoiceAmountHt * 0.18,
+                    amountTtc: invoiceAmountHt * 1.18,
+                    status: "Émise",
+                  })} className="rounded-xl bg-[#0b3b32] text-white">Confirmer l'émission</Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+          </div>
+
+          <div className="grid gap-3">
+            {invoicesQuery.data?.length === 0 ? (
+              <Card className="p-8 text-center border-dashed bg-white/60">
+                <Coins className="mx-auto h-8 w-8 text-muted-foreground/50" />
+                <p className="mt-2 text-sm font-medium text-muted-foreground">Aucune facture enregistrée pour ce dossier.</p>
+                <Button size="sm" onClick={() => setCreateInvoiceOpen(true)} className="mt-3 rounded-xl bg-[#0b3b32] text-white text-xs">
+                  Générer une facture proforma / finale
+                </Button>
+              </Card>
+            ) : (
+              invoicesQuery.data?.map(inv => (
+                <Card key={inv.id} className="border border-emerald-950/10 bg-white p-4 shadow-sm">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="font-bold text-sm text-[#102c26]">{inv.invoiceNumber}</span>
+                        <Badge className={inv.status === "Payée" ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"}>
+                          {inv.status}
+                        </Badge>
+                      </div>
+                      <p className="text-xs text-muted-foreground mt-0.5">Émise le {new Date(inv.createdAt).toLocaleDateString("fr-FR")} • Échéance : {inv.dueDate ? new Date(inv.dueDate).toLocaleDateString("fr-FR") : "30j"}</p>
+                    </div>
+
+                    <div className="text-right">
+                      <span className="text-lg font-bold text-[#102c26]">{inv.amountTtc.toLocaleString()} {inv.currency}</span>
+                      <p className="text-[11px] text-emerald-700 font-semibold">Marge estimée : +{inv.estimatedMargin.toLocaleString()} {inv.currency}</p>
+                    </div>
+                  </div>
+                </Card>
+              ))
+            )}
+          </div>
+        </TabsContent>
+
+        {/* ONGLET 4: Tâches & Collaboration */}
+        <TabsContent value="tasks" className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="font-[Georgia] text-lg font-semibold text-[#173b32]">Tâches Opérationnelles & Collaboration</h2>
+              <p className="text-xs text-muted-foreground">Check-list des étapes clés (visite douane, paiement PAC, bon à enlever, livraison).</p>
+            </div>
+
+            <Dialog open={createTaskOpen} onOpenChange={setCreateTaskOpen}>
+              <DialogTrigger asChild>
+                <Button className="rounded-xl bg-[#0b3b32] text-white hover:bg-[#164d41] text-xs">
+                  <Plus size={14} className="mr-1.5" /> Assigner une tâche
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="max-w-md">
+                <DialogHeader>
+                  <DialogTitle>Nouvelle tâche opérationnelle</DialogTitle>
+                </DialogHeader>
+                <div className="space-y-3 py-2">
+                  <div className="space-y-1">
+                    <Label className="text-xs">Intitulé de la tâche</Label>
+                    <Input value={newTaskTitle} onChange={e => setNewTaskTitle(e.target.value)} placeholder="ex: Récupérer le bon de sortie PAC quai conteneur" className="rounded-xl text-xs" />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">Assigné à</Label>
+                    <Input value={newTaskAssignee} onChange={e => setNewTaskAssignee(e.target.value)} className="rounded-xl text-xs" />
+                  </div>
+                </div>
+                <DialogFooter>
+                  <Button onClick={() => createTaskMutation.mutate({ dossierId: id, title: newTaskTitle, assignedTo: newTaskAssignee })} className="rounded-xl bg-[#0b3b32] text-white">
+                    Créer la tâche
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+          </div>
+
+          <div className="grid gap-2">
+            {tasksQuery.data?.map(task => (
+              <div key={task.id} className="flex items-center justify-between p-3 rounded-xl border border-gray-100 bg-white shadow-sm">
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={() => updateTaskMutation.mutate({ id: task.id, status: task.status === "Termine" ? "A_faire" : "Termine" })}
+                    className={`h-5 w-5 rounded-md border flex items-center justify-center transition ${task.status === "Termine" ? "bg-emerald-700 border-emerald-700 text-white" : "border-gray-300"}`}
+                  >
+                    {task.status === "Termine" && <Check size={12} />}
+                  </button>
+                  <div>
+                    <p className={`text-xs font-semibold ${task.status === "Termine" ? "line-through text-muted-foreground" : "text-emerald-950"}`}>
+                      {task.title}
+                    </p>
+                    <p className="text-[11px] text-muted-foreground">Assigné à {task.assignedTo || "Équipe"} • Échéance : {task.dueDate ? new Date(task.dueDate).toLocaleDateString("fr-FR") : "Immédiat"}</p>
+                  </div>
+                </div>
+                <Badge variant="outline" className="text-[10px]">{task.status.replace("_", " ")}</Badge>
+              </div>
+            ))}
+          </div>
+
+          {/* Fil de discussion et commentaires */}
+          <div className="mt-6 border-t pt-4 space-y-3">
+            <h3 className="font-[Georgia] text-sm font-semibold text-[#173b32]">Notes & Commentaires d'équipe</h3>
+            <div className="space-y-2 max-h-48 overflow-y-auto">
+              {commentsQuery.data?.map(c => (
+                <div key={c.id} className="p-2.5 rounded-xl bg-gray-50 text-xs border border-gray-100">
+                  <div className="flex justify-between font-semibold text-emerald-950">
+                    <span>{c.authorName}</span>
+                    <span className="text-[10px] text-muted-foreground font-normal">{new Date(c.createdAt).toLocaleTimeString("fr-FR", { hour: '2-digit', minute: '2-digit' })}</span>
+                  </div>
+                  <p className="mt-1 text-muted-foreground">{c.message}</p>
+                </div>
+              ))}
+            </div>
+            <div className="flex gap-2">
+              <Input value={newComment} onChange={e => setNewComment(e.target.value)} placeholder="Ajouter une instruction ou remarque..." className="rounded-xl text-xs" />
+              <Button size="sm" onClick={() => newComment.trim() && addCommentMutation.mutate({ dossierId: id, message: newComment.trim() })} className="rounded-xl bg-[#0b3b32] text-white">
+                Envoyer
+              </Button>
+            </div>
+          </div>
+        </TabsContent>
+
+        {/* ONGLET 5: Audit Trail & Historique */}
+        <TabsContent value="audit" className="space-y-4">
+          <div>
+            <h2 className="font-[Georgia] text-lg font-semibold text-[#173b32]">Journal d'Audit & Traçabilité Complète</h2>
+            <p className="text-xs text-muted-foreground">Historique horodaté des changements de statuts, ajouts de documents et modifications (preuve légale et conformité).</p>
+          </div>
+
+          <div className="relative pl-6 border-l-2 border-emerald-900/20 space-y-4 py-2">
+            {auditQuery.data?.map((entry, idx) => (
+              <div key={entry.id} className="relative">
+                <span className="absolute -left-[31px] top-1 h-3.5 w-3.5 rounded-full bg-emerald-700 ring-4 ring-white" />
+                <div className="bg-white p-3 rounded-xl border border-gray-100 shadow-sm text-xs space-y-0.5">
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-emerald-950">{entry.fieldChanged}</span>
+                    <span className="text-[10px] text-muted-foreground">{new Date(entry.createdAt).toLocaleString("fr-FR")}</span>
+                  </div>
+                  <p className="text-[11px] text-emerald-800">
+                    <strong>{entry.authorName || "Système"}</strong> : {entry.previousValue ? `${entry.previousValue} ➔ ` : ""}{entry.newValue}
+                  </p>
+                  {entry.comment && <p className="text-[11px] text-muted-foreground italic">« {entry.comment} »</p>}
+                </div>
+              </div>
+            ))}
+          </div>
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

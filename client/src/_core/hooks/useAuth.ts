@@ -33,7 +33,7 @@ export function useAuth(options?: UseAuthOptions) {
   });
 
   const login = useCallback(
-    async (params?: { name?: string; role?: "admin" | "user" }) => {
+    async (params?: { name?: string; role?: "admin" | "declarant" | "comptable" | "manager" | "client" | "user"; clientCompany?: string }) => {
       return loginMutation.mutateAsync(params);
     },
     [loginMutation]
