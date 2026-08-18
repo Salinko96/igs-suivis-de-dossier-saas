@@ -582,40 +582,58 @@ export async function importDossiersBatch(
   userId?: number,
   authorName?: string
 ) {
+  if (items.length === 0) {
+    return { total: 0, createdCount: 0, updatedCount: 0, duplicatesPrevented: 0, dossiers: [] };
+  }
+
+  const db = await getDb();
+  
+  // 1. Initialiser / Synchroniser l'index des dossiers existants en O(1)
+  const existingMapByBL = new Map<string, Dossier>();
+  const existingMapByClientRef = new Map<string, Dossier>();
+
+  // Alimenter depuis le cache mémoire local
+  for (const d of _memoryDossiers) {
+    if (d.blLtaNumber) existingMapByBL.set(d.blLtaNumber.trim().toUpperCase(), d);
+    if (d.clientDossierNumber) existingMapByClientRef.set(d.clientDossierNumber.trim().toUpperCase(), d);
+  }
+
+  // Si DB connectée, précharger en 1 SEULE requête bulk tous les dossiers pertinents
+  if (db) {
+    try {
+      const dbAll = await db.select().from(dossiers);
+      for (const d of dbAll) {
+        if (d.blLtaNumber) existingMapByBL.set(d.blLtaNumber.trim().toUpperCase(), d);
+        if (d.clientDossierNumber) existingMapByClientRef.set(d.clientDossierNumber.trim().toUpperCase(), d);
+      }
+    } catch (e) {}
+  }
+
   let createdCount = 0;
   let updatedCount = 0;
   const processed: Dossier[] = [];
+  const toInsertDB: any[] = [];
+  const toUpdateDB: { id: number; data: any }[] = [];
+  const historyBatch: InsertDossierStatusHistory[] = [];
+
+  let nextSequence = _memoryDossiers.length + 1;
+  const now = new Date();
 
   for (const item of items) {
-    const cleanBL = item.blLtaNumber?.trim() || "";
-    const cleanClientNum = item.clientDossierNumber?.trim() || "";
+    const cleanBL = item.blLtaNumber?.trim().toUpperCase() || "";
+    const cleanClientNum = item.clientDossierNumber?.trim().toUpperCase() || "";
 
-    // 1. Chercher si le dossier existe déjà par BL ou Numéro Dossier Client
+    // Recherche instantanée O(1)
     let existing: Dossier | undefined = undefined;
-
-    if (cleanBL) {
-      existing = _memoryDossiers.find(d => d.blLtaNumber && d.blLtaNumber.trim().toUpperCase() === cleanBL.toUpperCase());
-    }
-    if (!existing && cleanClientNum) {
-      existing = _memoryDossiers.find(d => d.clientDossierNumber && d.clientDossierNumber.trim().toUpperCase() === cleanClientNum.toUpperCase());
-    }
-
-    const db = await getDb();
-    if (!existing && db) {
-      try {
-        const clauses = [];
-        if (cleanBL) clauses.push(sql`UPPER(${dossiers.blLtaNumber}) = ${cleanBL.toUpperCase()}`);
-        if (cleanClientNum) clauses.push(sql`UPPER(${dossiers.clientDossierNumber}) = ${cleanClientNum.toUpperCase()}`);
-        if (clauses.length > 0) {
-          const dbRow = (await db.select().from(dossiers).where(or(...clauses)).limit(1))[0];
-          if (dbRow) existing = dbRow;
-        }
-      } catch (e) {}
+    if (cleanBL && existingMapByBL.has(cleanBL)) {
+      existing = existingMapByBL.get(cleanBL);
+    } else if (cleanClientNum && existingMapByClientRef.has(cleanClientNum)) {
+      existing = existingMapByClientRef.get(cleanClientNum);
     }
 
     if (existing) {
-      // 2. Mise à jour / Fusion (Upsert) sans créer de doublon
-      const mergedInput: EditableDossier = {
+      // 2. Mise à jour / Merge
+      const mergedInput = {
         clientDossierNumber: item.clientDossierNumber || existing.clientDossierNumber,
         client: item.client || existing.client,
         blLtaNumber: item.blLtaNumber || existing.blLtaNumber,
@@ -645,14 +663,141 @@ export async function importDossiersBatch(
         nextAction: item.nextAction || existing.nextAction,
       };
 
-      const updated = await updateDossier(existing.id, mergedInput, userId, authorName || "Import Excel (Mise à jour)");
+      const state = calculateDossierState({ ...existing, ...mergedInput });
+      const updated: Dossier = {
+        ...existing,
+        ...mergedInput,
+        ...state,
+        updatedById: userId ?? existing.updatedById,
+        updatedAt: now,
+      };
+
+      // Mettre à jour le cache mémoire
+      const memIdx = _memoryDossiers.findIndex(d => d.id === existing!.id);
+      if (memIdx >= 0) _memoryDossiers[memIdx] = updated;
+      else _memoryDossiers.push(updated);
+
+      if (cleanBL) existingMapByBL.set(cleanBL, updated);
+      if (cleanClientNum) existingMapByClientRef.set(cleanClientNum, updated);
+
+      toUpdateDB.push({ id: existing.id, data: { ...mergedInput, ...state, updatedById: userId ?? 1, updatedAt: now } });
+
+      historyBatch.push({
+        dossierId: existing.id,
+        changedById: userId ?? 1,
+        authorName: authorName ?? "Importateur Excel",
+        fieldChanged: "Mise à jour Import",
+        previousValue: existing.calculatedStatus,
+        newValue: state.calculatedStatus,
+        comment: `Fusion automatique (${cleanBL || cleanClientNum})`,
+        createdAt: now,
+      });
+
       processed.push(updated);
       updatedCount++;
     } else {
-      // 3. Création nouveau dossier
-      const created = await createDossier(item, userId, authorName || "Import Excel (Nouveau)");
-      processed.push(created);
+      // 3. Création Nouveau Dossier
+      const num = formatDossierNumber(nextSequence);
+      const portalCode = `IGS-${1000 + nextSequence}`;
+      const state = calculateDossierState(item);
+
+      const newDossier: Dossier = {
+        id: nextSequence,
+        dossierNumber: num,
+        clientDossierNumber: item.clientDossierNumber ?? null,
+        client: item.client ?? null,
+        blLtaNumber: item.blLtaNumber ?? null,
+        cargoNature: item.cargoNature ?? null,
+        transportMode: item.transportMode ?? "Maritime",
+        eta: item.eta ?? null,
+        originPort: item.originPort ?? null,
+        destinationPort: item.destinationPort ?? "Port Autonome de Conakry",
+        container: item.container ?? null,
+        bulk: item.bulk ?? null,
+        goodsReleaseDate: item.goodsReleaseDate ?? null,
+        declarationNumber: item.declarationNumber ?? null,
+        bulletinNumber: item.bulletinNumber ?? null,
+        finalDeclarationNumber: item.finalDeclarationNumber ?? null,
+        calculatedStatus: state.calculatedStatus,
+        calculatedPriority: state.calculatedPriority,
+        completionRate: state.completionRate,
+        documentStatus: item.documentStatus ?? null,
+        customsStatus: item.customsStatus ?? null,
+        portStatus: item.portStatus ?? null,
+        financialStatus: item.financialStatus ?? "En attente",
+        fieldOperation: item.fieldOperation ?? null,
+        responsible: item.responsible ?? null,
+        nextAction: item.nextAction ?? null,
+        fieldAlert: item.fieldAlert ?? null,
+        deliveryLocation: item.deliveryLocation ?? null,
+        declarant: item.declarant ?? null,
+        service: item.service ?? "Transit & Dédouanement",
+        regime: item.regime ?? "IM4",
+        notes: item.notes ?? null,
+        portalAccessCode: portalCode,
+        createdById: userId ?? 1,
+        updatedById: userId ?? 1,
+        createdAt: now,
+        updatedAt: now,
+      };
+
+      _memoryDossiers.unshift(newDossier);
+      if (cleanBL) existingMapByBL.set(cleanBL, newDossier);
+      if (cleanClientNum) existingMapByClientRef.set(cleanClientNum, newDossier);
+
+      toInsertDB.push({
+        ...item,
+        dossierNumber: num,
+        portalAccessCode: portalCode,
+        ...state,
+        createdById: userId ?? 1,
+        updatedById: userId ?? 1,
+        createdAt: now,
+        updatedAt: now,
+      });
+
+      historyBatch.push({
+        dossierId: newDossier.id,
+        changedById: userId ?? 1,
+        authorName: authorName ?? "Importateur Excel",
+        fieldChanged: "Création Dossier",
+        previousValue: null,
+        newValue: `Dossier ${num} créé`,
+        comment: `Import batch automatique`,
+        createdAt: now,
+      });
+
+      processed.push(newDossier);
       createdCount++;
+      nextSequence++;
+    }
+  }
+
+  // 4. Exécution DB en parallèle (Ultra Rapide)
+  if (db) {
+    try {
+      const dbPromises = [];
+
+      // Multi-row INSERT pour les nouveaux dossiers
+      if (toInsertDB.length > 0) {
+        dbPromises.push(db.insert(dossiers).values(toInsertDB));
+      }
+
+      // Updates exécutés en parallèle par lots
+      if (toUpdateDB.length > 0) {
+        for (const u of toUpdateDB) {
+          dbPromises.push(db.update(dossiers).set(u.data).where(eq(dossiers.id, u.id)));
+        }
+      }
+
+      // Multi-row INSERT pour l'historique
+      if (historyBatch.length > 0) {
+        dbPromises.push(db.insert(dossierStatusHistory).values(historyBatch));
+      }
+
+      await Promise.allSettled(dbPromises);
+    } catch (e) {
+      console.warn("[DB] Batch sync partial warning:", e);
     }
   }
 
