@@ -577,6 +577,94 @@ export async function updateDossier(id: number, input: Partial<EditableDossier>,
   return updated;
 }
 
+export async function importDossiersBatch(
+  items: EditableDossier[],
+  userId?: number,
+  authorName?: string
+) {
+  let createdCount = 0;
+  let updatedCount = 0;
+  const processed: Dossier[] = [];
+
+  for (const item of items) {
+    const cleanBL = item.blLtaNumber?.trim() || "";
+    const cleanClientNum = item.clientDossierNumber?.trim() || "";
+
+    // 1. Chercher si le dossier existe déjà par BL ou Numéro Dossier Client
+    let existing: Dossier | undefined = undefined;
+
+    if (cleanBL) {
+      existing = _memoryDossiers.find(d => d.blLtaNumber && d.blLtaNumber.trim().toUpperCase() === cleanBL.toUpperCase());
+    }
+    if (!existing && cleanClientNum) {
+      existing = _memoryDossiers.find(d => d.clientDossierNumber && d.clientDossierNumber.trim().toUpperCase() === cleanClientNum.toUpperCase());
+    }
+
+    const db = await getDb();
+    if (!existing && db) {
+      try {
+        const clauses = [];
+        if (cleanBL) clauses.push(sql`UPPER(${dossiers.blLtaNumber}) = ${cleanBL.toUpperCase()}`);
+        if (cleanClientNum) clauses.push(sql`UPPER(${dossiers.clientDossierNumber}) = ${cleanClientNum.toUpperCase()}`);
+        if (clauses.length > 0) {
+          const dbRow = (await db.select().from(dossiers).where(or(...clauses)).limit(1))[0];
+          if (dbRow) existing = dbRow;
+        }
+      } catch (e) {}
+    }
+
+    if (existing) {
+      // 2. Mise à jour / Fusion (Upsert) sans créer de doublon
+      const mergedInput: EditableDossier = {
+        clientDossierNumber: item.clientDossierNumber || existing.clientDossierNumber,
+        client: item.client || existing.client,
+        blLtaNumber: item.blLtaNumber || existing.blLtaNumber,
+        cargoNature: item.cargoNature || existing.cargoNature,
+        transportMode: item.transportMode || existing.transportMode,
+        eta: item.eta ?? existing.eta,
+        originPort: item.originPort || existing.originPort,
+        destinationPort: item.destinationPort || existing.destinationPort,
+        container: item.container || existing.container,
+        bulk: item.bulk || existing.bulk,
+        goodsReleaseDate: item.goodsReleaseDate ?? existing.goodsReleaseDate,
+        declarationNumber: item.declarationNumber || existing.declarationNumber,
+        bulletinNumber: item.bulletinNumber || existing.bulletinNumber,
+        finalDeclarationNumber: item.finalDeclarationNumber || existing.finalDeclarationNumber,
+        customsStatus: item.customsStatus || existing.customsStatus,
+        portStatus: item.portStatus || existing.portStatus,
+        financialStatus: item.financialStatus || existing.financialStatus,
+        regime: item.regime || existing.regime,
+        fieldAlert: item.fieldAlert || existing.fieldAlert,
+        deliveryLocation: item.deliveryLocation || existing.deliveryLocation,
+        notes: item.notes || existing.notes,
+        responsible: item.responsible || existing.responsible,
+        declarant: item.declarant || existing.declarant,
+        service: item.service || existing.service,
+        documentStatus: item.documentStatus || existing.documentStatus,
+        fieldOperation: item.fieldOperation || existing.fieldOperation,
+        nextAction: item.nextAction || existing.nextAction,
+      };
+
+      const updated = await updateDossier(existing.id, mergedInput, userId, authorName || "Import Excel (Mise à jour)");
+      processed.push(updated);
+      updatedCount++;
+    } else {
+      // 3. Création nouveau dossier
+      const created = await createDossier(item, userId, authorName || "Import Excel (Nouveau)");
+      processed.push(created);
+      createdCount++;
+    }
+  }
+
+  return {
+    total: processed.length,
+    createdCount,
+    updatedCount,
+    duplicatesPrevented: updatedCount,
+    dossiers: processed,
+  };
+}
+
 export async function deleteDossier(id: number) {
   _memoryDossiers = _memoryDossiers.filter(d => d.id !== id);
   const db = await getDb();

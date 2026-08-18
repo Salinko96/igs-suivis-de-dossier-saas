@@ -7,6 +7,7 @@ vi.mock("./db", () => ({
   getReferenceItems: vi.fn(),
   createDossier: vi.fn(),
   createDossiersBatch: vi.fn(),
+  importDossiersBatch: vi.fn(),
   updateDossier: vi.fn(),
   deleteDossier: vi.fn(),
   upsertUser: vi.fn(),
@@ -81,7 +82,7 @@ describe("intégration des procédures IGS Dossiers", () => {
       { id: 2, category: "port_destination", label: "Port Autonome de Conakry", sortOrder: 1, createdAt: new Date() },
     ] as never);
     vi.mocked(db.createDossier).mockResolvedValue({ ...fixture, id: 8, dossierNumber: "DOS-0008" } as never);
-    vi.mocked(db.createDossiersBatch).mockResolvedValue({ count: 1, created: [fixture as never] });
+    vi.mocked(db.importDossiersBatch).mockResolvedValue({ total: 1, createdCount: 1, updatedCount: 0, duplicatesPrevented: 0, dossiers: [fixture as never] });
     vi.mocked(db.updateDossier).mockResolvedValue(fixture as never);
     vi.mocked(db.deleteDossier).mockResolvedValue({ success: true });
     vi.mocked(db.getUserByOpenId).mockResolvedValue(context.user as any);
@@ -108,7 +109,7 @@ describe("intégration des procédures IGS Dossiers", () => {
     const removed = await caller.dossier.remove({ id: 7 });
 
     expect(created.dossierNumber).toBe("DOS-0008");
-    expect(batch.count).toBe(1);
+    expect(batch.total).toBe(1);
     expect(db.createDossier).toHaveBeenCalledWith({ client: "GBG", transportMode: "Maritime" }, 1, "Opérateur IGS");
     expect(db.updateDossier).toHaveBeenCalledWith(7, { bulletinNumber: "B-7" }, 1, "Opérateur IGS");
     expect(removed).toEqual({ success: true });

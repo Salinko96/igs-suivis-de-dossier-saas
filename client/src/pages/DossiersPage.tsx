@@ -42,34 +42,41 @@ const badgeStyle = (value?: string | null) =>
 
 import * as XLSX from "xlsx";
 
+function cleanStr(s: unknown): string {
+  return String(s || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toLowerCase();
+}
+
 function normalizeHeaderKey(h: string): string {
-  const clean = h.trim().toLowerCase();
-  if (clean.includes("client dossier") || clean.includes("n° client") || clean.includes("dossier client") || clean.includes("ref client") || clean.includes("num client")) return "clientDossierNumber";
-  if (clean.includes("client") || clean.includes("destinataire") || clean.includes("societe")) return "client";
-  if (clean.includes("bl") || clean.includes("lta") || clean.includes("connaissement") || clean.includes("waybill")) return "blLtaNumber";
-  if (clean.includes("marchandise") || clean.includes("cargo") || clean.includes("nature") || clean.includes("description")) return "cargoNature";
-  if (clean.includes("transport") || clean.includes("mode")) return "transportMode";
-  if (clean.includes("eta") || clean.includes("arrivee") || clean.includes("date eta")) return "eta";
-  if (clean.includes("pol") || clean.includes("origine") || clean.includes("port origine")) return "originPort";
-  if (clean.includes("pod") || clean.includes("destination") || clean.includes("port dest")) return "destinationPort";
-  if (clean.includes("conteneur") || clean.includes("tc") || clean.includes("container")) return "container";
-  if (clean.includes("vrac") || clean.includes("bulk") || clean.includes("pkg") || clean.includes("colis")) return "bulk";
-  if (clean.includes("sortie") || clean.includes("release") || clean.includes("date sortie") || clean.includes("bae")) return "goodsReleaseDate";
-  if (clean.includes("declaration") || clean.includes("n° decl") || clean.includes("sydonia") || clean.includes("ddi")) return "declarationNumber";
-  if (clean.includes("bulletin") || clean.includes("bld") || clean.includes("liquidation")) return "bulletinNumber";
-  if (clean.includes("definitive") || clean.includes("decl def")) return "finalDeclarationNumber";
+  const clean = cleanStr(h);
+  if (clean.includes("client dossier") || clean.includes("n° client") || clean.includes("dossier client") || clean.includes("ref client") || clean.includes("num client") || clean.includes("code client") || clean.includes("no client") || clean.includes("n° dossier client")) return "clientDossierNumber";
+  if (clean.includes("n° dossier") || clean.includes("num dossier") || clean.includes("dossier n°") || clean.includes("id dossier") || clean === "dossier" || clean === "n°" || clean === "no" || clean === "ref" || clean === "code") return "dossierNumber";
+  if (clean.includes("client") || clean.includes("destinataire") || clean.includes("importateur") || clean.includes("societe") || clean.includes("consignee") || clean.includes("customer")) return "client";
+  if (clean.includes("bl") || clean.includes("b/l") || clean.includes("lta") || clean.includes("connaissement") || clean.includes("bill of lading") || clean.includes("waybill") || clean.includes("booking")) return "blLtaNumber";
+  if (clean.includes("marchandise") || clean.includes("cargo") || clean.includes("nature") || clean.includes("designation") || clean.includes("description") || clean.includes("commodity") || clean.includes("produit")) return "cargoNature";
+  if (clean.includes("transport") || clean.includes("mode") || clean.includes("fret")) return "transportMode";
+  if (clean.includes("eta") || clean.includes("arrivee") || clean.includes("date eta") || clean.includes("date d'arrivee") || clean.includes("date arrivee")) return "eta";
+  if (clean.includes("pol") || clean.includes("origine") || clean.includes("port origine") || clean.includes("loading") || clean.includes("chargement") || clean.includes("provenance") || clean.includes("port depart")) return "originPort";
+  if (clean.includes("pod") || clean.includes("destination") || clean.includes("port dest") || clean.includes("discharge") || clean.includes("debarquement") || clean.includes("port arrivee")) return "destinationPort";
+  if (clean.includes("conteneur") || clean.includes("tc") || clean.includes("container") || clean.includes("n° conteneur")) return "container";
+  if (clean.includes("vrac") || clean.includes("bulk") || clean.includes("pkg") || clean.includes("colis") || clean.includes("poids") || clean.includes("tonnage") || clean.includes("quantite")) return "bulk";
+  if (clean.includes("sortie") || clean.includes("release") || clean.includes("date sortie") || clean.includes("bae") || clean.includes("date bae") || clean.includes("enlevement")) return "goodsReleaseDate";
+  if (clean.includes("declaration") || clean.includes("decl") || clean.includes("sydonia") || clean.includes("ddi") || clean.includes("num declaration") || clean.includes("n° decl")) return "declarationNumber";
+  if (clean.includes("bulletin") || clean.includes("bld") || clean.includes("liquidation") || clean.includes("n° bulletin")) return "bulletinNumber";
+  if (clean.includes("definitive") || clean.includes("decl def") || clean.includes("ddi def")) return "finalDeclarationNumber";
   if (clean.includes("regime")) return "regime";
-  if (clean.includes("livraison") || clean.includes("lieu")) return "deliveryLocation";
-  if (clean.includes("alerte") || clean.includes("blocage")) return "fieldAlert";
-  if (clean.includes("action")) return "nextAction";
-  if (clean.includes("statut douane")) return "customsStatus";
-  if (clean.includes("statut port")) return "portStatus";
-  if (clean.includes("statut financier") || clean.includes("finance")) return "financialStatus";
-  if (clean.includes("responsable") || clean.includes("agent")) return "responsible";
-  if (clean.includes("declarant")) return "declarant";
-  if (clean.includes("service")) return "service";
-  if (clean.includes("note") || clean.includes("observation")) return "notes";
-  return h;
+  if (clean.includes("livraison") || clean.includes("lieu") || clean.includes("site")) return "deliveryLocation";
+  if (clean.includes("alerte") || clean.includes("blocage") || clean.includes("incident") || clean.includes("retard")) return "fieldAlert";
+  if (clean.includes("action") || clean.includes("urgente")) return "nextAction";
+  if (clean.includes("douane")) return "customsStatus";
+  if (clean.includes("port")) return "portStatus";
+  if (clean.includes("financ") || clean.includes("paiement") || clean.includes("facture")) return "financialStatus";
+  if (clean.includes("responsable") || clean.includes("agent") || clean.includes("declarant")) return "responsible";
+  if (clean.includes("note") || clean.includes("observation") || clean.includes("remarque") || clean.includes("commentaire")) return "notes";
+  return clean;
 }
 
 function parseCSV(text: string): Array<Record<string, string>> {
@@ -93,7 +100,9 @@ function parseCSV(text: string): Array<Record<string, string>> {
     mappedHeaders.forEach((key, colIndex) => {
       row[key] = rawCols[colIndex] || "";
     });
-    rows.push(row);
+    if (Object.values(row).some(v => v.trim() !== "")) {
+      rows.push(row);
+    }
   }
   return rows;
 }
@@ -102,22 +111,55 @@ function parseExcelBuffer(buffer: ArrayBuffer): Array<Record<string, string>> {
   const workbook = XLSX.read(buffer, { type: "array", cellDates: true });
   const firstSheetName = workbook.SheetNames[0];
   const worksheet = workbook.Sheets[firstSheetName];
-  const rawJson = XLSX.utils.sheet_to_json<Record<string, any>>(worksheet, { defval: "" });
+  const rawRows = XLSX.utils.sheet_to_json<any[]>(worksheet, { header: 1, defval: "" });
 
-  if (rawJson.length === 0) return [];
+  if (rawRows.length === 0) return [];
 
-  return rawJson.map(rawRow => {
-    const normalizedRow: Record<string, string> = {};
-    for (const [key, value] of Object.entries(rawRow)) {
-      const normKey = normalizeHeaderKey(key);
-      if (value instanceof Date) {
-        normalizedRow[normKey] = value.toISOString().slice(0, 10);
-      } else {
-        normalizedRow[normKey] = String(value || "").trim();
+  // Auto-detect header row index by scoring logistics terms in the first 10 rows
+  let headerRowIdx = 0;
+  let maxScore = -1;
+
+  for (let i = 0; i < Math.min(rawRows.length, 10); i++) {
+    const row = rawRows[i];
+    if (!Array.isArray(row)) continue;
+    let score = 0;
+    for (const cell of row) {
+      const k = normalizeHeaderKey(String(cell || ""));
+      if (["client", "blLtaNumber", "cargoNature", "eta", "originPort", "declarationNumber", "dossierNumber", "clientDossierNumber", "transportMode", "bulletinNumber"].includes(k)) {
+        score++;
       }
     }
-    return normalizedRow;
-  });
+    if (score > maxScore) {
+      maxScore = score;
+      headerRowIdx = i;
+    }
+  }
+
+  const headerRow = rawRows[headerRowIdx] || [];
+  const mappedHeaders = headerRow.map((cell: any) => normalizeHeaderKey(String(cell || "")));
+
+  const parsedRows: Array<Record<string, string>> = [];
+  for (let i = headerRowIdx + 1; i < rawRows.length; i++) {
+    const row = rawRows[i];
+    if (!Array.isArray(row) || row.every(c => c === "" || c === null || c === undefined)) continue;
+
+    const rowObj: Record<string, string> = {};
+    mappedHeaders.forEach((key: string, colIdx: number) => {
+      let val = row[colIdx];
+      if (val instanceof Date) {
+        val = val.toISOString().slice(0, 10);
+      } else {
+        val = String(val ?? "").trim();
+      }
+      rowObj[key] = val;
+    });
+
+    if (Object.values(rowObj).some(v => v.trim() !== "")) {
+      parsedRows.push(rowObj);
+    }
+  }
+
+  return parsedRows;
 }
 
 function DossiersContent() {
@@ -156,9 +198,12 @@ function DossiersContent() {
 
   const importBatchMutation = trpc.dossier.importBatch.useMutation({
     onSuccess: result => {
-      toast.success(`${result.count} dossier(s) importé(s) avec succès !`);
+      toast.success(
+        `🎉 ${result.total} dossier(s) traités avec succès ! (${result.createdCount} nouveau(x), ${result.updatedCount} mis à jour, ${result.duplicatesPrevented} doublon(s) évité(s))`
+      );
       utils.dossier.list.invalidate();
       utils.dashboard.get.invalidate();
+      utils.notification.list.invalidate();
       setIsImportOpen(false);
       setImportRows([]);
       setImportFileName("");
@@ -705,39 +750,67 @@ function DossiersContent() {
             </div>
 
             {importRows.length > 0 && (
-              <div className="space-y-2">
-                <div className="flex items-center justify-between text-xs font-semibold text-[#204036]">
-                  <span>Aperçu des données ({importRows.length} lignes)</span>
-                  <Badge className="bg-[#e3f1ea] text-[#176b55]">Prêt pour intégration</Badge>
+              <div className="space-y-2.5">
+                <div className="flex flex-wrap items-center justify-between gap-2 text-xs font-semibold text-[#204036]">
+                  <span>Aperçu des données ({importRows.length} lignes détectées)</span>
+                  <div className="flex items-center gap-1.5">
+                    <Badge className="bg-[#e3f1ea] text-[#176b55] border-0 text-[10px]">
+                      Anti-doublons actif (Upsert par BL / Réf)
+                    </Badge>
+                  </div>
                 </div>
-                <div className="max-h-56 overflow-auto rounded-xl border border-[#edf2ef] bg-[#fcfdfd]">
+                <div className="max-h-64 overflow-auto rounded-xl border border-[#edf2ef] bg-[#fcfdfd] shadow-inner">
                   <table className="w-full text-left text-xs">
                     <thead className="sticky top-0 bg-[#f1f6f4] text-[10px] uppercase text-[#697d77]">
                       <tr>
-                        <th className="p-2">Client</th>
-                        <th className="p-2">BL / LTA</th>
-                        <th className="p-2">Marchandise</th>
-                        <th className="p-2">ETA</th>
-                        <th className="p-2">Déclaration</th>
-                        <th className="p-2">Bulletin</th>
+                        <th className="p-2.5">Réf / Client</th>
+                        <th className="p-2.5">BL / LTA</th>
+                        <th className="p-2.5">Marchandise</th>
+                        <th className="p-2.5">Transport & ETA</th>
+                        <th className="p-2.5">POL ➔ POD</th>
+                        <th className="p-2.5">Déclaration</th>
+                        <th className="p-2.5">Bulletin</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-[#edf2ef]">
-                      {importRows.slice(0, 8).map((row, i) => (
-                        <tr key={i}>
-                          <td className="p-2 truncate max-w-[120px]">{row.client || "—"}</td>
-                          <td className="p-2">{row.blLtaNumber || "—"}</td>
-                          <td className="p-2 truncate max-w-[140px]">{row.cargoNature || "—"}</td>
-                          <td className="p-2">{row.eta || "—"}</td>
-                          <td className="p-2">{row.declarationNumber || "—"}</td>
-                          <td className="p-2">{row.bulletinNumber || "—"}</td>
+                      {importRows.slice(0, 10).map((row, i) => (
+                        <tr key={i} className="hover:bg-[#f6f9f8] transition-colors">
+                          <td className="p-2.5 max-w-[130px]">
+                            <div className="truncate font-semibold text-[#183b32]">
+                              {row.client || row.clientDossierNumber || row.dossierNumber || "—"}
+                            </div>
+                            {row.client && (row.clientDossierNumber || row.dossierNumber) && (
+                              <div className="truncate text-[10px] text-muted-foreground">
+                                {row.clientDossierNumber || row.dossierNumber}
+                              </div>
+                            )}
+                          </td>
+                          <td className="p-2.5 font-mono text-[11px] font-medium text-emerald-900">
+                            {row.blLtaNumber || "—"}
+                          </td>
+                          <td className="p-2.5 truncate max-w-[130px]" title={row.cargoNature}>
+                            {row.cargoNature || "—"}
+                          </td>
+                          <td className="p-2.5 text-[11px]">
+                            <span className="font-medium text-[#204036]">{row.eta || "—"}</span>
+                            <span className="block text-[10px] text-muted-foreground">{row.transportMode || "Maritime"}</span>
+                          </td>
+                          <td className="p-2.5 text-[10px] text-muted-foreground">
+                            {row.originPort || "POL"} ➔ {row.destinationPort || "Conakry"}
+                          </td>
+                          <td className="p-2.5 font-mono text-[11px] text-[#1c5548]">
+                            {row.declarationNumber || "—"}
+                          </td>
+                          <td className="p-2.5 font-mono text-[11px] text-[#855319]">
+                            {row.bulletinNumber || "—"}
+                          </td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
                 </div>
-                {importRows.length > 8 && (
-                  <p className="text-right text-[11px] text-[#869993]">... et {importRows.length - 8} autres dossiers</p>
+                {importRows.length > 10 && (
+                  <p className="text-right text-[11px] text-[#869993]">... et {importRows.length - 10} autres dossiers détectés prêts à être importés</p>
                 )}
               </div>
             )}

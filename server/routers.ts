@@ -231,12 +231,7 @@ export const appRouter = router({
     importBatch: protectedProcedure
       .input(z.array(dossierPayload))
       .mutation(async ({ ctx, input }) => {
-        const results = [];
-        for (const item of input) {
-          const created = await db.createDossier(item, ctx.user.id, ctx.user.name || "Importateur");
-          results.push(created);
-        }
-        return { count: results.length, created: results };
+        return db.importDossiersBatch(input, ctx.user.id, ctx.user.name || "Importateur Excel");
       }),
   }),
 
