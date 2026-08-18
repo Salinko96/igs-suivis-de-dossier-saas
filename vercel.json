@@ -14,7 +14,8 @@
   ],
   "functions": {
     "api/index.ts": {
-      "runtime": "@vercel/node@5.1.9"
+      "runtime": "@vercel/node@5.1.9",
+      "includeFiles": "server/**,shared/**,drizzle/**"
     }
   },
   "env": {
