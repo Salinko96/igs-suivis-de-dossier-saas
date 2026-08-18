@@ -24,7 +24,7 @@ import {
   Upload,
   X,
 } from "lucide-react";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useLocation } from "wouter";
 
@@ -162,7 +162,7 @@ async function parseExcelBuffer(buffer: ArrayBuffer): Promise<Array<Record<strin
 }
 
 function DossiersContent() {
-  const [, setLocation] = useLocation();
+  const [location, setLocation] = useLocation();
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState("");
   const [priority, setPriority] = useState("");
@@ -171,6 +171,101 @@ function DossiersContent() {
   const [etaFrom, setEtaFrom] = useState("");
   const [etaTo, setEtaTo] = useState("");
   const [viewMode, setViewMode] = useState<"table" | "cards">("table");
+
+  // Advanced drill-down URL parameters state
+  const [urlParams, setUrlParams] = useState<Record<string, string>>({});
+  const [drillDownLabel, setDrillDownLabel] = useState<string | null>(null);
+
+  // Synchronize URL search parameters on mount and location changes
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const p: Record<string, string> = {};
+    params.forEach((v, k) => {
+      p[k] = v;
+    });
+    setUrlParams(p);
+
+    let label: string | null = null;
+
+    if (p.filter === "all") {
+      setSearch("");
+      setStatus("");
+      setPriority("");
+      setClient("");
+      setTransportMode("");
+      setEtaFrom("");
+      setEtaTo("");
+      setDrillDownLabel(null);
+      return;
+    }
+
+    if (p.status) {
+      if (p.status.toLowerCase() === "regularise" || p.status === "Régularisé") {
+        setStatus("Régularisé");
+        label = "Dossiers Régularisés";
+      } else if (p.status.toLowerCase() === "a_regulariser" || p.status === "À régulariser") {
+        setStatus("À régulariser");
+        label = "Dossiers À régulariser";
+      }
+    }
+
+    if (p.a_regulariser === "true") {
+      setStatus("À régulariser");
+      if (!label) label = "Dossiers À régulariser";
+    }
+
+    if (p.priority) {
+      const pr = p.priority.toLowerCase();
+      if (pr === "haute") {
+        setPriority("Haute");
+        label = "Priorité Haute";
+      } else if (pr === "normale") {
+        setPriority("Normale");
+        label = "Priorité Normale";
+      } else if (pr === "basse") {
+        setPriority("Basse");
+        label = "Priorité Basse";
+      }
+    }
+
+    if (p.client) {
+      setClient(p.client);
+      label = `Client : ${p.client}`;
+    }
+
+    if (p.transportMode) {
+      setTransportMode(p.transportMode);
+    }
+
+    if (p.eta === "depassee" || p.overdue === "true") {
+      label = "ETA Dépassées (sans sortie marchandises)";
+    }
+
+    if (p.retard === "true" || p.lateToRegularize === "true") {
+      label = "Retards critiques à régulariser";
+    }
+
+    if (p.eta_range === "next_7_days") {
+      label = "Arrivées sous 7 jours";
+    }
+
+    if (p.eta_month) {
+      label = `Arrivées du mois (${p.eta_month})`;
+    }
+
+    if (p.vigilance) {
+      if (p.vigilance === "incomplets") label = "Points de vigilance : Dossiers incomplets";
+      else if (p.vigilance === "doublon_bl") label = "Points de vigilance : Doublons BL / LTA";
+      else if (p.vigilance === "declaration_manquante") label = "Points de vigilance : Déclarations manquantes";
+      else if (p.vigilance === "sortie_manquante") label = "Points de vigilance : Sorties non renseignées";
+    }
+
+    if (p.has_anomalies === "true") {
+      label = "Tous les dossiers avec points de vigilance";
+    }
+
+    setDrillDownLabel(label);
+  }, [location]);
 
   // Import Dialog State
   const [isImportOpen, setIsImportOpen] = useState(false);
@@ -191,9 +286,84 @@ function DossiersContent() {
     [search, status, priority, client, transportMode, etaFrom, etaTo]
   );
 
-  const { data: dossiers, isLoading, error } = trpc.dossier.list.useQuery(queryInput);
+  const { data: rawDossiers, isLoading, error } = trpc.dossier.list.useQuery(queryInput);
   const { data: refs } = trpc.reference.list.useQuery();
   const utils = trpc.useUtils();
+
+  const filteredDossiers = useMemo(() => {
+    if (!rawDossiers) return [];
+    let list = rawDossiers;
+    const now = new Date();
+    now.setHours(0, 0, 0, 0);
+
+    const blOccurrences = new Map<string, number>();
+    rawDossiers.forEach(d => {
+      if (d.blLtaNumber && d.blLtaNumber.trim()) {
+        blOccurrences.set(d.blLtaNumber.trim(), (blOccurrences.get(d.blLtaNumber.trim()) || 0) + 1);
+      }
+    });
+
+    // 1. Overdue ETA filter: ?eta=depassee&statut_sortie=non_renseigne
+    if (urlParams.eta === "depassee" || urlParams.overdue === "true") {
+      list = list.filter(d => d.eta && new Date(d.eta) < now && !d.goodsReleaseDate);
+    }
+    if (urlParams.statut_sortie === "non_renseigne") {
+      list = list.filter(d => !d.goodsReleaseDate);
+    }
+
+    // 2. Late to regularize: ?retard=true&a_regulariser=true
+    if (urlParams.retard === "true") {
+      list = list.filter(d => d.calculatedStatus === "À régulariser" && d.eta && new Date(d.eta) < now);
+    }
+
+    // 3. Next 7 days ETA range: ?eta_range=next_7_days
+    if (urlParams.eta_range === "next_7_days") {
+      list = list.filter(d => {
+        if (!d.eta || d.goodsReleaseDate) return false;
+        const etaDate = new Date(d.eta);
+        const days = Math.ceil((etaDate.getTime() - now.getTime()) / 86400000);
+        return days >= 0 && days <= 7;
+      });
+    }
+
+    // 4. Monthly ETA: ?eta_month=juil. 26 or ?eta_month=2026-07
+    if (urlParams.eta_month) {
+      list = list.filter(d => {
+        if (!d.eta) return false;
+        const etaDate = new Date(d.eta);
+        const keyFr = new Intl.DateTimeFormat("fr-FR", { month: "short", year: "2-digit", timeZone: "UTC" }).format(etaDate);
+        const keyIso = etaDate.toISOString().slice(0, 7);
+        return keyFr.toLowerCase() === urlParams.eta_month.toLowerCase() || keyIso === urlParams.eta_month;
+      });
+    }
+
+    // 5. Quality Vigilance: ?vigilance=incomplets | doublon_bl | declaration_manquante | sortie_manquante
+    if (urlParams.vigilance === "incomplets") {
+      list = list.filter(d => !d.clientDossierNumber || !d.eta || !d.declarationNumber || !d.bulletinNumber || !d.goodsReleaseDate);
+    } else if (urlParams.vigilance === "doublon_bl") {
+      list = list.filter(d => d.blLtaNumber && (blOccurrences.get(d.blLtaNumber.trim()) || 0) > 1);
+    } else if (urlParams.vigilance === "declaration_manquante") {
+      list = list.filter(d => !d.declarationNumber || d.declarationNumber.trim() === "");
+    } else if (urlParams.vigilance === "sortie_manquante") {
+      list = list.filter(d => !d.goodsReleaseDate);
+    }
+
+    // 6. Has Anomalies: ?has_anomalies=true
+    if (urlParams.has_anomalies === "true") {
+      list = list.filter(d =>
+        !d.clientDossierNumber ||
+        !d.eta ||
+        !d.declarationNumber ||
+        !d.bulletinNumber ||
+        !d.goodsReleaseDate ||
+        (d.blLtaNumber && (blOccurrences.get(d.blLtaNumber.trim()) || 0) > 1)
+      );
+    }
+
+    return list;
+  }, [rawDossiers, urlParams]);
+
+  const dossiers = filteredDossiers;
 
   const importBatchMutation = trpc.dossier.importBatch.useMutation({
     onSuccess: result => {
@@ -223,9 +393,14 @@ function DossiersContent() {
     setTransportMode("");
     setEtaFrom("");
     setEtaTo("");
+    setUrlParams({});
+    setDrillDownLabel(null);
+    if (window.location.search) {
+      window.history.replaceState({}, "", "/dossiers");
+    }
   };
 
-  const activeFilters = [status, priority, client, transportMode, etaFrom, etaTo].filter(Boolean).length;
+  const activeFilters = [status, priority, client, transportMode, etaFrom, etaTo, drillDownLabel].filter(Boolean).length;
 
   // Handle Export CSV
   const handleExportCSV = () => {
@@ -539,6 +714,30 @@ function DossiersContent() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Active Drill-Down Banner */}
+      {drillDownLabel && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-emerald-300/80 bg-[#e8f1ed]/90 px-5 py-3 text-xs text-emerald-950 shadow-sm animate-in fade-in duration-200">
+          <div className="flex items-center gap-2.5">
+            <span className="flex h-2.5 w-2.5 rounded-full bg-[#176653] animate-pulse" />
+            <span>
+              🎯 Filtrage actif depuis le tableau de bord :{" "}
+              <strong className="text-[#103b32] font-bold underline decoration-[#d9a94b] decoration-2">
+                {drillDownLabel}
+              </strong>{" "}
+              ({dossiers.length} dossier{dossiers.length > 1 ? "s" : ""})
+            </span>
+          </div>
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={reset}
+            className="h-7 rounded-lg text-xs font-semibold text-[#8a4a38] hover:bg-rose-50 hover:text-[#ad4c38] px-2.5 gap-1"
+          >
+            <X size={13} /> Effacer le filtre
+          </Button>
+        </div>
+      )}
 
       {/* Main Table / Cards Content */}
       {error ? (

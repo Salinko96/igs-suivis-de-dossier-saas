@@ -31,8 +31,8 @@
 ## Milestones
 | # | Name | Scope | Dependencies | Status |
 |---|------|-------|-------------|--------|
-| M1 | Backend RBAC, Schema & Data Persistence | `server/_core/trpc.ts`, `drizzle/schema.ts`, `server/db.ts`, `server/routers.ts`, `shared/types.ts` | none | PLANNED |
-| M2 | Frontend RBAC, Navigation & Role Simulator UX | `client/src/hooks/usePermissions.ts`, `client/src/components/ProtectedRoute.tsx`, `client/src/App.tsx`, `client/src/components/DashboardLayout.tsx` | M1 | PLANNED |
+| M1 | Backend RBAC, Schema & Data Persistence | `server/_core/trpc.ts`, `drizzle/schema.ts`, `server/db.ts`, `server/routers.ts`, `shared/types.ts` | none | DONE |
+| M2 | Frontend RBAC, Navigation & Role Simulator UX | `client/src/hooks/usePermissions.ts`, `client/src/components/ProtectedRoute.tsx`, `client/src/App.tsx`, `client/src/components/DashboardLayout.tsx` | M1 | IN_PROGRESS |
 | M3 | Déclarant PAC (Mamadou Diallo) Operational Profile | `client/src/components/CustomsEditModal.tsx`, `client/src/pages/PlanningPage.tsx`, `client/src/pages/ControlsPage.tsx`, `client/src/pages/DossierDetailPage.tsx`, `client/src/pages/DossiersPage.tsx` | M1, M2 | PLANNED |
 | M4 | Comptable (Fatoumata Camara) Multi-Currency & Invoicing | `client/src/pages/FinancesPage.tsx`, `client/src/pages/DossierDetailPage.tsx`, `server/routers.ts` (finance), `server/db.ts` | M1, M2 | PLANNED |
 | M5 | E2E Testing Suite (Tiers 1-4) & Quality Assurance | `server/__tests__/tier1_*`, `tier2_*`, `tier3_*`, `tier4_*`, full test pass, typecheck, build validation | M1, M2, M3, M4 | PLANNED |

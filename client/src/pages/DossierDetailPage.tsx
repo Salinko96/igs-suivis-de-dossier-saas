@@ -1,4 +1,5 @@
 import DashboardLayout from "@/components/DashboardLayout";
+import { CustomsEditModal } from "@/components/CustomsEditModal";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -9,6 +10,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { trpc } from "@/lib/trpc";
+import { usePermissions } from "@/hooks/usePermissions";
 import {
   AlertCircle,
   AlertTriangle,
@@ -22,6 +24,7 @@ import {
   Clock,
   Coins,
   Download,
+  Edit3,
   FileCheck2,
   FileText,
   History,
@@ -35,6 +38,7 @@ import {
   QrCode,
   Save,
   Share2,
+  ShieldAlert,
   Trash2,
   UploadCloud,
   User,
@@ -61,6 +65,9 @@ const blank: FormState = {
   declarationNumber: "",
   bulletinNumber: "",
   finalDeclarationNumber: "",
+  ddiGucegNumber: "",
+  badStatus: "",
+  baeStatus: "",
   documentStatus: "",
   customsStatus: "",
   portStatus: "",
@@ -92,6 +99,7 @@ function Field({
   type = "text",
   invalid = false,
   placeholder,
+  disabled = false,
 }: {
   label: string;
   field: string;
@@ -101,6 +109,7 @@ function Field({
   type?: string;
   invalid?: boolean;
   placeholder?: string;
+  disabled?: boolean;
 }) {
   return (
     <div className="space-y-1.5">
@@ -113,12 +122,13 @@ function Field({
         type={type}
         value={form[field] || ""}
         placeholder={placeholder}
+        disabled={disabled}
         aria-invalid={invalid}
         aria-describedby={invalid ? `${field}-error` : undefined}
         onChange={event => setForm(current => ({ ...current, [field]: event.target.value }))}
         className={`h-10 rounded-xl bg-white text-sm focus-visible:ring-[#2f826d]/30 ${
           invalid ? "border-[#cf5c46]" : "border-[#dfe9e4]"
-        }`}
+        } ${disabled ? "bg-gray-50 text-gray-500 cursor-not-allowed" : ""}`}
       />
       {invalid && (
         <p id={`${field}-error`} role="alert" className="text-[11px] font-medium text-[#ba4a36]">
@@ -139,6 +149,7 @@ function ReferenceSelectOrInput({
   required = false,
   invalid = false,
   placeholder,
+  disabled = false,
 }: {
   label: string;
   field: string;
@@ -149,6 +160,7 @@ function ReferenceSelectOrInput({
   required?: boolean;
   invalid?: boolean;
   placeholder?: string;
+  disabled?: boolean;
 }) {
   const choices = references.filter(item => item.category === category);
   const datalistId = `list-${category}`;
@@ -164,13 +176,14 @@ function ReferenceSelectOrInput({
           id={field}
           list={datalistId}
           value={form[field] || ""}
+          disabled={disabled}
           placeholder={placeholder || "Choisir ou saisir…"}
           aria-invalid={invalid}
           aria-describedby={invalid ? `${field}-error` : undefined}
           onChange={event => setForm(current => ({ ...current, [field]: event.target.value }))}
           className={`h-10 w-full rounded-xl border bg-white px-3 text-sm text-[#365048] outline-none transition focus:ring-2 focus:ring-[#2f826d]/30 ${
             invalid ? "border-[#cf5c46]" : "border-[#dfe9e4]"
-          }`}
+          } ${disabled ? "bg-gray-50 text-gray-500 cursor-not-allowed" : ""}`}
         />
         <datalist id={datalistId}>
           {choices.map(choice => (
@@ -196,6 +209,7 @@ function ReferenceSelect({
   references,
   required = false,
   invalid = false,
+  disabled = false,
 }: {
   label: string;
   field: string;
@@ -205,6 +219,7 @@ function ReferenceSelect({
   references: Array<{ id: number; category: string; label: string }>;
   required?: boolean;
   invalid?: boolean;
+  disabled?: boolean;
 }) {
   const choices = references.filter(item => item.category === category);
   return (
@@ -216,12 +231,13 @@ function ReferenceSelect({
       <select
         id={field}
         value={form[field] || ""}
+        disabled={disabled}
         aria-invalid={invalid}
         aria-describedby={invalid ? `${field}-error` : undefined}
         onChange={event => setForm(current => ({ ...current, [field]: event.target.value }))}
         className={`h-10 w-full rounded-xl border bg-white px-3 text-sm text-[#365048] outline-none transition focus:ring-2 focus:ring-[#2f826d]/30 ${
           invalid ? "border-[#cf5c46]" : "border-[#dfe9e4]"
-        }`}
+        } ${disabled ? "bg-gray-50 text-gray-500 cursor-not-allowed" : ""}`}
       >
         <option value="">Sélectionner…</option>
         {choices.map(choice => (
@@ -244,6 +260,8 @@ function DetailContent() {
   const [location, setLocation] = useLocation();
   const isNew = location === "/dossiers/nouveau";
   const id = Number(params?.id);
+  const perms = usePermissions();
+
   const { data: dossier, isLoading } = trpc.dossier.get.useQuery(
     { id },
     { enabled: !isNew && Number.isFinite(id) }
@@ -253,24 +271,26 @@ function DetailContent() {
   const utils = trpc.useUtils();
   const [form, setForm] = useState<FormState>(blank);
   const [showValidation, setShowValidation] = useState(false);
+  const [customsModalOpen, setCustomsModalOpen] = useState(false);
 
-  // Nouvelles fonctionnalités (Documents, Audit, Factures, Tâches, Commentaires)
+  // Onglets & Modales
   const [activeTab, setActiveTab] = useState("general");
   const [newComment, setNewComment] = useState("");
   const [uploadDocOpen, setUploadDocOpen] = useState(false);
-  const [newDocName, setNewDocName] = useState("");
   const [newDocType, setNewDocType] = useState<any>("BL");
   const [createInvoiceOpen, setCreateInvoiceOpen] = useState(false);
   const [invoiceAmountHt, setInvoiceAmountHt] = useState(15000000);
   const [invoiceCurrency, setInvoiceCurrency] = useState("GNF");
   const [createTaskOpen, setCreateTaskOpen] = useState(false);
   const [newTaskTitle, setNewTaskTitle] = useState("");
-  const [newTaskAssignee, setNewTaskAssignee] = useState("Mamadou Diallo");
+  const [newTaskAssignee, setNewTaskAssignee] = useState(
+    perms.isDeclarant ? "Mamadou Diallo" : perms.isComptable ? "Fatoumata Camara" : "Mamadou Diallo"
+  );
 
   // Requêtes additionnelles pour les onglets
   const docsQuery = trpc.document.list.useQuery({ dossierId: id }, { enabled: !isNew && Boolean(id) });
-  const auditQuery = trpc.audit.list.useQuery({ dossierId: id }, { enabled: !isNew && Boolean(id) });
-  const invoicesQuery = trpc.finance.listInvoices.useQuery({ dossierId: id }, { enabled: !isNew && Boolean(id) });
+  const auditQuery = trpc.audit.list.useQuery({ dossierId: id }, { enabled: !isNew && Boolean(id) && perms.canViewAudit });
+  const invoicesQuery = trpc.finance.listInvoices.useQuery({ dossierId: id }, { enabled: !isNew && Boolean(id) && perms.canViewFinances });
   const tasksQuery = trpc.task.list.useQuery({ dossierId: id }, { enabled: !isNew && Boolean(id) });
   const commentsQuery = trpc.comment.list.useQuery({ dossierId: id }, { enabled: !isNew && Boolean(id) });
 
@@ -279,17 +299,16 @@ function DetailContent() {
     onSuccess: () => {
       toast.success("Document téléversé avec succès");
       setUploadDocOpen(false);
-      setNewDocName("");
       docsQuery.refetch();
       auditQuery.refetch();
-    }
+    },
   });
 
   const deleteDocMutation = trpc.document.remove.useMutation({
     onSuccess: () => {
       toast.success("Document supprimé");
       docsQuery.refetch();
-    }
+    },
   });
 
   const createInvoiceMutation = trpc.finance.createInvoice.useMutation({
@@ -298,7 +317,7 @@ function DetailContent() {
       setCreateInvoiceOpen(false);
       invoicesQuery.refetch();
       utils.dossier.get.invalidate({ id });
-    }
+    },
   });
 
   const createTaskMutation = trpc.task.create.useMutation({
@@ -307,18 +326,18 @@ function DetailContent() {
       setCreateTaskOpen(false);
       setNewTaskTitle("");
       tasksQuery.refetch();
-    }
+    },
   });
 
   const updateTaskMutation = trpc.task.updateStatus.useMutation({
-    onSuccess: () => tasksQuery.refetch()
+    onSuccess: () => tasksQuery.refetch(),
   });
 
   const addCommentMutation = trpc.comment.add.useMutation({
     onSuccess: () => {
       setNewComment("");
       commentsQuery.refetch();
-    }
+    },
   });
 
   useEffect(() => {
@@ -348,6 +367,9 @@ function DetailContent() {
       declarationNumber: dossier.declarationNumber || "",
       bulletinNumber: dossier.bulletinNumber || "",
       finalDeclarationNumber: dossier.finalDeclarationNumber || "",
+      ddiGucegNumber: dossier.ddiGucegNumber || "",
+      badStatus: dossier.badStatus || "",
+      baeStatus: dossier.baeStatus || "",
       documentStatus: dossier.documentStatus || "",
       customsStatus: dossier.customsStatus || "",
       portStatus: dossier.portStatus || "",
@@ -399,6 +421,7 @@ function DetailContent() {
       utils.dashboard.invalidate();
       setLocation("/dossiers");
     },
+    onError: err => toast.error(`Erreur de suppression : ${err.message}`),
   });
 
   const handleSubmit = (event: React.FormEvent) => {
@@ -428,6 +451,9 @@ function DetailContent() {
       declarationNumber: toText(form.declarationNumber),
       bulletinNumber: toText(form.bulletinNumber),
       finalDeclarationNumber: toText(form.finalDeclarationNumber),
+      ddiGucegNumber: toText(form.ddiGucegNumber),
+      badStatus: toText(form.badStatus),
+      baeStatus: toText(form.baeStatus),
       documentStatus: toText(form.documentStatus),
       customsStatus: toText(form.customsStatus),
       portStatus: toText(form.portStatus),
@@ -453,8 +479,6 @@ function DetailContent() {
   const handleFileUploadMock = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    setNewDocName(file.name);
-    // Simuler un encodage base64 pour stockage local immédiat
     const reader = new FileReader();
     reader.onload = () => {
       uploadDocMutation.mutate({
@@ -517,11 +541,24 @@ function DetailContent() {
 
         {!isNew && (
           <div className="flex flex-wrap items-center gap-2">
+            {/* Action Rapide Douane pour Déclarant & Admin */}
+            {perms.canEditCustoms && dossier && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setCustomsModalOpen(true)}
+                className="rounded-xl border-emerald-800 text-emerald-950 hover:bg-emerald-50 text-xs h-9 font-semibold"
+              >
+                <ShieldAlert size={14} className="mr-1.5 text-emerald-700" />
+                Édition Rapide Douane
+              </Button>
+            )}
+
             <Button
               variant="outline"
               size="sm"
               onClick={() => window.print()}
-              className="rounded-xl border-[#dfe8e4] bg-white text-[#35544c] hover:bg-[#edf5f1]"
+              className="rounded-xl border-[#dfe8e4] bg-white text-[#35544c] hover:bg-[#edf5f1] text-xs h-9"
             >
               <Printer size={15} className="mr-1.5" /> Imprimer / PDF
             </Button>
@@ -550,7 +587,7 @@ function DetailContent() {
         )}
       </div>
 
-      {/* Navigation par Onglets */}
+      {/* Navigation par Onglets avec Filtrage RBAC Strict */}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
         <TabsList className="bg-white/80 p-1 border border-[#dfe8e4] rounded-2xl shadow-sm h-11">
           <TabsTrigger value="general" className="rounded-xl text-xs data-[state=active]:bg-[#0b3b32] data-[state=active]:text-white">
@@ -561,15 +598,20 @@ function DetailContent() {
               <TabsTrigger value="documents" className="rounded-xl text-xs data-[state=active]:bg-[#0b3b32] data-[state=active]:text-white">
                 <Paperclip size={14} className="mr-1.5" /> Documents & Preuves ({docsQuery.data?.length || 0})
               </TabsTrigger>
-              <TabsTrigger value="finances" className="rounded-xl text-xs data-[state=active]:bg-[#0b3b32] data-[state=active]:text-white">
-                <CircleDollarSign size={14} className="mr-1.5" /> Facturation & Marges
-              </TabsTrigger>
+              {/* Onglet Facturation & Marges MASQUÉ si !canViewFinances (Déclarant & Client) */}
+              {perms.canViewFinances && (
+                <TabsTrigger value="finances" className="rounded-xl text-xs data-[state=active]:bg-[#0b3b32] data-[state=active]:text-white">
+                  <CircleDollarSign size={14} className="mr-1.5" /> Facturation & Marges
+                </TabsTrigger>
+              )}
               <TabsTrigger value="tasks" className="rounded-xl text-xs data-[state=active]:bg-[#0b3b32] data-[state=active]:text-white">
                 <ListTodo size={14} className="mr-1.5" /> Tâches & Suivi ({tasksQuery.data?.length || 0})
               </TabsTrigger>
-              <TabsTrigger value="audit" className="rounded-xl text-xs data-[state=active]:bg-[#0b3b32] data-[state=active]:text-white">
-                <History size={14} className="mr-1.5" /> Audit & Historique
-              </TabsTrigger>
+              {perms.canViewAudit && (
+                <TabsTrigger value="audit" className="rounded-xl text-xs data-[state=active]:bg-[#0b3b32] data-[state=active]:text-white">
+                  <History size={14} className="mr-1.5" /> Audit & Historique
+                </TabsTrigger>
+              )}
             </>
           )}
         </TabsList>
@@ -633,7 +675,7 @@ function DetailContent() {
 
             {/* Boutons d'action */}
             <div className="flex items-center justify-between pt-2">
-              {!isNew && (
+              {!isNew && perms.canDeleteDossier && (
                 <Button type="button" variant="ghost" onClick={() => removeMutation.mutate({ id })} className="text-rose-600 hover:bg-rose-50 rounded-xl">
                   <Trash2 size={16} className="mr-1.5" /> Supprimer ce dossier
                 </Button>
@@ -750,93 +792,101 @@ function DetailContent() {
           </div>
         </TabsContent>
 
-        {/* ONGLET 3: Facturation & Finances */}
-        <TabsContent value="finances" className="space-y-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <h2 className="font-[Georgia] text-lg font-semibold text-[#173b32]">Facturation, Débours & Marge Opérationnelle</h2>
-              <p className="text-xs text-muted-foreground">Générez des factures en Francs Guinéens (GNF) ou USD avec suivi des surestaries PAC.</p>
+        {/* ONGLET 3: Facturation & Finances (Gated via perms.canViewFinances) */}
+        {perms.canViewFinances && (
+          <TabsContent value="finances" className="space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="font-[Georgia] text-lg font-semibold text-[#173b32]">Facturation, Débours & Marge Opérationnelle</h2>
+                <p className="text-xs text-muted-foreground">Générez des factures en Francs Guinéens (GNF) ou USD avec suivi des surestaries PAC.</p>
+              </div>
+
+              {perms.canManageInvoices && (
+                <Dialog open={createInvoiceOpen} onOpenChange={setCreateInvoiceOpen}>
+                  <DialogTrigger asChild>
+                    <Button className="rounded-xl bg-[#0b3b32] text-white hover:bg-[#164d41] text-xs">
+                      <Plus size={14} className="mr-1.5" /> Émettre une Facture
+                    </Button>
+                  </DialogTrigger>
+                  <DialogContent className="max-w-md">
+                    <DialogHeader>
+                      <DialogTitle>Créer une facture de transit</DialogTitle>
+                      <DialogDescription>Générez la facture pour le client {dossier?.client}.</DialogDescription>
+                    </DialogHeader>
+                    <div className="space-y-3 py-2">
+                      <div className="grid grid-cols-2 gap-2">
+                        <div className="space-y-1">
+                          <Label className="text-xs">Devise</Label>
+                          <select value={invoiceCurrency} onChange={e => setInvoiceCurrency(e.target.value)} className="h-9 w-full rounded-xl border px-2 text-xs">
+                            <option value="GNF">GNF (Franc Guinéen)</option>
+                            <option value="USD">USD ($)</option>
+                            <option value="EUR">EUR (€)</option>
+                          </select>
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-xs">Montant HT</Label>
+                          <Input type="number" value={invoiceAmountHt} onChange={e => setInvoiceAmountHt(Number(e.target.value))} className="h-9 text-xs" />
+                        </div>
+                      </div>
+                      <div className="rounded-xl bg-emerald-50/70 p-3 text-xs space-y-1 text-emerald-950">
+                        <div className="flex justify-between"><span>TVA (18%) :</span><strong>{(invoiceAmountHt * 0.18).toLocaleString()} {invoiceCurrency}</strong></div>
+                        <div className="flex justify-between border-t pt-1 font-bold"><span>Total TTC :</span><strong>{(invoiceAmountHt * 1.18).toLocaleString()} {invoiceCurrency}</strong></div>
+                      </div>
+                    </div>
+                    <DialogFooter>
+                      <Button onClick={() => createInvoiceMutation.mutate({
+                        dossierId: id,
+                        client: dossier?.client || "Client",
+                        currency: invoiceCurrency,
+                        amountHt: invoiceAmountHt,
+                        amountTva: invoiceAmountHt * 0.18,
+                        amountTtc: invoiceAmountHt * 1.18,
+                        status: "Émise",
+                      })} className="rounded-xl bg-[#0b3b32] text-white">Confirmer l'émission</Button>
+                    </DialogFooter>
+                  </DialogContent>
+                </Dialog>
+              )}
             </div>
 
-            <Dialog open={createInvoiceOpen} onOpenChange={setCreateInvoiceOpen}>
-              <DialogTrigger asChild>
-                <Button className="rounded-xl bg-[#0b3b32] text-white hover:bg-[#164d41] text-xs">
-                  <Plus size={14} className="mr-1.5" /> Émettre une Facture
-                </Button>
-              </DialogTrigger>
-              <DialogContent className="max-w-md">
-                <DialogHeader>
-                  <DialogTitle>Créer une facture de transit</DialogTitle>
-                  <DialogDescription>Générez la facture pour le client {dossier?.client}.</DialogDescription>
-                </DialogHeader>
-                <div className="space-y-3 py-2">
-                  <div className="grid grid-cols-2 gap-2">
-                    <div className="space-y-1">
-                      <Label className="text-xs">Devise</Label>
-                      <select value={invoiceCurrency} onChange={e => setInvoiceCurrency(e.target.value)} className="h-9 w-full rounded-xl border px-2 text-xs">
-                        <option value="GNF">GNF (Franc Guinéen)</option>
-                        <option value="USD">USD ($)</option>
-                        <option value="EUR">EUR (€)</option>
-                      </select>
-                    </div>
-                    <div className="space-y-1">
-                      <Label className="text-xs">Montant HT</Label>
-                      <Input type="number" value={invoiceAmountHt} onChange={e => setInvoiceAmountHt(Number(e.target.value))} className="h-9 text-xs" />
-                    </div>
-                  </div>
-                  <div className="rounded-xl bg-emerald-50/70 p-3 text-xs space-y-1 text-emerald-950">
-                    <div className="flex justify-between"><span>TVA (18%) :</span><strong>{(invoiceAmountHt * 0.18).toLocaleString()} {invoiceCurrency}</strong></div>
-                    <div className="flex justify-between border-t pt-1 font-bold"><span>Total TTC :</span><strong>{(invoiceAmountHt * 1.18).toLocaleString()} {invoiceCurrency}</strong></div>
-                  </div>
-                </div>
-                <DialogFooter>
-                  <Button onClick={() => createInvoiceMutation.mutate({
-                    dossierId: id,
-                    client: dossier?.client || "Client",
-                    currency: invoiceCurrency,
-                    amountHt: invoiceAmountHt,
-                    amountTva: invoiceAmountHt * 0.18,
-                    amountTtc: invoiceAmountHt * 1.18,
-                    status: "Émise",
-                  })} className="rounded-xl bg-[#0b3b32] text-white">Confirmer l'émission</Button>
-                </DialogFooter>
-              </DialogContent>
-            </Dialog>
-          </div>
-
-          <div className="grid gap-3">
-            {invoicesQuery.data?.length === 0 ? (
-              <Card className="p-8 text-center border-dashed bg-white/60">
-                <Coins className="mx-auto h-8 w-8 text-muted-foreground/50" />
-                <p className="mt-2 text-sm font-medium text-muted-foreground">Aucune facture enregistrée pour ce dossier.</p>
-                <Button size="sm" onClick={() => setCreateInvoiceOpen(true)} className="mt-3 rounded-xl bg-[#0b3b32] text-white text-xs">
-                  Générer une facture proforma / finale
-                </Button>
-              </Card>
-            ) : (
-              invoicesQuery.data?.map(inv => (
-                <Card key={inv.id} className="border border-emerald-950/10 bg-white p-4 shadow-sm">
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <span className="font-bold text-sm text-[#102c26]">{inv.invoiceNumber}</span>
-                        <Badge className={inv.status === "Payée" ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"}>
-                          {inv.status}
-                        </Badge>
-                      </div>
-                      <p className="text-xs text-muted-foreground mt-0.5">Émise le {new Date(inv.createdAt).toLocaleDateString("fr-FR")} • Échéance : {inv.dueDate ? new Date(inv.dueDate).toLocaleDateString("fr-FR") : "30j"}</p>
-                    </div>
-
-                    <div className="text-right">
-                      <span className="text-lg font-bold text-[#102c26]">{inv.amountTtc.toLocaleString()} {inv.currency}</span>
-                      <p className="text-[11px] text-emerald-700 font-semibold">Marge estimée : +{inv.estimatedMargin.toLocaleString()} {inv.currency}</p>
-                    </div>
-                  </div>
+            <div className="grid gap-3">
+              {invoicesQuery.data?.length === 0 ? (
+                <Card className="p-8 text-center border-dashed bg-white/60">
+                  <Coins className="mx-auto h-8 w-8 text-muted-foreground/50" />
+                  <p className="mt-2 text-sm font-medium text-muted-foreground">Aucune facture enregistrée pour ce dossier.</p>
+                  {perms.canManageInvoices && (
+                    <Button size="sm" onClick={() => setCreateInvoiceOpen(true)} className="mt-3 rounded-xl bg-[#0b3b32] text-white text-xs">
+                      Générer une facture proforma / finale
+                    </Button>
+                  )}
                 </Card>
-              ))
-            )}
-          </div>
-        </TabsContent>
+              ) : (
+                invoicesQuery.data?.map(inv => (
+                  <Card key={inv.id} className="border border-emerald-950/10 bg-white p-4 shadow-sm">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="font-bold text-sm text-[#102c26]">{inv.invoiceNumber}</span>
+                          <Badge className={inv.status === "Payée" ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"}>
+                            {inv.status}
+                          </Badge>
+                        </div>
+                        <p className="text-xs text-muted-foreground mt-0.5">Émise le {new Date(inv.createdAt).toLocaleDateString("fr-FR")} • Échéance : {inv.dueDate ? new Date(inv.dueDate).toLocaleDateString("fr-FR") : "30j"}</p>
+                      </div>
+
+                      <div className="text-right">
+                        <span className="text-lg font-bold text-[#102c26]">{inv.amountTtc.toLocaleString()} {inv.currency}</span>
+                        {perms.canViewMargin && (
+                          <p className="text-[11px] text-emerald-700 font-semibold">Marge estimée : +{inv.estimatedMargin.toLocaleString()} {inv.currency}</p>
+                        )}
+                      </div>
+                    </div>
+                  </Card>
+                ))
+              )}
+            </div>
+          </TabsContent>
+        )}
 
         {/* ONGLET 4: Tâches & Collaboration */}
         <TabsContent value="tasks" className="space-y-4">
@@ -876,25 +926,29 @@ function DetailContent() {
           </div>
 
           <div className="grid gap-2">
-            {tasksQuery.data?.map(task => (
-              <div key={task.id} className="flex items-center justify-between p-3 rounded-xl border border-gray-100 bg-white shadow-sm">
-                <div className="flex items-center gap-3">
-                  <button
-                    onClick={() => updateTaskMutation.mutate({ id: task.id, status: task.status === "Termine" ? "A_faire" : "Termine" })}
-                    className={`h-5 w-5 rounded-md border flex items-center justify-center transition ${task.status === "Termine" ? "bg-emerald-700 border-emerald-700 text-white" : "border-gray-300"}`}
-                  >
-                    {task.status === "Termine" && <Check size={12} />}
-                  </button>
-                  <div>
-                    <p className={`text-xs font-semibold ${task.status === "Termine" ? "line-through text-muted-foreground" : "text-emerald-950"}`}>
-                      {task.title}
-                    </p>
-                    <p className="text-[11px] text-muted-foreground">Assigné à {task.assignedTo || "Équipe"} • Échéance : {task.dueDate ? new Date(task.dueDate).toLocaleDateString("fr-FR") : "Immédiat"}</p>
+            {tasksQuery.data?.length === 0 ? (
+              <p className="text-xs text-muted-foreground text-center py-6">Aucune tâche assignée pour ce dossier.</p>
+            ) : (
+              tasksQuery.data?.map(task => (
+                <div key={task.id} className="flex items-center justify-between p-3 rounded-xl border border-gray-100 bg-white shadow-sm">
+                  <div className="flex items-center gap-3">
+                    <button
+                      onClick={() => updateTaskMutation.mutate({ id: task.id, status: task.status === "Termine" ? "A_faire" : "Termine" })}
+                      className={`h-5 w-5 rounded-md border flex items-center justify-center transition ${task.status === "Termine" ? "bg-emerald-700 border-emerald-700 text-white" : "border-gray-300"}`}
+                    >
+                      {task.status === "Termine" && <Check size={12} />}
+                    </button>
+                    <div>
+                      <p className={`text-xs font-semibold ${task.status === "Termine" ? "line-through text-muted-foreground" : "text-emerald-950"}`}>
+                        {task.title}
+                      </p>
+                      <p className="text-[11px] text-muted-foreground">Assigné à {task.assignedTo || "Équipe"} • Échéance : {task.dueDate ? new Date(task.dueDate).toLocaleDateString("fr-FR") : "Immédiat"}</p>
+                    </div>
                   </div>
+                  <Badge variant="outline" className="text-[10px]">{task.status.replace("_", " ")}</Badge>
                 </div>
-                <Badge variant="outline" className="text-[10px]">{task.status.replace("_", " ")}</Badge>
-              </div>
-            ))}
+              ))
+            )}
           </div>
 
           {/* Fil de discussion et commentaires */}
@@ -920,32 +974,44 @@ function DetailContent() {
           </div>
         </TabsContent>
 
-        {/* ONGLET 5: Audit Trail & Historique */}
-        <TabsContent value="audit" className="space-y-4">
-          <div>
-            <h2 className="font-[Georgia] text-lg font-semibold text-[#173b32]">Journal d'Audit & Traçabilité Complète</h2>
-            <p className="text-xs text-muted-foreground">Historique horodaté des changements de statuts, ajouts de documents et modifications (preuve légale et conformité).</p>
-          </div>
+        {/* ONGLET 5: Audit Trail & Historique (Gated via perms.canViewAudit) */}
+        {perms.canViewAudit && (
+          <TabsContent value="audit" className="space-y-4">
+            <div>
+              <h2 className="font-[Georgia] text-lg font-semibold text-[#173b32]">Journal d'Audit & Traçabilité Complète</h2>
+              <p className="text-xs text-muted-foreground">Historique horodaté des changements de statuts, ajouts de documents et modifications (preuve légale et conformité).</p>
+            </div>
 
-          <div className="relative pl-6 border-l-2 border-emerald-900/20 space-y-4 py-2">
-            {auditQuery.data?.map((entry, idx) => (
-              <div key={entry.id} className="relative">
-                <span className="absolute -left-[31px] top-1 h-3.5 w-3.5 rounded-full bg-emerald-700 ring-4 ring-white" />
-                <div className="bg-white p-3 rounded-xl border border-gray-100 shadow-sm text-xs space-y-0.5">
-                  <div className="flex items-center justify-between">
-                    <span className="font-bold text-emerald-950">{entry.fieldChanged}</span>
-                    <span className="text-[10px] text-muted-foreground">{new Date(entry.createdAt).toLocaleString("fr-FR")}</span>
+            <div className="relative pl-6 border-l-2 border-emerald-900/20 space-y-4 py-2">
+              {auditQuery.data?.map(entry => (
+                <div key={entry.id} className="relative">
+                  <span className="absolute -left-[31px] top-1 h-3.5 w-3.5 rounded-full bg-emerald-700 ring-4 ring-white" />
+                  <div className="bg-white p-3 rounded-xl border border-gray-100 shadow-sm text-xs space-y-0.5">
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-emerald-950">{entry.fieldChanged}</span>
+                      <span className="text-[10px] text-muted-foreground">{new Date(entry.createdAt).toLocaleString("fr-FR")}</span>
+                    </div>
+                    <p className="text-[11px] text-emerald-800">
+                      <strong>{entry.authorName || "Système"}</strong> : {entry.previousValue ? `${entry.previousValue} ➔ ` : ""}{entry.newValue}
+                    </p>
+                    {entry.comment && <p className="text-[11px] text-muted-foreground italic">« {entry.comment} »</p>}
                   </div>
-                  <p className="text-[11px] text-emerald-800">
-                    <strong>{entry.authorName || "Système"}</strong> : {entry.previousValue ? `${entry.previousValue} ➔ ` : ""}{entry.newValue}
-                  </p>
-                  {entry.comment && <p className="text-[11px] text-muted-foreground italic">« {entry.comment} »</p>}
                 </div>
-              </div>
-            ))}
-          </div>
-        </TabsContent>
+              ))}
+            </div>
+          </TabsContent>
+        )}
       </Tabs>
+
+      {/* Customs Fast Edit Modal */}
+      {dossier && (
+        <CustomsEditModal
+          isOpen={customsModalOpen}
+          onClose={() => setCustomsModalOpen(false)}
+          dossier={dossier}
+          onSuccess={() => utils.dossier.get.invalidate({ id })}
+        />
+      )}
     </div>
   );
 }

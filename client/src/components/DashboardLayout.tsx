@@ -6,29 +6,24 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel,
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Sidebar, SidebarContent, SidebarFooter, SidebarHeader, SidebarInset, SidebarMenu, SidebarMenuButton, SidebarMenuItem, SidebarProvider, SidebarTrigger, useSidebar } from "@/components/ui/sidebar";
 import { trpc } from "@/lib/trpc";
+import { usePermissions, resolvePermissions, Role } from "@/hooks/usePermissions";
 import { useIsMobile } from "@/hooks/useMobile";
 import { 
   Bell, 
   CalendarDays, 
-  CheckCircle2, 
-  ChevronDown, 
   CircleDollarSign, 
   ClipboardCheck, 
-  ExternalLink, 
-  FileText, 
   FolderKanban, 
   Globe, 
-  History, 
   LayoutDashboard, 
-  Loader2, 
   LogOut, 
   PanelLeft, 
   Plus, 
   ShieldAlert, 
-  UserCheck, 
-  Users 
+  UserCheck 
 } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
+import { toast } from "sonner";
 import { useLocation } from "wouter";
 import { DashboardLayoutSkeleton } from "./DashboardLayoutSkeleton";
 
@@ -47,13 +42,12 @@ const MIN_WIDTH = 220;
 const MAX_WIDTH = 380;
 const IGS_LOGO = "/igs-logo-transparent.png";
 const IGS_LOGO_SIDEBAR = "/igs-logo-sidebar.png";
-const IGS_LOGO_ICON = "/igs-logo-icon.png";
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const [sidebarWidth, setSidebarWidth] = useState(() => Number(localStorage.getItem(SIDEBAR_WIDTH_KEY)) || DEFAULT_WIDTH);
   const { loading, user, login } = useAuth();
+  const [, setLocation] = useLocation();
   const [isSigningIn, setIsSigningIn] = useState(false);
-  const [selectedRole, setSelectedRole] = useState<"admin" | "declarant" | "comptable" | "manager" | "client">("admin");
 
   useEffect(() => localStorage.setItem(SIDEBAR_WIDTH_KEY, String(sidebarWidth)), [sidebarWidth]);
 
@@ -64,9 +58,15 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       if (role === "declarant") name = "Mamadou Diallo (Déclarant PAC)";
       if (role === "comptable") name = "Fatoumata Camara (Comptable)";
       if (role === "client") name = "Guinean Birimian Gold S.A";
+      if (role === "manager") name = "Alpha Barry (Manager Opérations)";
+
       await login({ role, name });
+      const targetPerms = resolvePermissions(role);
+      setLocation(targetPerms.defaultRoute);
+      toast.success(`Espace ${targetPerms.roleBadge} activé`);
     } catch (e) {
       console.error("Login error:", e);
+      toast.error("Erreur de connexion");
     } finally {
       setIsSigningIn(false);
     }
@@ -164,6 +164,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
 function LayoutContent({ children, setSidebarWidth }: { children: React.ReactNode; setSidebarWidth: (width: number) => void }) {
   const { user, logout, login } = useAuth();
+  const perms = usePermissions();
   const [location, setLocation] = useLocation();
   const { state, toggleSidebar } = useSidebar();
   const [isResizing, setIsResizing] = useState(false);
@@ -171,7 +172,7 @@ function LayoutContent({ children, setSidebarWidth }: { children: React.ReactNod
   const isMobile = useIsMobile();
   const isCollapsed = state === "collapsed";
 
-  const userRole = user?.role || "admin";
+  const userRole = perms.role;
   const visibleMenuItems = allMenuItems.filter(item => !item.roles || item.roles.includes(userRole));
   const active = visibleMenuItems.find(item => item.path === location || (item.path !== "/" && location.startsWith(item.path)));
 
@@ -187,28 +188,12 @@ function LayoutContent({ children, setSidebarWidth }: { children: React.ReactNod
     if (role === "declarant") name = "Mamadou Diallo (Déclarant PAC)";
     if (role === "comptable") name = "Fatoumata Camara (Comptable)";
     if (role === "client") name = "Guinean Birimian Gold S.A";
+    if (role === "manager") name = "Alpha Barry (Manager Opérations)";
 
     await login({ role, name });
-
-    if (role === "declarant") {
-      setLocation("/planning");
-    } else if (role === "comptable") {
-      setLocation("/finances");
-    } else if (role === "client") {
-      setLocation("/portail-client");
-    } else {
-      setLocation("/");
-    }
-  };
-
-  const getRoleBadgeLabel = (r?: string) => {
-    switch (r) {
-      case "declarant": return "Déclarant PAC";
-      case "comptable": return "Comptable";
-      case "client": return "Client";
-      case "manager": return "Manager";
-      default: return "Admin";
-    }
+    const targetPerms = resolvePermissions(role);
+    setLocation(targetPerms.defaultRoute);
+    toast.success(`Profil activé : ${targetPerms.roleBadge}`);
   };
 
   useEffect(() => {
@@ -260,7 +245,7 @@ function LayoutContent({ children, setSidebarWidth }: { children: React.ReactNod
                 Espace SaaS Pro
               </span>
               <Badge variant="outline" className="border-[#d9a94b] text-[#d9a94b] text-[10px] uppercase font-semibold">
-                {getRoleBadgeLabel(user?.role)}
+                {perms.roleBadge}
               </Badge>
             </div>
 
@@ -303,10 +288,10 @@ function LayoutContent({ children, setSidebarWidth }: { children: React.ReactNod
                   <div className="min-w-0 group-data-[collapsible=icon]:hidden flex-1">
                     <p className="truncate text-xs font-semibold text-white">{user?.name || "Utilisateur IGS"}</p>
                     <p className="mt-0.5 truncate text-[10px] text-[#91b7aa] capitalize">
-                      {getRoleBadgeLabel(user?.role)}
+                      {perms.roleBadge}
                     </p>
                   </div>
-                  <ChevronDown size={14} className="text-[#91b7aa] group-data-[collapsible=icon]:hidden" />
+                  <UserCheck size={14} className="text-[#91b7aa] group-data-[collapsible=icon]:hidden" />
                 </button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-56">
@@ -396,13 +381,16 @@ function LayoutContent({ children, setSidebarWidth }: { children: React.ReactNod
               </PopoverContent>
             </Popover>
 
-            <Button
-              onClick={() => setLocation("/dossiers/nouveau")}
-              size="sm"
-              className="rounded-xl bg-[#0b3b32] text-white hover:bg-[#164d41] h-8 text-xs font-medium"
-            >
-              <Plus size={14} className="mr-1" /> Nouveau Dossier
-            </Button>
+            {/* Bouton "+ Nouveau Dossier" - masqué si pas autorisé */}
+            {perms.canCreateDossier && (
+              <Button
+                onClick={() => setLocation("/dossiers/nouveau")}
+                size="sm"
+                className="rounded-xl bg-[#0b3b32] text-white hover:bg-[#164d41] h-8 text-xs font-medium"
+              >
+                <Plus size={14} className="mr-1" /> Nouveau Dossier
+              </Button>
+            )}
           </div>
         </header>
 

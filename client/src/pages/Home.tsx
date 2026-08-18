@@ -10,6 +10,7 @@ import {
   CheckCircle2,
   ClipboardCheck,
   Clock3,
+  ExternalLink,
   FileWarning,
   FolderKanban,
   Plus,
@@ -33,12 +34,14 @@ function MetricCard({
   hint,
   icon: Icon,
   tone = "sage",
+  onClick,
 }: {
   label: string;
   value: string | number;
   hint: string;
   icon: typeof FolderKanban;
   tone?: "sage" | "amber" | "coral" | "ink";
+  onClick?: () => void;
 }) {
   const style = {
     sage: "bg-[#e8f1ed] text-[#166653]",
@@ -48,19 +51,36 @@ function MetricCard({
   }[tone];
 
   return (
-    <Card className="border-0 bg-white shadow-[0_10px_28px_rgba(23,54,46,0.06)]">
+    <Card
+      onClick={onClick}
+      className={`border border-transparent bg-white shadow-[0_10px_28px_rgba(23,54,46,0.06)] transition-all duration-200 group ${
+        onClick
+          ? "cursor-pointer hover:shadow-lg hover:border-emerald-700/30 hover:scale-[1.01] active:scale-[0.99]"
+          : ""
+      }`}
+    >
       <CardContent className="p-5">
         <div className="flex items-start justify-between gap-4">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.13em] text-[#80908b]">
-              {label}
-            </p>
-            <p className="mt-3 font-[Georgia] text-3xl font-semibold tracking-tight text-[#15372f]">
+            <div className="flex items-center gap-1.5">
+              <p className="text-xs font-semibold uppercase tracking-[0.13em] text-[#80908b]">
+                {label}
+              </p>
+              {onClick && (
+                <ExternalLink
+                  size={12}
+                  className="text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity"
+                />
+              )}
+            </div>
+            <p className="mt-3 font-[Georgia] text-3xl font-semibold tracking-tight text-[#15372f] group-hover:text-[#0b3b32]">
               {value}
             </p>
-            <p className="mt-1.5 text-xs text-[#7c8a86]">{hint}</p>
+            <p className="mt-1.5 text-xs text-[#7c8a86] group-hover:text-emerald-800 transition-colors font-medium">
+              {hint}
+            </p>
           </div>
-          <div className={`grid h-10 w-10 shrink-0 place-items-center rounded-xl ${style}`}>
+          <div className={`grid h-10 w-10 shrink-0 place-items-center rounded-xl transition-transform group-hover:scale-110 ${style}`}>
             <Icon size={19} />
           </div>
         </div>
@@ -69,8 +89,14 @@ function MetricCard({
   );
 }
 
-// Ultra-fast Native SVG Bar Chart (0 dependencies, 0ms render)
-function SvgBarChart({ data }: { data: { month: string; value: number }[] }) {
+// Ultra-fast Native SVG Bar Chart with Drill-Down Clicks
+function SvgBarChart({
+  data,
+  onBarClick,
+}: {
+  data: { month: string; value: number }[];
+  onBarClick?: (month: string) => void;
+}) {
   const [hoveredIdx, setHoveredIdx] = useState<number | null>(null);
   if (!data || data.length === 0) {
     return <div className="grid h-full place-items-center text-sm text-muted-foreground">Aucune ETA renseignée.</div>;
@@ -108,14 +134,20 @@ function SvgBarChart({ data }: { data: { month: string; value: number }[] }) {
           const isHovered = hoveredIdx === i;
 
           return (
-            <g key={d.month} onMouseEnter={() => setHoveredIdx(i)} onMouseLeave={() => setHoveredIdx(null)} className="cursor-pointer">
+            <g
+              key={d.month}
+              onMouseEnter={() => setHoveredIdx(i)}
+              onMouseLeave={() => setHoveredIdx(null)}
+              onClick={() => onBarClick?.(d.month)}
+              className="cursor-pointer group"
+            >
               <rect
                 x={x}
                 y={y}
                 width={30}
                 height={barHeight}
                 rx={6}
-                fill={isHovered ? "#16594b" : "#1d7764"}
+                fill={isHovered ? "#0b3b32" : "#1d7764"}
                 className="transition-all duration-200"
               />
               {/* Top value badge */}
@@ -136,8 +168,9 @@ function SvgBarChart({ data }: { data: { month: string; value: number }[] }) {
                 x={x + 15}
                 y={height - 4}
                 textAnchor="middle"
-                fill="#7b8a85"
+                fill={isHovered ? "#0b3b32" : "#7b8a85"}
                 fontSize="11"
+                fontWeight={isHovered ? "bold" : "normal"}
               >
                 {d.month}
               </text>
@@ -149,8 +182,14 @@ function SvgBarChart({ data }: { data: { month: string; value: number }[] }) {
   );
 }
 
-// Ultra-fast Native SVG Donut Chart (0 dependencies)
-function SvgDonutChart({ data }: { data: { label: string; value: number }[] }) {
+// Ultra-fast Native SVG Donut Chart with Drill-Down
+function SvgDonutChart({
+  data,
+  onPriorityClick,
+}: {
+  data: { label: string; value: number }[];
+  onPriorityClick?: (priority: string) => void;
+}) {
   const total = data.reduce((sum, d) => sum + d.value, 0);
   if (total === 0) {
     return <div className="grid h-[160px] place-items-center text-xs text-muted-foreground">Aucune donnée</div>;
@@ -182,7 +221,8 @@ function SvgDonutChart({ data }: { data: { label: string; value: number }[] }) {
               strokeWidth={strokeWidth}
               strokeDasharray={`${strokeDash} ${circumference - strokeDash}`}
               strokeDashoffset={strokeDashoffset}
-              className="transition-all duration-300"
+              onClick={() => onPriorityClick?.(d.label)}
+              className="transition-all duration-300 cursor-pointer hover:opacity-80"
             />
           );
         })}
@@ -228,6 +268,7 @@ function DashboardContent() {
 
   return (
     <div className="mx-auto max-w-[1540px] space-y-7">
+      {/* Header */}
       <section className="relative overflow-hidden rounded-[1.75rem] bg-[#103b32] px-6 py-7 text-white shadow-[0_18px_45px_rgba(14,59,50,0.17)] sm:px-8">
         <div className="absolute -right-16 -top-24 h-64 w-64 rounded-full border-[30px] border-[#d9a94b]/15" />
         <div
@@ -245,12 +286,12 @@ function DashboardContent() {
               Pilotage des dossiers
             </h1>
             <p className="mt-2 max-w-2xl text-sm leading-6 text-[#c6d8d1]">
-              Vision consolidée des opérations transit, douane et régularisations à traiter.
+              Vision consolidée des opérations transit, douane et régularisations à traiter. Cliquez sur n'importe quel indicateur pour filtrer la flotte.
             </p>
           </div>
           <Button
             onClick={() => setLocation("/dossiers/nouveau")}
-            className="h-11 rounded-xl bg-[#d9a94b] px-5 text-[#16372f] hover:bg-[#e5ba64]"
+            className="h-11 rounded-xl bg-[#d9a94b] px-5 text-[#16372f] hover:bg-[#e5ba64] font-medium"
           >
             <Plus className="mr-2" size={17} />
             Nouveau dossier
@@ -258,6 +299,7 @@ function DashboardContent() {
         </div>
       </section>
 
+      {/* 1. Cartes KPI Principales avec Drill-Down */}
       <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <MetricCard
           label="Total dossiers"
@@ -265,12 +307,14 @@ function DashboardContent() {
           hint={`${metrics.regularized} régularisés`}
           icon={FolderKanban}
           tone="ink"
+          onClick={() => setLocation("/dossiers?filter=all")}
         />
         <MetricCard
           label="Taux de régularisation"
           value={`${metrics.regularizationRate}%`}
           hint="dossiers complets"
           icon={CheckCircle2}
+          onClick={() => setLocation("/dossiers?status=regularise")}
         />
         <MetricCard
           label="ETA dépassées"
@@ -278,6 +322,7 @@ function DashboardContent() {
           hint="sans sortie marchandises"
           icon={AlertTriangle}
           tone="coral"
+          onClick={() => setLocation("/dossiers?eta=depassee&statut_sortie=non_renseigne")}
         />
         <MetricCard
           label="Retards à régulariser"
@@ -285,11 +330,13 @@ function DashboardContent() {
           hint="priorité d’intervention"
           icon={Clock3}
           tone="amber"
+          onClick={() => setLocation("/dossiers?retard=true&a_regulariser=true")}
         />
       </section>
 
+      {/* 2 & 3. Planification ETA & Répartition par Priorité */}
       <section className="grid gap-5 xl:grid-cols-[1.45fr_0.9fr]">
-        <Card className="border-0 bg-white shadow-[0_10px_28px_rgba(23,54,46,0.06)]">
+        <Card className="border border-transparent bg-white shadow-[0_10px_28px_rgba(23,54,46,0.06)]">
           <CardContent className="p-5 sm:p-6">
             <div className="mb-6 flex items-start justify-between">
               <div>
@@ -300,15 +347,21 @@ function DashboardContent() {
                   Répartition mensuelle des ETA
                 </h2>
               </div>
-              <Badge className="border-0 bg-[#e8f1ed] text-[#176653]">
-                {metrics.etaInSevenDays} sous 7 jours
+              <Badge
+                onClick={() => setLocation("/dossiers?eta_range=next_7_days")}
+                className="border-0 bg-[#e8f1ed] text-[#176653] cursor-pointer hover:bg-[#d5e7df] transition-colors gap-1 text-xs"
+              >
+                {metrics.etaInSevenDays} sous 7 jours <ExternalLink size={10} />
               </Badge>
             </div>
-            <SvgBarChart data={monthlyEta} />
+            <SvgBarChart
+              data={monthlyEta}
+              onBarClick={month => setLocation(`/dossiers?eta_month=${encodeURIComponent(month)}`)}
+            />
           </CardContent>
         </Card>
 
-        <Card className="border-0 bg-white shadow-[0_10px_28px_rgba(23,54,46,0.06)]">
+        <Card className="border border-transparent bg-white shadow-[0_10px_28px_rgba(23,54,46,0.06)]">
           <CardContent className="p-5 sm:p-6">
             <p className="text-xs font-bold uppercase tracking-[0.14em] text-[#82918c]">
               Niveau d’attention
@@ -316,19 +369,27 @@ function DashboardContent() {
             <h2 className="mt-1 font-[Georgia] text-xl font-semibold text-[#15372f]">
               Répartition par priorité
             </h2>
-            <SvgDonutChart data={priority} />
+            <SvgDonutChart
+              data={priority}
+              onPriorityClick={label => setLocation(`/dossiers?priority=${label.toLowerCase()}`)}
+            />
             <div className="grid grid-cols-3 gap-2 mt-4">
               {priority.map(item => (
                 <div
                   key={item.label}
-                  className="rounded-xl bg-[#f6f8f7] px-2 py-2 text-center"
+                  onClick={() => setLocation(`/dossiers?priority=${item.label.toLowerCase()}`)}
+                  className="rounded-xl bg-[#f6f8f7] px-2 py-2.5 text-center cursor-pointer hover:bg-emerald-50 hover:border-emerald-200 border border-transparent transition-all group"
                 >
                   <span
                     className="mx-auto mb-1 block h-2 w-2 rounded-full"
                     style={{ backgroundColor: COLORS[item.label] }}
                   />
-                  <p className="text-lg font-semibold text-[#15372f]">{item.value}</p>
-                  <p className="text-[10px] text-[#7a8984]">{item.label}</p>
+                  <p className="text-lg font-semibold text-[#15372f] group-hover:text-emerald-950">
+                    {item.value}
+                  </p>
+                  <p className="text-[10px] text-[#7a8984] group-hover:text-emerald-800 font-medium">
+                    {item.label}
+                  </p>
                 </div>
               ))}
             </div>
@@ -336,8 +397,9 @@ function DashboardContent() {
         </Card>
       </section>
 
+      {/* 4 & 5. Contrôles qualité & Performance clients */}
       <section className="grid gap-5 xl:grid-cols-[1.25fr_1fr]">
-        <Card className="border-0 bg-white shadow-[0_10px_28px_rgba(23,54,46,0.06)]">
+        <Card className="border border-transparent bg-white shadow-[0_10px_28px_rgba(23,54,46,0.06)]">
           <CardContent className="p-5 sm:p-6">
             <div className="flex items-start justify-between gap-4">
               <div>
@@ -349,37 +411,66 @@ function DashboardContent() {
                 </h2>
               </div>
               <button
-                onClick={() => setLocation("/controles")}
-                className="text-xs font-semibold text-[#1d7764] hover:underline"
+                onClick={() => setLocation("/dossiers?has_anomalies=true")}
+                className="text-xs font-semibold text-[#1d7764] hover:underline flex items-center gap-1"
               >
-                Tout afficher
+                Tout afficher <ExternalLink size={12} />
               </button>
             </div>
             <div className="mt-5 grid gap-2 sm:grid-cols-2">
               {[
-                { label: "Dossiers incomplets", value: quality.incomplete, icon: FileWarning },
-                { label: "BL / LTA en doublon", value: quality.duplicateBlLta, icon: ClipboardCheck },
-                { label: "Déclarations manquantes", value: quality.missingDeclarations, icon: AlertTriangle },
-                { label: "Sorties non renseignées", value: quality.missingRelease, icon: Clock3 },
+                {
+                  label: "Dossiers incomplets",
+                  value: quality.incomplete,
+                  icon: FileWarning,
+                  url: "/dossiers?vigilance=incomplets",
+                },
+                {
+                  label: "BL / LTA en doublon",
+                  value: quality.duplicateBlLta,
+                  icon: ClipboardCheck,
+                  url: "/dossiers?vigilance=doublon_bl",
+                },
+                {
+                  label: "Déclarations manquantes",
+                  value: quality.missingDeclarations,
+                  icon: AlertTriangle,
+                  url: "/dossiers?vigilance=declaration_manquante",
+                },
+                {
+                  label: "Sorties non renseignées",
+                  value: quality.missingRelease,
+                  icon: Clock3,
+                  url: "/dossiers?vigilance=sortie_manquante",
+                },
               ].map(item => (
                 <div
                   key={item.label}
-                  className="flex items-center gap-3 rounded-xl border border-[#edf1ef] p-3"
+                  onClick={() => setLocation(item.url)}
+                  className="flex items-center gap-3 rounded-xl border border-[#edf1ef] p-3 cursor-pointer hover:bg-emerald-50/50 hover:border-emerald-700/30 transition-all hover:scale-[1.01] active:scale-[0.99] group"
                 >
-                  <div className="grid h-9 w-9 place-items-center rounded-lg bg-[#fff2ed] text-[#c75842]">
+                  <div className="grid h-9 w-9 place-items-center rounded-lg bg-[#fff2ed] text-[#c75842] group-hover:scale-105 transition-transform">
                     <item.icon size={17} />
                   </div>
-                  <div>
-                    <p className="text-lg font-semibold text-[#183b33]">{item.value}</p>
-                    <p className="text-xs text-[#72817c]">{item.label}</p>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-lg font-semibold text-[#183b33] group-hover:text-emerald-950">
+                      {item.value}
+                    </p>
+                    <p className="text-xs text-[#72817c] group-hover:text-emerald-800 font-medium truncate">
+                      {item.label}
+                    </p>
                   </div>
+                  <ExternalLink
+                    size={13}
+                    className="text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity"
+                  />
                 </div>
               ))}
             </div>
           </CardContent>
         </Card>
 
-        <Card className="border-0 bg-white shadow-[0_10px_28px_rgba(23,54,46,0.06)]">
+        <Card className="border border-transparent bg-white shadow-[0_10px_28px_rgba(23,54,46,0.06)]">
           <CardContent className="p-5 sm:p-6">
             <div className="flex items-start justify-between">
               <div>
@@ -392,21 +483,26 @@ function DashboardContent() {
               </div>
               <TrendingUp className="text-[#1d7764]" size={20} />
             </div>
-            <div className="mt-4 space-y-3">
+            <div className="mt-4 space-y-2">
               {clients.slice(0, 5).map(item => (
                 <div
                   key={item.client}
-                  className="flex items-center justify-between gap-3"
+                  onClick={() =>
+                    setLocation(
+                      `/dossiers?client=${encodeURIComponent(item.client)}&a_regulariser=true`
+                    )
+                  }
+                  className="flex items-center justify-between gap-3 p-2 rounded-xl hover:bg-emerald-50 border border-transparent hover:border-emerald-200 cursor-pointer transition-all group"
                 >
                   <div className="min-w-0">
-                    <p className="truncate text-sm font-medium text-[#203e37]">
+                    <p className="truncate text-sm font-medium text-[#203e37] group-hover:text-emerald-950">
                       {item.client}
                     </p>
-                    <p className="text-xs text-[#80908b]">
+                    <p className="text-xs text-[#80908b] group-hover:text-emerald-800">
                       {item.total} dossier{item.total > 1 ? "s" : ""}
                     </p>
                   </div>
-                  <Badge className="border-0 bg-[#fff1ed] text-[#bd5038]">
+                  <Badge className="border-0 bg-[#fff1ed] text-[#bd5038] group-hover:bg-[#ffe5de] text-xs transition-colors">
                     {item.toRegularize} à rég.
                   </Badge>
                 </div>
@@ -414,9 +510,9 @@ function DashboardContent() {
             </div>
             <button
               onClick={() => setLocation("/dossiers")}
-              className="mt-5 flex items-center gap-1 text-xs font-semibold text-[#1d7764] hover:underline"
+              className="mt-4 flex items-center gap-1 text-xs font-semibold text-[#1d7764] hover:underline"
             >
-              Analyser les dossiers <ArrowRight size={14} />
+              Analyser tous les dossiers <ArrowRight size={14} />
             </button>
           </CardContent>
         </Card>

@@ -3,6 +3,7 @@ import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Route, Switch } from "wouter";
 import ErrorBoundary from "./components/ErrorBoundary";
+import { ProtectedRoute } from "./components/ProtectedRoute";
 import { ThemeProvider } from "./contexts/ThemeContext";
 
 const Home = lazy(() => import("./pages/Home"));
@@ -29,14 +30,65 @@ function Router() {
   return (
     <Suspense fallback={<PageLoading />}>
       <Switch>
-        <Route path="/" component={Home} />
+        {/* Pilotage & KPI */}
+        <Route path="/">
+          {() => (
+            <ProtectedRoute
+              component={Home}
+              allowedRoles={["admin", "comptable", "manager"]}
+            />
+          )}
+        </Route>
+
+        {/* Tous les Dossiers */}
         <Route path="/dossiers" component={DossiersPage} />
-        <Route path="/dossiers/nouveau" component={DossierDetailPage} />
+
+        {/* Création Dossier */}
+        <Route path="/dossiers/nouveau">
+          {() => (
+            <ProtectedRoute
+              component={DossierDetailPage}
+              requirePermission={p => p.canCreateDossier}
+            />
+          )}
+        </Route>
+
+        {/* Détail Dossier */}
         <Route path="/dossiers/:id" component={DossierDetailPage} />
-        <Route path="/finances" component={FinancesPage} />
-        <Route path="/planning" component={PlanningPage} />
-        <Route path="/controles" component={ControlsPage} />
+
+        {/* Finances & Facturation (Comptable & Admin) */}
+        <Route path="/finances">
+          {() => (
+            <ProtectedRoute
+              component={FinancesPage}
+              requirePermission={p => p.canViewFinances}
+            />
+          )}
+        </Route>
+
+        {/* Planning & Échéances (Déclarant & Admin) */}
+        <Route path="/planning">
+          {() => (
+            <ProtectedRoute
+              component={PlanningPage}
+              requirePermission={p => p.canViewPlanning}
+            />
+          )}
+        </Route>
+
+        {/* Contrôles Douane & PAC (Déclarant & Admin) */}
+        <Route path="/controles">
+          {() => (
+            <ProtectedRoute
+              component={ControlsPage}
+              requirePermission={p => p.canViewControls}
+            />
+          )}
+        </Route>
+
+        {/* Portail Client Public / Externe */}
         <Route path="/portail-client" component={ClientPortalPage} />
+
         <Route component={NotFound} />
       </Switch>
     </Suspense>

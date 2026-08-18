@@ -1,5 +1,7 @@
 import DashboardLayout from "@/components/DashboardLayout";
+import { CustomsEditModal, CustomsEditDossier } from "@/components/CustomsEditModal";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { trpc } from "@/lib/trpc";
@@ -11,6 +13,8 @@ import {
   ChevronRight,
   ClipboardCheck,
   CopyCheck,
+  Edit3,
+  ExternalLink,
   FileQuestion,
   FileWarning,
   Landmark,
@@ -35,6 +39,8 @@ const controls = [
 function ControlsContent() {
   const [, setLocation] = useLocation();
   const [selectedAlert, setSelectedAlert] = useState<string | null>(null);
+  const [editingCustomsDossier, setEditingCustomsDossier] = useState<CustomsEditDossier | null>(null);
+
   const { data, isLoading, error } = trpc.dashboard.get.useQuery();
   const { data: dossiers = [], error: dossiersError } = trpc.dossier.list.useQuery();
 
@@ -78,7 +84,7 @@ function ControlsContent() {
         (dossier.blLtaNumber && (duplicates.get(dossier.blLtaNumber) || 0) > 1)
     )
     .filter(d => (selectedAlert ? d.fieldAlert === selectedAlert : true))
-    .slice(0, 12);
+    .slice(0, 15);
 
   return (
     <div className="mx-auto max-w-[1540px] space-y-6">
@@ -87,7 +93,7 @@ function ControlsContent() {
         <p className="text-xs font-bold uppercase tracking-[0.18em] text-[#d9a94b]">Assurance opérationnelle & Douane</p>
         <h1 className="mt-2 font-[Georgia] text-3xl font-semibold">Contrôles qualité & alertes terrain</h1>
         <p className="mt-2 max-w-2xl text-sm leading-6 text-[#c7d9d2]">
-          Surveillance continue des données de transit (Port Autonome de Conakry, SYDONIA World, DDI/GUCEG) et anticipation des blocages.
+          Surveillance continue des données de transit (Port Autonome de Conakry, SYDONIA World, DDI/GUCEG) et régularisation instantanée des anomalies.
         </p>
       </section>
 
@@ -240,7 +246,7 @@ function ControlsContent() {
         </Card>
       </section>
 
-      {/* Actionable Anomalies Table */}
+      {/* Actionable Anomalies Table with Instant Customs Regularization */}
       <section>
         <div className="mb-4 flex items-center justify-between">
           <div>
@@ -269,7 +275,7 @@ function ControlsContent() {
                     <th className="px-5 py-3">Client</th>
                     <th className="px-5 py-3">Marchandise</th>
                     <th className="px-5 py-3">Anomalies détectées</th>
-                    <th className="px-5 py-3 text-right">Action</th>
+                    <th className="px-5 py-3 text-right">Régularisation Rapide</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-[#edf2ef]">
@@ -277,16 +283,26 @@ function ControlsContent() {
                     const issues: string[] = [
                       [!dossier.clientDossierNumber, "N° client"],
                       [!dossier.eta, "ETA"],
-                      [!dossier.declarationNumber, "Déclaration"],
-                      [!dossier.bulletinNumber, "Bulletin"],
-                      [!dossier.goodsReleaseDate, "Sortie"],
+                      [!dossier.declarationNumber, "SYDONIA manquant"],
+                      [!dossier.bulletinNumber, "BLD manquant"],
+                      [!dossier.goodsReleaseDate, "Sortie PAC non saisie"],
                       [Boolean(dossier.blLtaNumber && (duplicates.get(dossier.blLtaNumber) || 0) > 1), "BL doublon"],
                     ]
                       .filter(([issue]) => Boolean(issue))
                       .map(([, label]) => String(label));
                     return (
                       <tr key={dossier.id} className="hover:bg-[#f8faf9] transition">
-                        <td className="px-5 py-3 font-semibold text-[#176b55]">{dossier.dossierNumber}</td>
+                        <td className="px-5 py-3 font-semibold text-[#176b55]">
+                          <button
+                            onClick={() => setLocation(`/dossiers/${dossier.id}`)}
+                            className="hover:underline text-left font-bold"
+                          >
+                            {dossier.dossierNumber}
+                          </button>
+                          <div className="text-[10px] text-muted-foreground font-mono">
+                            BL: {dossier.blLtaNumber || "—"}
+                          </div>
+                        </td>
                         <td className="px-5 py-3 text-[#4d665e]">{dossier.client || "Client non renseigné"}</td>
                         <td className="px-5 py-3 text-xs text-[#5f756e] truncate max-w-[180px]">
                           {dossier.cargoNature || "—"}
@@ -294,19 +310,30 @@ function ControlsContent() {
                         <td className="px-5 py-3">
                           <div className="flex flex-wrap gap-1">
                             {issues.map(issue => (
-                              <Badge key={issue} className="border-0 bg-[#fff0eb] text-[#bd5038]">
+                              <Badge key={issue} className="border-0 bg-[#fff0eb] text-[#bd5038] text-[10px]">
                                 {issue}
                               </Badge>
                             ))}
                           </div>
                         </td>
                         <td className="px-5 py-3 text-right">
-                          <button
-                            onClick={() => setLocation(`/dossiers/${dossier.id}`)}
-                            className="font-semibold text-[#1d7764] hover:underline"
-                          >
-                            Régulariser →
-                          </button>
+                          <div className="flex items-center justify-end gap-2">
+                            <Button
+                              size="sm"
+                              onClick={() => setEditingCustomsDossier(dossier)}
+                              className="h-7 rounded-lg bg-[#0b3b32] text-white hover:bg-[#164d41] text-xs px-2.5 shadow-sm"
+                            >
+                              <Edit3 size={12} className="mr-1" /> Régulariser
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => setLocation(`/dossiers/${dossier.id}`)}
+                              className="h-7 text-xs text-muted-foreground hover:text-emerald-900 px-2"
+                            >
+                              Fiche <ChevronRight size={12} />
+                            </Button>
+                          </div>
                         </td>
                       </tr>
                     );
@@ -317,6 +344,13 @@ function ControlsContent() {
           </Card>
         )}
       </section>
+
+      {/* Modal d'édition rapide douane intégrée */}
+      <CustomsEditModal
+        isOpen={Boolean(editingCustomsDossier)}
+        onClose={() => setEditingCustomsDossier(null)}
+        dossier={editingCustomsDossier}
+      />
     </div>
   );
 }
