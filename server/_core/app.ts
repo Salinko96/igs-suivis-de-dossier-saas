@@ -1,5 +1,6 @@
 import "dotenv/config";
 import express from "express";
+import compression from "compression";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
 import { registerOAuthRoutes } from "./oauth";
 import { registerStorageProxy } from "./storageProxy";
@@ -8,6 +9,9 @@ import { createContext } from "./context";
 
 export function createApp() {
   const app = express();
+  
+  // Enable gzip/deflate compression for all responses
+  app.use(compression({ threshold: 1024 }));
   
   // Configure body parser with larger size limit for file uploads
   app.use(express.json({ limit: "50mb" }));

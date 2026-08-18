@@ -40,8 +40,6 @@ const badgeStyle = (value?: string | null) =>
     ? "bg-[#fff5df] text-[#9e6a08]"
     : "bg-[#edf5f1] text-[#2d7664]";
 
-import * as XLSX from "xlsx";
-
 function cleanStr(s: unknown): string {
   return String(s || "")
     .normalize("NFD")
@@ -107,7 +105,8 @@ function parseCSV(text: string): Array<Record<string, string>> {
   return rows;
 }
 
-function parseExcelBuffer(buffer: ArrayBuffer): Array<Record<string, string>> {
+async function parseExcelBuffer(buffer: ArrayBuffer): Promise<Array<Record<string, string>>> {
+  const XLSX = await import("xlsx");
   const workbook = XLSX.read(buffer, { type: "array", cellDates: true });
   const firstSheetName = workbook.SheetNames[0];
   const worksheet = workbook.Sheets[firstSheetName];
@@ -325,11 +324,11 @@ function DossiersContent() {
 
     if (fileName.endsWith(".xlsx") || fileName.endsWith(".xls")) {
       const reader = new FileReader();
-      reader.onload = evt => {
+      reader.onload = async evt => {
         const buffer = evt.target?.result as ArrayBuffer;
         if (buffer) {
           try {
-            const parsed = parseExcelBuffer(buffer);
+            const parsed = await parseExcelBuffer(buffer);
             if (parsed.length === 0) {
               toast.error("Le fichier Excel ne contient pas de données valides.");
             } else {

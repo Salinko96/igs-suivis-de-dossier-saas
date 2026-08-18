@@ -60,15 +60,22 @@ export function useAuth(options?: UseAuthOptions) {
   }, [logoutMutation, utils]);
 
   const state = useMemo(() => {
-    localStorage.setItem(
-      "manus-runtime-user-info",
-      JSON.stringify(meQuery.data)
-    );
+    let cachedUser = null;
+    try {
+      const raw = localStorage.getItem("manus-runtime-user-info");
+      if (raw) cachedUser = JSON.parse(raw);
+    } catch {}
+
+    const currentUser = meQuery.data !== undefined ? meQuery.data : cachedUser;
+    if (meQuery.data !== undefined) {
+      localStorage.setItem("manus-runtime-user-info", JSON.stringify(meQuery.data));
+    }
+
     return {
-      user: meQuery.data ?? null,
-      loading: meQuery.isLoading || logoutMutation.isPending || loginMutation.isPending,
+      user: currentUser ?? null,
+      loading: (meQuery.isLoading && !cachedUser) || logoutMutation.isPending || loginMutation.isPending,
       error: meQuery.error ?? logoutMutation.error ?? loginMutation.error ?? null,
-      isAuthenticated: Boolean(meQuery.data),
+      isAuthenticated: Boolean(currentUser),
     };
   }, [
     meQuery.data,
