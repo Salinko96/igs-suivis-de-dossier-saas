@@ -45,7 +45,9 @@ const SIDEBAR_WIDTH_KEY = "igs-sidebar-width";
 const DEFAULT_WIDTH = 270;
 const MIN_WIDTH = 220;
 const MAX_WIDTH = 380;
-const IGS_LOGO = "/manus-storage/igs-logo-source_05d3b628.png";
+const IGS_LOGO = "/igs-logo-transparent.png";
+const IGS_LOGO_SIDEBAR = "/igs-logo-sidebar.png";
+const IGS_LOGO_ICON = "/igs-logo-icon.png";
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const [sidebarWidth, setSidebarWidth] = useState(() => Number(localStorage.getItem(SIDEBAR_WIDTH_KEY)) || DEFAULT_WIDTH);
@@ -70,20 +72,20 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   if (!user) {
     return (
       <div className="relative grid min-h-screen place-items-center overflow-hidden bg-[#f5f7f6] px-5 py-10">
-        <div aria-hidden="true" className="pointer-events-none absolute -right-48 -top-24 w-[42rem] mix-blend-multiply opacity-[0.08]">
+        <div aria-hidden="true" className="pointer-events-none absolute -right-48 -top-24 w-[42rem] mix-blend-multiply opacity-[0.05]">
           <img src={IGS_LOGO} alt="" className="igs-logo-drift w-full" />
         </div>
-        <div aria-hidden="true" className="pointer-events-none absolute -bottom-60 -left-56 w-[40rem] mix-blend-multiply opacity-[0.05]">
+        <div aria-hidden="true" className="pointer-events-none absolute -bottom-60 -left-56 w-[40rem] mix-blend-multiply opacity-[0.03]">
           <img src={IGS_LOGO} alt="" className="igs-logo-drift igs-logo-drift-delayed w-full" />
         </div>
-        <div className="relative z-10 w-full max-w-lg rounded-[1.75rem] border border-white/80 bg-white/90 p-8 text-center shadow-[0_24px_70px_rgba(20,50,43,0.12)] backdrop-blur-sm">
-          <div className="mx-auto mb-4 flex h-16 w-36 items-center justify-center rounded-2xl bg-white p-2 shadow-sm border border-emerald-950/5">
-            <img src={IGS_LOGO} alt="IGS — Ibrahima Gold Service" className="h-full w-full object-contain" />
+        <div className="relative z-10 w-full max-w-lg rounded-[2rem] border border-white/90 bg-white/95 p-8 sm:p-9 text-center shadow-[0_24px_70px_rgba(20,50,43,0.14)] backdrop-blur-md">
+          <div className="mx-auto mb-4 flex h-20 items-center justify-center">
+            <img src={IGS_LOGO} alt="IGS — Ibrahima Gold Service" className="h-full w-auto object-contain drop-shadow-sm transition-transform hover:scale-105" />
           </div>
-          <p className="text-xs font-bold uppercase tracking-[0.18em] text-[#8c9a96]">IGS Logistics & Dédouanement Guinée</p>
-          <h1 className="mt-2 font-[Georgia] text-2xl font-semibold tracking-tight text-[#102c26]">Connexion & Sélection de Rôle</h1>
-          <p className="mt-3 text-xs leading-5 text-[#66736f]">
-            Choisissez votre profil pour accéder à votre espace personnalisé (Gestion documentaire, Factures GNF/USD, Dédouanement Sydonia, Planning).
+          <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-[#8c9a96]">IGS Logistics & Dédouanement Guinée</p>
+          <h1 className="mt-2 font-[Georgia] text-2xl font-bold tracking-tight text-[#102c26]">Espace Opérationnel & Sécurisé</h1>
+          <p className="mt-2 text-xs leading-5 text-[#66736f]">
+            Plateforme complète de pilotage transit maritime (Port de Conakry, Kamsar), dédouanement SYDONIA, DDI GUCEG, facturation GNF/USD et suivi des dossiers.
           </p>
 
           <div className="mt-6 grid grid-cols-2 gap-2.5 text-left">
@@ -203,7 +205,7 @@ function LayoutContent({ children, setSidebarWidth }: { children: React.ReactNod
     <>
       <div className="relative" ref={sidebarRef}>
         <Sidebar collapsible="icon" className="border-r-0 bg-[#0b2923] text-white" disableTransition={isResizing}>
-          <SidebarHeader className="h-[86px] justify-center px-3">
+          <SidebarHeader className="h-[86px] justify-center px-3 border-b border-white/10">
             <div className="flex items-center gap-3 overflow-hidden">
               <button
                 onClick={toggleSidebar}
@@ -213,8 +215,8 @@ function LayoutContent({ children, setSidebarWidth }: { children: React.ReactNod
                 <PanelLeft size={18} />
               </button>
               {!isCollapsed && (
-                <div className="min-w-0 rounded-lg bg-white p-1 shadow-sm">
-                  <img src={IGS_LOGO} alt="IGS — Ibrahima Gold Service" className="h-10 w-[132px] object-contain" />
+                <div className="min-w-0 flex items-center py-1">
+                  <img src={IGS_LOGO_SIDEBAR} alt="IGS — Ibrahima Gold Service" className="h-11 w-auto object-contain" />
                 </div>
               )}
             </div>

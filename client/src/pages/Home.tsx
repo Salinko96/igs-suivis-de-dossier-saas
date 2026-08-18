@@ -10,7 +10,7 @@ import { useLocation } from "wouter";
 
 const COLORS: Record<string, string> = { Haute: "#d6694b", Normale: "#d9a94b", Basse: "#2f826d" };
 const FR_NUMBER = new Intl.NumberFormat("fr-FR");
-const IGS_LOGO = "/manus-storage/igs-logo-source_05d3b628.png";
+const IGS_LOGO = "/igs-logo-transparent.png";
 
 function MetricCard({ label, value, hint, icon: Icon, tone = "sage" }: { label: string; value: string | number; hint: string; icon: typeof FolderKanban; tone?: "sage" | "amber" | "coral" | "ink" }) {
   const style = { sage: "bg-[#e8f1ed] text-[#166653]", amber: "bg-[#fbf1d8] text-[#a16608]", coral: "bg-[#fce7e1] text-[#bc4a33]", ink: "bg-[#e8eeec] text-[#173b32]" }[tone];

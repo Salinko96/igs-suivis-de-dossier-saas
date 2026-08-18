@@ -20,7 +20,7 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 
-const IGS_LOGO = "/manus-storage/igs-logo-source_05d3b628.png";
+const IGS_LOGO = "/igs-logo-transparent.png";
 
 export default function ClientPortalPage() {
   const [searchCode, setSearchCode] = useState("IGS-1001");
@@ -44,15 +44,15 @@ export default function ClientPortalPage() {
   return (
     <div className="min-h-screen bg-[#f4f7f5] text-[#102c26]">
       {/* Header Public Portail */}
-      <header className="border-b border-[#e2eae6] bg-white px-4 sm:px-8 py-4 shadow-sm">
+      <header className="border-b border-[#e2eae6] bg-white px-4 sm:px-8 py-3.5 shadow-sm">
         <div className="mx-auto flex max-w-6xl items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="h-10 w-24 rounded-lg bg-white p-1">
-              <img src={IGS_LOGO} alt="IGS Logo" className="h-full w-full object-contain" />
+          <div className="flex items-center gap-3.5">
+            <div className="h-11 flex items-center">
+              <img src={IGS_LOGO} alt="IGS — Ibrahima Gold Service" className="h-full w-auto object-contain" />
             </div>
             <div>
-              <span className="font-bold text-sm text-[#0b3b32]">Portail Suivi Client & Dédouanement</span>
-              <p className="text-[10px] text-muted-foreground uppercase tracking-widest">Ibrahima Gold Service Guinée</p>
+              <span className="font-bold text-sm text-[#0b3b32] block">Portail Suivi Client & Dédouanement</span>
+              <p className="text-[10px] text-muted-foreground uppercase tracking-widest font-medium">Ibrahima Gold Service Guinée</p>
             </div>
           </div>
           <a
