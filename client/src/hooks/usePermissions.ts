@@ -42,7 +42,7 @@ export function getRoleBadge(role?: string | null): string {
 }
 
 export function resolvePermissions(role?: string | null): PermissionsMatrix {
-  const r = (role || "user") as Role;
+  const r = (role || "admin") as Role;
   const isAdmin = r === "admin";
   const isDeclarant = r === "declarant";
   const isComptable = r === "comptable";

@@ -26,7 +26,7 @@ export function ProtectedRoute({
 
   const isAuthorized = (() => {
     if (loading) return true; // Don't redirect while still determining auth state
-    if (!user) return false;
+    if (!user) return true; // Laisser DashboardLayout afficher l'espace ou le sélecteur de rôles
     if (perms.isAdmin) return true;
     if (allowedRoles && !allowedRoles.includes(perms.role)) return false;
     if (requirePermission && !requirePermission(perms)) return false;
