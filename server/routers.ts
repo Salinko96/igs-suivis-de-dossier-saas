@@ -1,9 +1,18 @@
 import { z } from "zod";
 import { COOKIE_NAME, ONE_YEAR_MS } from "@shared/const";
+import { TRPCError } from "@trpc/server";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { sdk } from "./_core/sdk";
 import { systemRouter } from "./_core/systemRouter";
-import { adminProcedure, protectedProcedure, publicProcedure, router } from "./_core/trpc";
+import { 
+  adminProcedure, 
+  comptableProcedure, 
+  declarantProcedure, 
+  internalProcedure, 
+  protectedProcedure, 
+  publicProcedure, 
+  router 
+} from "./_core/trpc";
 import * as db from "./db";
 
 const optionalText = z.string().trim().max(2000).optional().nullable();
@@ -24,6 +33,9 @@ const dossierPayload = z.object({
   declarationNumber: optionalText,
   bulletinNumber: optionalText,
   finalDeclarationNumber: optionalText,
+  ddiGucegNumber: optionalText,
+  badStatus: optionalText,
+  baeStatus: optionalText,
   documentStatus: optionalText,
   customsStatus: optionalText,
   portStatus: optionalText,
@@ -218,17 +230,36 @@ export const appRouter = router({
       }),
     get: protectedProcedure
       .input(z.object({ id: z.number().int().positive() }))
-      .query(async ({ input }) => db.getDossier(input.id)),
-    create: protectedProcedure
+      .query(async ({ ctx, input }) => {
+        const dossier = await db.getDossier(input.id);
+        if (!dossier) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Dossier introuvable" });
+        }
+        if (ctx.user?.role === "client" && ctx.user?.clientCompany && dossier.client !== ctx.user.clientCompany) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "Accès refusé pour ce dossier" });
+        }
+        return dossier;
+      }),
+    create: internalProcedure
       .input(dossierPayload)
       .mutation(async ({ ctx, input }) => db.createDossier(input, ctx.user.id, ctx.user.name || "Opérateur")),
-    update: protectedProcedure
+    update: internalProcedure
       .input(z.object({ id: z.number().int().positive(), data: dossierPayload }))
       .mutation(async ({ ctx, input }) => db.updateDossier(input.id, input.data, ctx.user.id, ctx.user.name || "Opérateur")),
+    updateCustoms: declarantProcedure
+      .input(
+        z.object({
+          id: z.number().int().positive(),
+          data: dossierPayload.partial(),
+        })
+      )
+      .mutation(async ({ ctx, input }) => {
+        return db.updateDossier(input.id, input.data, ctx.user.id, ctx.user.name || "Déclarant PAC");
+      }),
     remove: adminProcedure
       .input(z.object({ id: z.number().int().positive() }))
       .mutation(async ({ input }) => db.deleteDossier(input.id)),
-    importBatch: protectedProcedure
+    importBatch: declarantProcedure
       .input(z.array(dossierPayload))
       .mutation(async ({ ctx, input }) => {
         return db.importDossiersBatch(input, ctx.user.id, ctx.user.name || "Importateur Excel");
@@ -289,22 +320,27 @@ export const appRouter = router({
 
   // 7. MODULE FINANCIER & FACTURATION
   finance: router({
-    listInvoices: protectedProcedure
+    listInvoices: comptableProcedure
       .input(z.object({ dossierId: z.number().optional() }).optional())
       .query(async ({ input }) => db.listInvoices(input?.dossierId)),
-    createInvoice: protectedProcedure
+    createInvoice: comptableProcedure
       .input(
         z.object({
           dossierId: z.number().int().positive(),
           client: z.string().min(1),
           currency: z.string().default("GNF"),
+          invoiceType: z.enum(["Proforma", "Definitive"]).default("Proforma"),
+          exchangeRate: z.number().int().positive().default(8650),
           amountHt: z.number().min(0),
           amountTva: z.number().min(0).default(0),
           amountTtc: z.number().min(0),
           disbursementsAmount: z.number().min(0).default(0),
+          customsDutiesAmount: z.number().min(0).default(0),
+          portFeesAmount: z.number().min(0).default(0),
           storageAndDemurrageFees: z.number().min(0).default(0),
           status: z.enum(["Proforma", "Émise", "Payée", "En_retard", "Annulée"]).default("Proforma"),
-          notes: z.string().optional(),
+          dueDate: optionalDate,
+          notes: optionalText,
         })
       )
       .mutation(async ({ ctx, input }) => {
@@ -313,22 +349,75 @@ export const appRouter = router({
           createdById: ctx.user.id,
         });
       }),
-    summary: protectedProcedure.query(async () => {
+    updateInvoice: comptableProcedure
+      .input(
+        z.object({
+          id: z.number().int().positive(),
+          data: z.object({
+            invoiceType: z.enum(["Proforma", "Definitive"]).optional(),
+            currency: z.string().optional(),
+            exchangeRate: z.number().optional(),
+            amountHt: z.number().min(0).optional(),
+            amountTva: z.number().min(0).optional(),
+            amountTtc: z.number().min(0).optional(),
+            disbursementsAmount: z.number().min(0).optional(),
+            customsDutiesAmount: z.number().min(0).optional(),
+            portFeesAmount: z.number().min(0).optional(),
+            storageAndDemurrageFees: z.number().min(0).optional(),
+            estimatedMargin: z.number().optional(),
+            paymentMethod: optionalText,
+            paymentReference: optionalText,
+            receiptNumber: optionalText,
+            status: z.enum(["Proforma", "Émise", "Payée", "En_retard", "Annulée"]).optional(),
+            dueDate: optionalDate,
+            paidAt: optionalDate,
+            notes: optionalText,
+          }),
+        })
+      )
+      .mutation(async ({ input }) => db.updateInvoice(input.id, input.data)),
+    recordPayment: comptableProcedure
+      .input(
+        z.object({
+          id: z.number().int().positive(),
+          paymentMethod: optionalText,
+          paymentReference: optionalText,
+          paidAmount: z.number().min(0).optional().nullable(),
+        })
+      )
+      .mutation(async ({ input }) => db.recordInvoicePayment(input.id, input)),
+    getExchangeRate: internalProcedure.query(async () => db.getExchangeRate()),
+    setExchangeRate: comptableProcedure
+      .input(z.object({ rate: z.number().int().positive() }))
+      .mutation(async ({ input }) => db.setExchangeRate(input.rate)),
+    summary: comptableProcedure.query(async () => {
       const allInvoices = await db.listInvoices();
       const allDossiers = await db.listDossiers();
+      const { rate } = await db.getExchangeRate();
       
-      const totalCA_GNF = allInvoices.filter(i => i.currency === "GNF").reduce((sum, i) => sum + i.amountTtc, 0);
-      const totalCA_USD = allInvoices.filter(i => i.currency === "USD").reduce((sum, i) => sum + i.amountTtc, 0);
-      const totalMargin_GNF = allInvoices.filter(i => i.currency === "GNF").reduce((sum, i) => sum + i.estimatedMargin, 0);
+      const totalCA_GNF = allInvoices.reduce((sum, i) => sum + (i.currency === "USD" ? i.amountTtc * rate : i.amountTtc), 0);
+      const totalCA_USD = allInvoices.reduce((sum, i) => sum + (i.currency === "USD" ? i.amountTtc : Math.round(i.amountTtc / rate)), 0);
+      const totalMargin_GNF = allInvoices.reduce((sum, i) => sum + (i.currency === "USD" ? (i.estimatedMargin || 0) * rate : (i.estimatedMargin || 0)), 0);
+      const totalMargin_USD = allInvoices.reduce((sum, i) => sum + (i.currency === "USD" ? (i.estimatedMargin || 0) : Math.round((i.estimatedMargin || 0) / rate)), 0);
+      const totalDisbursements_GNF = allInvoices.reduce((sum, i) => sum + (i.currency === "USD" ? (i.disbursementsAmount || 0) * rate : (i.disbursementsAmount || 0)), 0);
+      const totalCustomsDuties_GNF = allInvoices.reduce((sum, i) => sum + (i.currency === "USD" ? (i.customsDutiesAmount || 0) * rate : (i.customsDutiesAmount || 0)), 0);
+      const totalPortFees_GNF = allInvoices.reduce((sum, i) => sum + (i.currency === "USD" ? (i.portFeesAmount || 0) * rate : (i.portFeesAmount || 0)), 0);
       const pendingInvoices = allInvoices.filter(i => i.status !== "Payée").length;
+      const paidInvoices = allInvoices.filter(i => i.status === "Payée").length;
       const totalDemurrageRisk = allDossiers.filter(d => d.eta && !d.goodsReleaseDate && (new Date().getTime() - d.eta.getTime()) > 86400000 * 7).length;
 
       return {
         totalCA_GNF,
         totalCA_USD,
         totalMargin_GNF,
+        totalMargin_USD,
+        totalDisbursements_GNF,
+        totalCustomsDuties_GNF,
+        totalPortFees_GNF,
         pendingInvoices,
+        paidInvoices,
         totalDemurrageRisk,
+        exchangeRate: rate,
         invoices: allInvoices,
       };
     }),
@@ -337,15 +426,21 @@ export const appRouter = router({
   // 8. TÂCHES & COLLABORATION D'ÉQUIPE
   task: router({
     list: protectedProcedure
-      .input(z.object({ dossierId: z.number().optional() }).optional())
-      .query(async ({ input }) => db.listTasks(input?.dossierId)),
-    create: protectedProcedure
+      .input(
+        z.object({ 
+          dossierId: z.number().optional(),
+          assignedTo: z.string().optional(),
+          status: z.enum(["A_faire", "En_cours", "Termine", "Bloque"]).optional(),
+        }).optional()
+      )
+      .query(async ({ input }) => db.listTasks(input)),
+    create: internalProcedure
       .input(
         z.object({
           dossierId: z.number().int().positive(),
           title: z.string().min(1),
           assignedTo: z.string().optional(),
-          dueDate: z.date().optional(),
+          dueDate: optionalDate,
           priority: z.enum(["Haute", "Normale", "Basse"]).default("Normale"),
         })
       )
@@ -355,9 +450,12 @@ export const appRouter = router({
           createdById: ctx.user.id,
         });
       }),
-    updateStatus: protectedProcedure
+    updateStatus: internalProcedure
       .input(z.object({ id: z.number().int().positive(), status: z.enum(["A_faire", "En_cours", "Termine", "Bloque"]) }))
       .mutation(async ({ input }) => db.updateTaskStatus(input.id, input.status)),
+    toggleStatus: internalProcedure
+      .input(z.object({ id: z.number().int().positive(), status: z.enum(["A_faire", "En_cours", "Termine", "Bloque"]).optional() }))
+      .mutation(async ({ input }) => db.toggleTaskStatus(input.id, input.status)),
   }),
 
   // 9. COMMENTAIRES
@@ -392,3 +490,4 @@ export const appRouter = router({
 });
 
 export type AppRouter = typeof appRouter;
+

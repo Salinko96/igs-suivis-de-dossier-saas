@@ -5,6 +5,7 @@ export const calculatedStatusEnum = pgEnum("calculated_status", ["Régularisé",
 export const calculatedPriorityEnum = pgEnum("calculated_priority", ["Haute", "Normale", "Basse"]);
 export const documentTypeEnum = pgEnum("document_type", ["BL", "LTA", "DDI", "Facture_Fournisseur", "Facture_Transitaire", "Bulletin_Liquidation", "BAE", "Declaration_Douane", "Photos_Marchandise", "Autre"]);
 export const invoiceStatusEnum = pgEnum("invoice_status", ["Proforma", "Émise", "Payée", "En_retard", "Annulée"]);
+export const invoiceTypeEnum = pgEnum("invoice_type", ["Proforma", "Definitive"]);
 export const taskStatusEnum = pgEnum("task_status", ["A_faire", "En_cours", "Termine", "Bloque"]);
 export const notificationTypeEnum = pgEnum("notification_type", ["ETA_DEPASSEE", "DDI_MANQUANTE", "BULLETIN_MANQUANT", "SURESTARIES_RISQUE", "STATUT_MODIFIE", "DOCUMENT_AJOUTE", "FACTURE_GENEREE"]);
 
@@ -39,6 +40,9 @@ export const dossiers = pgTable("dossiers", {
   declarationNumber: varchar("declarationNumber", { length: 160 }),
   bulletinNumber: varchar("bulletinNumber", { length: 160 }),
   finalDeclarationNumber: varchar("finalDeclarationNumber", { length: 160 }),
+  ddiGucegNumber: varchar("ddiGucegNumber", { length: 160 }),
+  badStatus: varchar("badStatus", { length: 64 }),
+  baeStatus: varchar("baeStatus", { length: 64 }),
   calculatedStatus: calculatedStatusEnum("calculatedStatus").notNull(),
   calculatedPriority: calculatedPriorityEnum("calculatedPriority").notNull(),
   completionRate: integer("completionRate").notNull().default(0),
@@ -107,12 +111,19 @@ export const invoices = pgTable("invoices", {
   invoiceNumber: varchar("invoiceNumber", { length: 32 }).notNull(),
   client: varchar("client", { length: 255 }).notNull(),
   currency: varchar("currency", { length: 8 }).notNull().default("GNF"), // GNF, USD, EUR
+  invoiceType: invoiceTypeEnum("invoiceType").notNull().default("Proforma"),
+  exchangeRate: integer("exchangeRate").notNull().default(8650),
   amountHt: integer("amountHt").notNull().default(0),
   amountTva: integer("amountTva").notNull().default(0),
   amountTtc: integer("amountTtc").notNull().default(0),
-  disbursementsAmount: integer("disbursementsAmount").notNull().default(0), // Débours (douane, PAC)
+  disbursementsAmount: integer("disbursementsAmount").notNull().default(0), // Débours totaux (douane, PAC)
+  customsDutiesAmount: integer("customsDutiesAmount").notNull().default(0), // Droits de douane
+  portFeesAmount: integer("portFeesAmount").notNull().default(0), // Redevance portuaire PAC
   storageAndDemurrageFees: integer("storageAndDemurrageFees").notNull().default(0), // Surestaries / magasinage
   estimatedMargin: integer("estimatedMargin").notNull().default(0), // Marge brute estimée
+  paymentMethod: varchar("paymentMethod", { length: 64 }),
+  paymentReference: varchar("paymentReference", { length: 120 }),
+  receiptNumber: varchar("receiptNumber", { length: 64 }),
   status: invoiceStatusEnum("status").notNull().default("Proforma"),
   dueDate: timestamp("dueDate"),
   paidAt: timestamp("paidAt"),

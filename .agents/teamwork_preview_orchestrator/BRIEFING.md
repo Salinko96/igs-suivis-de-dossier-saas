@@ -1,4 +1,4 @@
-# BRIEFING — 2026-08-18T15:49:58Z
+# BRIEFING — 2026-08-18T15:54:10Z
 
 ## Mission
 Rendre 100 % opérationnels les profils du simulateur de rôles pour l'application SaaS logistique et douanière IGS Guinée (Déclarant PAC Mamadou Diallo, Comptable Fatoumata Camara, Administrateur IGS, et Portail Client), avec RBAC dynamique, filtrage strict des vues et routes, tâches opérationnelles assignées interactives et module financier multi-devises GNF/USD.
@@ -13,21 +13,26 @@ Rendre 100 % opérationnels les profils du simulateur de rôles pour l'applicati
 ## 🔒 My Workflow
 - **Pattern**: Project
 - **Scope document**: /Users/alphasalinkobarry/Downloads/igs-suivis de dossier SaaS/PROJECT.md
-1. **Decompose**: Decompose into modular milestones (RBAC/Global State, Déclarant PAC features & persisted tasks, Comptable features & multi-currency billing, Role Simulator UX & end-to-end integration/testing)
+1. **Decompose**:
+   - M1: Backend RBAC, Schema & Data Persistence
+   - M2: Frontend RBAC, Navigation & Role Simulator UX
+   - M3: Déclarant PAC (Mamadou Diallo) Profile & Tasks
+   - M4: Comptable (Fatoumata Camara) Multi-Currency & Invoicing
+   - M5: E2E Verification & Hardening
 2. **Dispatch & Execute**:
-   - **Survey (Step 0)**: Dispatch 3 parallel Explorers / Spec Miners to map existing codebase, tRPC routes, schema, client components, and role simulation infrastructure.
-   - **Milestones**: Run dual track (E2E Testing Track + Implementation Track per milestone via Explorer -> Worker -> Reviewer -> Challenger -> Auditor gate loop).
+   - Dual Track: Implementation Milestones + E2E Testing Track
 3. **On failure**: Retry -> Replace -> Skip -> Redistribute -> Redesign -> Escalate
 4. **Succession**: Threshold 16 spawns -> dump handoff.md, cancel timers, spawn successor.
 - **Work items**:
-  1. Survey & Scope Mapping [in-progress]
-  2. RBAC & Global Simulation Sync [pending]
-  3. Déclarant PAC Profile & Operational Tasks [pending]
-  4. Comptable Profile & Multi-Currency Financial Module [pending]
-  5. Role Simulator UX & Dynamic Permissions [pending]
-  6. E2E Testing & Quality Verification [pending]
-- **Current phase**: 0 (Survey)
-- **Current focus**: Survey phase (waiting for 3 Explorers)
+  1. Survey & Scope Mapping [done]
+  2. M1: Backend RBAC, Schema & Data Persistence [in-progress]
+  3. E2E Test Suite Creation (Tiers 1-4) [in-progress]
+  4. M2: Frontend RBAC, Navigation & Role Simulator UX [pending]
+  5. M3: Déclarant PAC Profile [pending]
+  6. M4: Comptable Profile & Multi-Currency [pending]
+  7. M5: Final E2E Pass & Gate Verification [pending]
+- **Current phase**: 1 (M1 Backend & Test Suite Implementation)
+- **Current focus**: Monitoring M1 Worker and Test Writer
 
 ## 🔒 Key Constraints
 - DISPATCH-ONLY orchestrator: Never write/edit source code directly, never run tests directly.
@@ -38,22 +43,25 @@ Rendre 100 % opérationnels les profils du simulateur de rôles pour l'applicati
 
 ## Current Parent
 - Conversation ID: bc9ea8ad-f31b-4eba-88c7-38bd395cfdf2
-- Updated: 2026-08-18T15:49:58Z
+- Updated: 2026-08-18T15:54:10Z
 
 ## Key Decisions Made
-- Dispatched 3 parallel Explorers for Step 0 Survey covering Frontend, Backend/Schema, and Testing.
+- Dispatched M1 Backend Worker to implement RBAC middlewares, schema additions, db persistence functions, and tRPC procedure protections.
+- Dispatched E2E Test Writer in parallel to create the comprehensive 4-Tier test suite in `server/__tests__/`.
 
 ## Team Roster
 | Agent | Type | Work Item | Status | Conv ID |
 |-------|------|-----------|--------|---------|
-| explorer_survey_1 | teamwork_preview_explorer | Frontend & UI Architecture Survey | in-progress | 522ad65d-f2ac-4261-be46-03080da7350b |
-| explorer_survey_2 | teamwork_preview_explorer | Backend & DB Schema Survey | in-progress | 306934be-8c81-43c6-b7da-c1aaf97ef3c2 |
-| explorer_survey_3 | teamwork_preview_explorer | Testing & Quality Gates Survey | in-progress | 4aa9ba1e-1849-4553-bcb6-ba9acf7add51 |
+| explorer_survey_1 | teamwork_preview_explorer | Frontend & UI Architecture Survey | completed | 522ad65d-f2ac-4261-be46-03080da7350b |
+| explorer_survey_2 | teamwork_preview_explorer | Backend & DB Schema Survey | completed | 306934be-8c81-43c6-b7da-c1aaf97ef3c2 |
+| explorer_survey_3 | teamwork_preview_explorer | Testing & Quality Gates Survey | completed | 4aa9ba1e-1849-4553-bcb6-ba9acf7add51 |
+| worker_m1 | teamwork_preview_worker | M1: Backend RBAC & Data Persistence | in-progress | e13de153-d97a-4b9d-97fa-6f617e674eca |
+| test_writer_m1 | teamwork_preview_test_writer | E2E & Unit Test Suite Creation (Tiers 1-4) | in-progress | 3481b396-df39-4742-b431-f53965313010 |
 
 ## Succession Status
 - Succession required: no
-- Spawn count: 3 / 16
-- Pending subagents: 522ad65d-f2ac-4261-be46-03080da7350b, 306934be-8c81-43c6-b7da-c1aaf97ef3c2, 4aa9ba1e-1849-4553-bcb6-ba9acf7add51
+- Spawn count: 5 / 16
+- Pending subagents: e13de153-d97a-4b9d-97fa-6f617e674eca, 3481b396-df39-4742-b431-f53965313010
 - Predecessor: none
 - Successor: not yet spawned
 
@@ -63,6 +71,8 @@ Rendre 100 % opérationnels les profils du simulateur de rôles pour l'applicati
 
 ## Artifact Index
 - ORIGINAL_REQUEST.md — Verbatim user mission and acceptance criteria
+- PROJECT.md — Architecture, Feature Inventory, Milestones, Interface Contracts
+- TEST_INFRA.md — Test Philosophy, Feature Mapping, 4-Tier Architecture
 - DISPATCH.md — Agent dispatch log
 - BRIEFING.md — Persistent working memory and identity
 - progress.md — State tracking and heartbeat log

@@ -110,6 +110,9 @@ let _memoryDossiers: Dossier[] = initialImportData.dossiers.map((source, idx) =>
     declarationNumber: source.declarationNumber ?? null,
     bulletinNumber: source.bulletinNumber ?? null,
     finalDeclarationNumber: source.finalDeclarationNumber ?? null,
+    ddiGucegNumber: idx % 2 === 0 ? `DDI-2026-GUCEG-${100 + idx + 1}` : null,
+    badStatus: idx % 3 === 0 ? "Obtenu" : "En attente",
+    baeStatus: idx % 3 === 0 ? "Accordé" : "En attente",
     calculatedStatus: state.calculatedStatus,
     calculatedPriority: state.calculatedPriority,
     completionRate: state.completionRate,
@@ -186,6 +189,8 @@ let _memoryHistory: DossierStatusHistory[] = [
   }
 ];
 
+let _currentExchangeRate = 8650;
+
 let _memoryInvoices: Invoice[] = [
   {
     id: 1,
@@ -193,12 +198,19 @@ let _memoryInvoices: Invoice[] = [
     invoiceNumber: "FAC-2026-0001",
     client: "Guinean Birimian Gold S.A",
     currency: "GNF",
+    invoiceType: "Definitive",
+    exchangeRate: 8650,
     amountHt: 18500000,
     amountTva: 3330000,
     amountTtc: 21830000,
     disbursementsAmount: 45000000,
+    customsDutiesAmount: 35000000,
+    portFeesAmount: 10000000,
     storageAndDemurrageFees: 0,
     estimatedMargin: 5500000,
+    paymentMethod: "Virement Bancaire",
+    paymentReference: "VIR-2026-0812",
+    receiptNumber: "REC-2026-0001",
     status: "Émise",
     dueDate: new Date(Date.now() + 86400000 * 15),
     paidAt: null,
@@ -547,6 +559,9 @@ export async function createDossier(input: EditableDossier, userId?: number, aut
     declarationNumber: input.declarationNumber ?? null,
     bulletinNumber: input.bulletinNumber ?? null,
     finalDeclarationNumber: input.finalDeclarationNumber ?? null,
+    ddiGucegNumber: input.ddiGucegNumber ?? null,
+    badStatus: input.badStatus ?? "En attente",
+    baeStatus: input.baeStatus ?? "En attente",
     calculatedStatus: state.calculatedStatus,
     calculatedPriority: state.calculatedPriority,
     completionRate: state.completionRate,
@@ -708,6 +723,9 @@ export async function importDossiersBatch(
         declarationNumber: item.declarationNumber || existing.declarationNumber,
         bulletinNumber: item.bulletinNumber || existing.bulletinNumber,
         finalDeclarationNumber: item.finalDeclarationNumber || existing.finalDeclarationNumber,
+        ddiGucegNumber: item.ddiGucegNumber || existing.ddiGucegNumber,
+        badStatus: item.badStatus || existing.badStatus,
+        baeStatus: item.baeStatus || existing.baeStatus,
         customsStatus: item.customsStatus || existing.customsStatus,
         portStatus: item.portStatus || existing.portStatus,
         financialStatus: item.financialStatus || existing.financialStatus,
@@ -778,6 +796,9 @@ export async function importDossiersBatch(
         declarationNumber: item.declarationNumber ?? null,
         bulletinNumber: item.bulletinNumber ?? null,
         finalDeclarationNumber: item.finalDeclarationNumber ?? null,
+        ddiGucegNumber: item.ddiGucegNumber ?? null,
+        badStatus: item.badStatus ?? "En attente",
+        baeStatus: item.baeStatus ?? "En attente",
         calculatedStatus: state.calculatedStatus,
         calculatedPriority: state.calculatedPriority,
         completionRate: state.completionRate,
@@ -990,21 +1011,36 @@ export async function createInvoice(input: Omit<InsertInvoice, "invoiceNumber"> 
   const sequence = _memoryInvoices.length + 1;
   const invNum = input.invoiceNumber || `FAC-${new Date().getFullYear()}-${String(sequence).padStart(4, "0")}`;
   const now = new Date();
+  const customs = input.customsDutiesAmount ?? 0;
+  const port = input.portFeesAmount ?? 0;
+  const disbursements = input.disbursementsAmount ?? (customs + port);
+  const amountHt = input.amountHt ?? 0;
+  const amountTva = input.amountTva ?? Math.round(amountHt * 0.18);
+  const amountTtc = input.amountTtc ?? (amountHt + amountTva);
+  const isPaid = input.status === "Payée";
+
   const inv: Invoice = {
     id: sequence,
     dossierId: input.dossierId,
     invoiceNumber: invNum,
     client: input.client,
     currency: input.currency ?? "GNF",
-    amountHt: input.amountHt ?? 0,
-    amountTva: input.amountTva ?? 0,
-    amountTtc: input.amountTtc ?? (input.amountHt || 0) + (input.amountTva || 0),
-    disbursementsAmount: input.disbursementsAmount ?? 0,
+    invoiceType: input.invoiceType ?? "Proforma",
+    exchangeRate: input.exchangeRate ?? _currentExchangeRate ?? 8650,
+    amountHt,
+    amountTva,
+    amountTtc,
+    disbursementsAmount: disbursements,
+    customsDutiesAmount: customs,
+    portFeesAmount: port,
     storageAndDemurrageFees: input.storageAndDemurrageFees ?? 0,
-    estimatedMargin: input.estimatedMargin ?? Math.round((input.amountHt || 0) * 0.25),
+    estimatedMargin: input.estimatedMargin ?? Math.round(amountHt * 0.25),
+    paymentMethod: input.paymentMethod ?? null,
+    paymentReference: input.paymentReference ?? null,
+    receiptNumber: input.receiptNumber ?? (isPaid ? `REC-2026-${sequence}` : null),
     status: input.status ?? "Proforma",
     dueDate: input.dueDate ?? new Date(Date.now() + 86400000 * 30),
-    paidAt: input.status === "Payée" ? now : null,
+    paidAt: isPaid ? (input.paidAt ?? now) : null,
     notes: input.notes ?? null,
     createdById: input.createdById ?? 1,
     createdAt: now,
@@ -1013,27 +1049,197 @@ export async function createInvoice(input: Omit<InsertInvoice, "invoiceNumber"> 
   _memoryInvoices.unshift(inv);
 
   // Mise à jour du statut financier du dossier
-  await updateDossier(input.dossierId, { financialStatus: inv.status === "Payée" ? "Payé" : "Facturé" });
+  await updateDossier(input.dossierId, { financialStatus: isPaid ? "Payé" : inv.invoiceType === "Proforma" ? "Fact. Proforma" : "Facturé" });
 
   const db = await getDb();
   if (db) {
     try {
-      await db.insert(invoices).values({ ...input, invoiceNumber: invNum });
+      await db.insert(invoices).values({ ...input, invoiceNumber: invNum, disbursementsAmount: disbursements, amountHt, amountTva, amountTtc, receiptNumber: inv.receiptNumber, paidAt: inv.paidAt });
     } catch (e) {}
   }
   return inv;
 }
 
-// ----------------- TÂCHES & COLLABORATION -----------------
-export async function listTasks(dossierId?: number) {
-  let list = [..._memoryTasks];
+export async function updateInvoice(id: number, input: Partial<InsertInvoice>) {
+  const idx = _memoryInvoices.findIndex(i => i.id === id);
+  const current = idx >= 0 ? _memoryInvoices[idx] : null;
+  const now = new Date();
+  const isPaying = input.status === "Payée";
+
+  const updatedData = {
+    ...input,
+    updatedAt: now,
+    ...(isPaying && !input.paidAt ? { paidAt: now } : {}),
+    ...(isPaying && !input.receiptNumber && (!current || !current.receiptNumber) ? { receiptNumber: `REC-2026-${id}` } : {}),
+  };
+
+  if (idx >= 0 && current) {
+    _memoryInvoices[idx] = {
+      ...current,
+      ...updatedData,
+      status: (updatedData.status ?? current.status) as Invoice["status"],
+      invoiceType: (updatedData.invoiceType ?? current.invoiceType) as Invoice["invoiceType"],
+    };
+  }
+
   const db = await getDb();
   if (db) {
     try {
-      return await db.select().from(dossierTasks).where(dossierId ? eq(dossierTasks.dossierId, dossierId) : undefined).orderBy(desc(dossierTasks.createdAt));
+      await db.update(invoices).set(updatedData).where(eq(invoices.id, id));
     } catch (e) {}
   }
-  if (dossierId) list = list.filter(t => t.dossierId === dossierId);
+
+  let result = idx >= 0 ? _memoryInvoices[idx] : null;
+  if (!result && db) {
+    try {
+      const rows = await db.select().from(invoices).where(eq(invoices.id, id)).limit(1);
+      if (rows.length > 0) result = rows[0];
+    } catch (e) {}
+  }
+
+  if (result && result.dossierId) {
+    if (result.status === "Payée") {
+      await updateDossier(result.dossierId, { financialStatus: "Payé" });
+    } else if (result.invoiceType === "Definitive" || result.status === "Émise") {
+      await updateDossier(result.dossierId, { financialStatus: "Facturé" });
+    }
+  }
+  return result!;
+}
+
+export async function recordInvoicePayment(id: number, data: { paymentMethod?: string | null; paymentReference?: string | null; paidAmount?: number | null }) {
+  const receiptNumber = "REC-2026-" + id;
+  const now = new Date();
+  const idx = _memoryInvoices.findIndex(i => i.id === id);
+  let invoice = idx >= 0 ? _memoryInvoices[idx] : null;
+
+  const updatePayload: Partial<InsertInvoice> = {
+    status: "Payée",
+    invoiceType: "Definitive",
+    paidAt: now,
+    paymentMethod: data.paymentMethod ?? "Virement Bancaire",
+    paymentReference: data.paymentReference ?? `REF-PAY-${id}`,
+    receiptNumber,
+    ...(data.paidAmount ? { amountTtc: data.paidAmount } : {}),
+    updatedAt: now,
+  };
+
+  if (invoice) {
+    _memoryInvoices[idx] = {
+      ...invoice,
+      ...updatePayload,
+      status: "Payée",
+      invoiceType: "Definitive",
+    };
+    invoice = _memoryInvoices[idx];
+  }
+
+  const db = await getDb();
+  if (db) {
+    try {
+      await db.update(invoices).set(updatePayload).where(eq(invoices.id, id));
+      if (!invoice) {
+        const rows = await db.select().from(invoices).where(eq(invoices.id, id)).limit(1);
+        if (rows.length > 0) invoice = rows[0];
+      }
+    } catch (e) {}
+  }
+
+  if (invoice?.dossierId) {
+    await updateDossier(invoice.dossierId, { financialStatus: "Payé" });
+    await addDossierHistory({
+      dossierId: invoice.dossierId,
+      fieldChanged: "Paiement Facture",
+      previousValue: "Non payée",
+      newValue: `Payée (Quittance ${receiptNumber})`,
+      comment: `Mode: ${updatePayload.paymentMethod}, Réf: ${updatePayload.paymentReference}, Montant: ${invoice.amountTtc} ${invoice.currency}`,
+    });
+  }
+
+  return invoice!;
+}
+
+export async function getExchangeRate() {
+  const db = await getDb();
+  if (db) {
+    try {
+      const rows = await db.select().from(referenceItems).where(eq(referenceItems.category, "exchange_rate")).limit(1);
+      if (rows.length > 0) {
+        const val = parseInt(rows[0].label, 10) || rows[0].sortOrder || 8650;
+        _currentExchangeRate = val;
+        return { rate: val, currencyPair: "USD/GNF" as const, lastUpdated: rows[0].createdAt };
+      }
+    } catch (e) {}
+  }
+  return { rate: _currentExchangeRate, currencyPair: "USD/GNF" as const, lastUpdated: new Date() };
+}
+
+export async function setExchangeRate(rate: number) {
+  _currentExchangeRate = rate;
+  const now = new Date();
+  const db = await getDb();
+  if (db) {
+    try {
+      const rows = await db.select().from(referenceItems).where(eq(referenceItems.category, "exchange_rate")).limit(1);
+      if (rows.length > 0) {
+        await db.update(referenceItems).set({ label: String(rate), sortOrder: rate }).where(eq(referenceItems.id, rows[0].id));
+      } else {
+        await db.insert(referenceItems).values({ category: "exchange_rate", label: String(rate), sortOrder: rate });
+      }
+    } catch (e) {}
+  }
+  const refIdx = _memoryReferenceItems.findIndex(r => r.category === "exchange_rate");
+  if (refIdx >= 0) {
+    _memoryReferenceItems[refIdx].label = String(rate);
+    _memoryReferenceItems[refIdx].sortOrder = rate;
+  } else {
+    _memoryReferenceItems.push({
+      id: _memoryReferenceItems.length + 1,
+      category: "exchange_rate",
+      label: String(rate),
+      sortOrder: rate,
+      createdAt: now,
+    });
+  }
+  return { rate, currencyPair: "USD/GNF" as const, lastUpdated: now };
+}
+
+// ----------------- TÂCHES & COLLABORATION -----------------
+export type TaskFilter = {
+  dossierId?: number;
+  assignedTo?: string;
+  status?: DossierTask["status"] | string;
+};
+
+export async function listTasks(filterOrDossierId?: number | TaskFilter) {
+  let filter: TaskFilter = {};
+  if (typeof filterOrDossierId === "number") {
+    filter = { dossierId: filterOrDossierId };
+  } else if (filterOrDossierId) {
+    filter = filterOrDossierId;
+  }
+
+  const db = await getDb();
+  if (db) {
+    try {
+      const conditions = [];
+      if (filter.dossierId) conditions.push(eq(dossierTasks.dossierId, filter.dossierId));
+      if (filter.status) conditions.push(eq(dossierTasks.status, filter.status as any));
+      if (filter.assignedTo) conditions.push(like(dossierTasks.assignedTo, `%${filter.assignedTo}%`));
+
+      return await db.select().from(dossierTasks)
+        .where(conditions.length > 0 ? and(...conditions) : undefined)
+        .orderBy(desc(dossierTasks.createdAt));
+    } catch (e) {}
+  }
+
+  let list = [..._memoryTasks];
+  if (filter.dossierId) list = list.filter(t => t.dossierId === filter.dossierId);
+  if (filter.status) list = list.filter(t => t.status === filter.status);
+  if (filter.assignedTo) {
+    const needle = filter.assignedTo.toLowerCase();
+    list = list.filter(t => t.assignedTo && t.assignedTo.toLowerCase().includes(needle));
+  }
   return list.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
 }
 
@@ -1062,21 +1268,29 @@ export async function createTask(input: InsertDossierTask) {
 }
 
 export async function updateTaskStatus(id: number, status: DossierTask["status"]) {
+  const completedAt = status === "Termine" ? new Date() : null;
   const idx = _memoryTasks.findIndex(t => t.id === id);
   if (idx >= 0) {
     _memoryTasks[idx] = {
       ..._memoryTasks[idx],
       status,
-      completedAt: status === "Termine" ? new Date() : null,
+      completedAt,
     };
   }
   const db = await getDb();
   if (db) {
     try {
-      await db.update(dossierTasks).set({ status, completedAt: status === "Termine" ? new Date() : null }).where(eq(dossierTasks.id, id));
+      await db.update(dossierTasks).set({ status, completedAt }).where(eq(dossierTasks.id, id));
     } catch (e) {}
   }
   return _memoryTasks[idx];
+}
+
+export async function toggleTaskStatus(id: number, status?: DossierTask["status"]) {
+  const idx = _memoryTasks.findIndex(t => t.id === id);
+  const current = idx >= 0 ? _memoryTasks[idx] : null;
+  const nextStatus: DossierTask["status"] = status || (current?.status === "Termine" ? "A_faire" : "Termine");
+  return updateTaskStatus(id, nextStatus);
 }
 
 // ----------------- COMMENTAIRES D'ÉQUIPE -----------------

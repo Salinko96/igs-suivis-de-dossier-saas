@@ -19,7 +19,17 @@
   </head>
 
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <div style="display:flex;height:100vh;width:100%;align-items:center;justify-content:center;background-color:#0b2923;color:white;font-family:-apple-system,BlinkMacSystemFont,sans-serif;">
+        <div style="text-align:center;">
+          <img src="/igs-logo-sidebar.png" alt="IGS Logistics" style="height:55px;margin-bottom:16px;object-fit:contain;" />
+          <div style="width:120px;height:3px;background:rgba(255,255,255,0.15);border-radius:99px;margin:0 auto;overflow:hidden;">
+            <div style="width:50%;height:100%;background:#d9a94b;border-radius:99px;animation:igspulse 0.8s infinite linear;"></div>
+          </div>
+          <style>@keyframes igspulse { 0% { transform: translateX(-100%); } 100% { transform: translateX(200%); } }</style>
+        </div>
+      </div>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
     <!-- Analytics (Umami) - Disabled by default. Set VITE_ANALYTICS_ENDPOINT and VITE_ANALYTICS_WEBSITE_ID to enable -->
     <!-- <script
