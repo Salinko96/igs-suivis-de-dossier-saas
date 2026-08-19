@@ -246,12 +246,14 @@ function LayoutContent({ children, setSidebarWidth }: { children: React.ReactNod
   const [loginPassword, setLoginPassword] = useState("IgsTransit2026!");
 
   const loginWithPasswordMutation = trpc.auth.loginWithPassword.useMutation({
-    onSuccess: loggedUser => {
-      toast.success(`Authentification réussie : ${loggedUser.name}`);
-      setLoginModalOpen(false);
-      const targetPerms = resolvePermissions(loggedUser.role as Role);
-      setLocation(targetPerms.defaultRoute);
-      window.location.reload();
+    onSuccess: (loggedUser: any) => {
+      if (loggedUser) {
+        toast.success(`Authentification réussie : ${loggedUser.name || "Opérateur"}`);
+        setLoginModalOpen(false);
+        const targetPerms = resolvePermissions(loggedUser.role as Role);
+        setLocation(targetPerms.defaultRoute);
+        window.location.reload();
+      }
     },
     onError: err => {
       toast.error(err.message || "Identifiants invalides");
@@ -310,7 +312,7 @@ function LayoutContent({ children, setSidebarWidth }: { children: React.ReactNod
       if (path === "/finances") {
         import("../pages/FinancesPage");
         utils.dossier.list.prefetch({});
-        utils.invoice.list.prefetch();
+        utils.finance.listInvoices.prefetch();
       }
       if (path === "/controles") {
         import("../pages/ControlsPage");

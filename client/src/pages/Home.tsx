@@ -401,7 +401,7 @@ function DashboardContent() {
               onPriorityClick={label => setLocation(`/dossiers?priority=${label.toLowerCase()}`)}
             />
             <div className="grid grid-cols-3 gap-2 mt-4">
-              {priority.map(item => (
+              {priority.map((item: any) => (
                 <div
                   key={item.label}
                   onClick={() => setLocation(`/dossiers?priority=${item.label.toLowerCase()}`)}
@@ -511,7 +511,7 @@ function DashboardContent() {
               <TrendingUp className="text-[#1d7764]" size={20} />
             </div>
             <div className="mt-4 space-y-2">
-              {clients.slice(0, 5).map(item => (
+              {clients.slice(0, 5).map((item: any) => (
                 <div
                   key={item.client}
                   onClick={() =>

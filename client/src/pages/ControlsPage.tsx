@@ -82,7 +82,7 @@ function ControlsContent() {
       </div>
     );
 
-  const { quality, metrics, clients, fieldAlerts = [] } = data;
+  const { quality, metrics, clients = [], fieldAlerts = [] } = (data as any) || {};
   const duplicates = new Map<string, number>();
   dossiers.forEach(dossier => {
     if (dossier.blLtaNumber) duplicates.set(dossier.blLtaNumber, (duplicates.get(dossier.blLtaNumber) || 0) + 1);
@@ -95,11 +95,20 @@ function ControlsContent() {
         !dossier.eta ||
         !dossier.declarationNumber ||
         !dossier.bulletinNumber ||
-        !dossier.goodsReleaseDate ||
-        (dossier.blLtaNumber && (duplicates.get(dossier.blLtaNumber) || 0) > 1)
-    )
-    .filter(d => (selectedAlert ? d.fieldAlert === selectedAlert : true))
-    .slice(0, 15);
+        !dossier.finalDeclarationNumber ||
+        !dossier.ddiGucegNumber
+    );
+
+  const priorityActions = dossiers
+    .filter(d => d.calculatedStatus === "À régulariser")
+    .sort((a: any, b: any) => {
+      const order: Record<string, number> = { Haute: 3, Normale: 2, Basse: 1 };
+      return (order[b.calculatedPriority] || 0) - (order[a.calculatedPriority] || 0);
+    });
+
+  const filteredPriorityActions = selectedAlert
+    ? priorityActions.filter(d => d.fieldAlert?.toLowerCase().includes(selectedAlert.toLowerCase()))
+    : priorityActions;
 
   return (
     <div className="mx-auto max-w-[1540px] space-y-6">
@@ -113,10 +122,13 @@ function ControlsContent() {
       />
 
       {/* Header */}
-      <section className="rounded-[1.7rem] bg-[#123e34] px-7 py-7 text-white shadow-lg">
-        <p className="text-xs font-bold uppercase tracking-[0.18em] text-[#d9a94b]">Assurance opérationnelle & Douane</p>
-        <h1 className="mt-2 font-[Georgia] text-3xl font-semibold">Contrôles qualité & alertes terrain</h1>
-        <p className="mt-2 max-w-2xl text-sm leading-6 text-[#c7d9d2]">
+      <section className="relative overflow-hidden rounded-[1.75rem] bg-[#103b32] px-6 py-7 text-white shadow-[0_18px_45px_rgba(14,59,50,0.17)] sm:px-8">
+        <div className="absolute -right-16 -top-24 h-64 w-64 rounded-full border-[30px] border-[#d9a94b]/15" />
+        <p className="text-xs font-bold uppercase tracking-[0.2em] text-[#d9a94b]">Audit & Conformité</p>
+        <h1 className="mt-2 font-[Georgia] text-3xl font-semibold tracking-tight sm:text-4xl">
+          Contrôles Douane & PAC
+        </h1>
+        <p className="mt-2 max-w-2xl text-sm leading-6 text-[#c6d8d1]">
           Surveillance continue des données de transit (Port Autonome de Conakry, SYDONIA World, DDI/GUCEG) et régularisation instantanée des anomalies.
         </p>
       </section>
@@ -137,7 +149,7 @@ function ControlsContent() {
             >
               Toutes les alertes
             </button>
-            {fieldAlerts.map(alert => (
+            {fieldAlerts.map((alert: any) => (
               <button
                 key={alert.label}
                 onClick={() => setSelectedAlert(selectedAlert === alert.label ? null : alert.label)}
@@ -254,7 +266,7 @@ function ControlsContent() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-[#edf2ef]">
-                  {clients.slice(0, 7).map(client => (
+                  {clients.slice(0, 7).map((client: any) => (
                     <tr key={client.client}>
                       <td className="max-w-[240px] truncate px-4 py-3 font-medium text-[#335148]">{client.client}</td>
                       <td className="px-4 py-3 text-center text-[#596e67]">{client.total}</td>
