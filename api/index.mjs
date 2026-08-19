@@ -2864,9 +2864,14 @@ async function listUsers() {
   }
   return _memoryUsers;
 }
+var _dossiersCacheTimestamp = 0;
+var DOSSIERS_CACHE_TTL_MS = 3e3;
+function invalidateDossiersCache() {
+  _dossiersCacheTimestamp = 0;
+}
 async function listDossiers(filters = {}) {
-  let list = [..._memoryDossiers];
-  if (list.length === 0) {
+  const now = Date.now();
+  if (now - _dossiersCacheTimestamp > DOSSIERS_CACHE_TTL_MS || _memoryDossiers.length === 0) {
     const db = await getDb();
     if (db) {
       try {
@@ -2876,13 +2881,14 @@ async function listDossiers(filters = {}) {
         );
         if (dbResults.length > 0) {
           _memoryDossiers = dbResults;
-          list = [...dbResults];
+          _dossiersCacheTimestamp = now;
         }
       } catch (e) {
-        console.warn("[DB] listDossiers query failed or timed out, using memory fallback");
+        console.warn("[DB] listDossiers DB sync failed or timed out, using memory store");
       }
     }
   }
+  let list = [..._memoryDossiers];
   if (filters.currentUserCompany) {
     list = list.filter((d) => d.client?.toLowerCase().includes(filters.currentUserCompany.toLowerCase()));
   }
@@ -3036,6 +3042,7 @@ async function createDossier(input, userId, authorName) {
       console.warn("[DB] Failed to insert dossier in DB, stored in memory");
     }
   }
+  invalidateDossiersCache();
   return newDossier;
 }
 async function updateDossier(id, input, userId, authorName) {
@@ -3085,6 +3092,7 @@ async function updateDossier(id, input, userId, authorName) {
       console.warn("[DB] updateDossier DB sync error or timeout, saved in memory:", e);
     }
   }
+  invalidateDossiersCache();
   return updated;
 }
 async function importDossiersBatch(items, userId, authorName) {
@@ -3287,6 +3295,7 @@ async function importDossiersBatch(items, userId, authorName) {
 }
 async function deleteDossier(id) {
   _memoryDossiers = _memoryDossiers.filter((d) => d.id !== id);
+  invalidateDossiersCache();
   const db = await getDb();
   if (db) {
     try {

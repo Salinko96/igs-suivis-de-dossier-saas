@@ -481,17 +481,17 @@ function DetailContent() {
       toast.success(`Dossier ${created.dossierNumber} créé avec succès`);
       utils.dossier.invalidate();
       utils.dashboard.invalidate();
-      setLocation(`/dossiers/${created.id}`);
+      setLocation("/dossiers");
     },
     onError: err => toast.error(err.message || "Erreur de création"),
   });
 
   const updateMutation = trpc.dossier.update.useMutation({
     onSuccess: updated => {
-      toast.success(`Dossier ${updated?.dossierNumber} mis à jour`);
+      toast.success(`Dossier ${updated?.dossierNumber} mis à jour avec succès`);
       utils.dossier.invalidate();
       utils.dashboard.invalidate();
-      auditQuery.refetch();
+      setLocation("/dossiers");
     },
     onError: err => toast.error(err.message || "Erreur de mise à jour"),
   });

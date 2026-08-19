@@ -482,9 +482,16 @@ export type DossierFilters = {
   etaTo?: Date;
 };
 
+let _dossiersCacheTimestamp = 0;
+const DOSSIERS_CACHE_TTL_MS = 3_000; // 3s sync TTL between serverless instances
+
+export function invalidateDossiersCache() {
+  _dossiersCacheTimestamp = 0;
+}
+
 export async function listDossiers(filters: DossierFilters = {}) {
-  let list = [..._memoryDossiers];
-  if (list.length === 0) {
+  const now = Date.now();
+  if (now - _dossiersCacheTimestamp > DOSSIERS_CACHE_TTL_MS || _memoryDossiers.length === 0) {
     const db = await getDb();
     if (db) {
       try {
@@ -494,13 +501,15 @@ export async function listDossiers(filters: DossierFilters = {}) {
         );
         if (dbResults.length > 0) {
           _memoryDossiers = dbResults;
-          list = [...dbResults];
+          _dossiersCacheTimestamp = now;
         }
       } catch (e) {
-        console.warn("[DB] listDossiers query failed or timed out, using memory fallback");
+        console.warn("[DB] listDossiers DB sync failed or timed out, using memory store");
       }
     }
   }
+
+  let list = [..._memoryDossiers];
 
   // Filtrage mémoire ultra-rapide (0.05ms)
   if (filters.currentUserCompany) {
@@ -686,7 +695,7 @@ export async function createDossier(input: EditableDossier, userId?: number, aut
       console.warn("[DB] Failed to insert dossier in DB, stored in memory");
     }
   }
-
+  invalidateDossiersCache();
   return newDossier;
 }
 
@@ -744,6 +753,7 @@ export async function updateDossier(id: number, input: Partial<EditableDossier>,
       console.warn("[DB] updateDossier DB sync error or timeout, saved in memory:", e);
     }
   }
+  invalidateDossiersCache();
   return updated;
 }
 
@@ -988,6 +998,7 @@ export async function importDossiersBatch(
 
 export async function deleteDossier(id: number) {
   _memoryDossiers = _memoryDossiers.filter(d => d.id !== id);
+  invalidateDossiersCache();
   const db = await getDb();
   if (db) {
     try {
