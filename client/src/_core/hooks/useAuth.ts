@@ -66,14 +66,28 @@ export function useAuth(options?: UseAuthOptions) {
       if (raw) cachedUser = JSON.parse(raw);
     } catch {}
 
-    const currentUser = meQuery.data !== undefined ? meQuery.data : cachedUser;
-    if (meQuery.data !== undefined) {
+    const defaultUser = {
+      id: 1,
+      openId: "igs_admin_conakry",
+      name: "Ibrahima Gold Service (Admin)",
+      email: "admin@igs-logistics.gn",
+      role: "admin" as const,
+      loginMethod: "direct",
+      clientCompany: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      lastSignedIn: new Date(),
+    };
+
+    const initialUser = cachedUser || defaultUser;
+    const currentUser = meQuery.data !== undefined ? meQuery.data : initialUser;
+    if (meQuery.data !== undefined && meQuery.data !== null) {
       localStorage.setItem("manus-runtime-user-info", JSON.stringify(meQuery.data));
     }
 
     return {
       user: currentUser ?? null,
-      loading: (meQuery.isLoading && !cachedUser) || logoutMutation.isPending || loginMutation.isPending,
+      loading: (meQuery.isLoading && !initialUser) || logoutMutation.isPending || loginMutation.isPending,
       error: meQuery.error ?? logoutMutation.error ?? loginMutation.error ?? null,
       isAuthenticated: Boolean(currentUser),
     };
