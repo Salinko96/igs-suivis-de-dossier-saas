@@ -64,6 +64,24 @@ const filtersSchema = z.object({
   etaTo: z.date().optional(),
 }).optional();
 
+let _cachedDashboard: { data: any; timestamp: number } | null = null;
+const DASHBOARD_CACHE_TTL_MS = 30_000; // 30 secondes de cache en mémoire
+
+export function invalidateDashboardCache() {
+  _cachedDashboard = null;
+}
+
+export async function getCachedDashboard() {
+  const now = Date.now();
+  if (_cachedDashboard && (now - _cachedDashboard.timestamp) < DASHBOARD_CACHE_TTL_MS) {
+    return _cachedDashboard.data;
+  }
+  const dossiers = await db.listDossiers();
+  const data = buildDashboard(dossiers);
+  _cachedDashboard = { data, timestamp: now };
+  return data;
+}
+
 function buildDashboard(dossiers: Awaited<ReturnType<typeof db.listDossiers>>) {
   const now = new Date();
   now.setHours(0, 0, 0, 0);
@@ -243,10 +261,16 @@ export const appRouter = router({
       }),
     create: internalProcedure
       .input(dossierPayload)
-      .mutation(async ({ ctx, input }) => db.createDossier(input, ctx.user.id, ctx.user.name || "Opérateur")),
+      .mutation(async ({ ctx, input }) => {
+        invalidateDashboardCache();
+        return db.createDossier(input, ctx.user.id, ctx.user.name || "Opérateur");
+      }),
     update: internalProcedure
       .input(z.object({ id: z.number().int().positive(), data: dossierPayload }))
-      .mutation(async ({ ctx, input }) => db.updateDossier(input.id, input.data, ctx.user.id, ctx.user.name || "Opérateur")),
+      .mutation(async ({ ctx, input }) => {
+        invalidateDashboardCache();
+        return db.updateDossier(input.id, input.data, ctx.user.id, ctx.user.name || "Opérateur");
+      }),
     updateCustoms: declarantProcedure
       .input(
         z.object({
@@ -255,14 +279,19 @@ export const appRouter = router({
         })
       )
       .mutation(async ({ ctx, input }) => {
+        invalidateDashboardCache();
         return db.updateDossier(input.id, input.data, ctx.user.id, ctx.user.name || "Déclarant PAC");
       }),
     remove: adminProcedure
       .input(z.object({ id: z.number().int().positive() }))
-      .mutation(async ({ input }) => db.deleteDossier(input.id)),
+      .mutation(async ({ input }) => {
+        invalidateDashboardCache();
+        return db.deleteDossier(input.id);
+      }),
     importBatch: declarantProcedure
       .input(z.array(dossierPayload))
       .mutation(async ({ ctx, input }) => {
+        invalidateDashboardCache();
         return db.importDossiersBatch(input, ctx.user.id, ctx.user.name || "Importateur Excel");
       }),
   }),
@@ -493,7 +522,7 @@ export const appRouter = router({
 
   // TABLEAU DE BORD OPÉRATIONNEL
   dashboard: router({
-    get: protectedProcedure.query(async () => buildDashboard(await db.listDossiers())),
+    get: protectedProcedure.query(async () => getCachedDashboard()),
   }),
 });
 

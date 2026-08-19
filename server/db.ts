@@ -355,6 +355,7 @@ export async function getDb() {
         max: isServerless ? 5 : 10, 
         idle_timeout: isServerless ? 10 : 20,
         connect_timeout: 10,
+        prepare: false, // Requis pour la compatibilité Supabase Transaction Pooler (Supavisor port 6543)
         onnotice: () => {},
       });
       _db = drizzle(_client);

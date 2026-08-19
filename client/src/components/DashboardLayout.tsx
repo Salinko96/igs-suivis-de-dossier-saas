@@ -271,6 +271,24 @@ function LayoutContent({ children, setSidebarWidth }: { children: React.ReactNod
     };
   }, [isResizing, setSidebarWidth]);
 
+  const handlePrefetch = (path: string) => {
+    try {
+      if (path === "/") utils.dashboard.get.prefetch();
+      if (path === "/dossiers") utils.dossier.list.prefetch({});
+      if (path === "/planning") {
+        utils.dossier.list.prefetch({});
+        utils.task.list.prefetch();
+      }
+      if (path === "/finances") {
+        utils.dossier.list.prefetch({});
+        utils.invoice.list.prefetch();
+      }
+      if (path === "/controles") utils.dossier.list.prefetch({});
+    } catch {
+      // Ignorer si déjà en cache
+    }
+  };
+
   return (
     <>
       <div className="relative" ref={sidebarRef}>
@@ -308,6 +326,8 @@ function LayoutContent({ children, setSidebarWidth }: { children: React.ReactNod
                   <SidebarMenuButton
                     isActive={active?.path === item.path}
                     onClick={() => setLocation(item.path)}
+                    onMouseEnter={() => handlePrefetch(item.path)}
+                    onFocus={() => handlePrefetch(item.path)}
                     tooltip={item.label}
                     className="h-10 rounded-xl text-[#d7e7e0] hover:bg-white/10 hover:text-white data-[active=true]:bg-[#d9a94b] data-[active=true]:text-[#152d27]"
                   >
