@@ -15,9 +15,7 @@
   "functions": {
     "api/index.mjs": {
       "runtime": "@vercel/node@5.1.9",
-      "memory": 1024,
-      "maxDuration": 15,
-      "regions": ["fra1", "cdg1"]
+      "maxDuration": 15
     }
   },
   "env": {
