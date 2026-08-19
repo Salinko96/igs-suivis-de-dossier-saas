@@ -521,17 +521,25 @@ export async function getDossier(idOrIdentifier: number | string) {
 
   if (db) {
     try {
-      const conditions = [];
+      // 1. Direct primary key index lookup first if input is a valid numeric ID
       if (isValidNum) {
-        conditions.push(eq(dossiers.id, numId));
+        const rowById = (await db.select().from(dossiers).where(eq(dossiers.id, numId)).limit(1))[0];
+        if (rowById) return rowById;
       }
+
+      // 2. Direct lookup by formatted dossier number if applicable (e.g. DOS-0001)
       if (formattedNum) {
-        conditions.push(eq(dossiers.dossierNumber, formattedNum));
+        const rowByFormatted = (await db.select().from(dossiers).where(eq(dossiers.dossierNumber, formattedNum)).limit(1))[0];
+        if (rowByFormatted) return rowByFormatted;
       }
-      conditions.push(eq(dossiers.dossierNumber, upperStr));
-      conditions.push(eq(dossiers.portalAccessCode, upperStr));
-      conditions.push(eq(dossiers.blLtaNumber, upperStr));
-      conditions.push(eq(dossiers.clientDossierNumber, upperStr));
+
+      // 3. Fallback query on string identifier fields
+      const conditions = [
+        eq(dossiers.dossierNumber, upperStr),
+        eq(dossiers.portalAccessCode, upperStr),
+        eq(dossiers.blLtaNumber, upperStr),
+        eq(dossiers.clientDossierNumber, upperStr),
+      ];
 
       const row = (await db.select().from(dossiers).where(or(...conditions)).limit(1))[0];
       if (row) return row;
@@ -540,9 +548,20 @@ export async function getDossier(idOrIdentifier: number | string) {
     }
   }
 
+  // In-memory fallback: 1. Direct PK lookup first
+  if (isValidNum) {
+    const memoryById = _memoryDossiers.find(d => d.id === numId);
+    if (memoryById) return memoryById;
+  }
+
+  // 2. Formatted number match
+  if (formattedNum) {
+    const memoryByFormatted = _memoryDossiers.find(d => d.dossierNumber?.toUpperCase() === formattedNum.toUpperCase());
+    if (memoryByFormatted) return memoryByFormatted;
+  }
+
+  // 3. String identifier scan fallback
   return _memoryDossiers.find(d => {
-    if (isValidNum && d.id === numId) return true;
-    if (formattedNum && d.dossierNumber?.toUpperCase() === formattedNum.toUpperCase()) return true;
     if (d.dossierNumber?.toUpperCase() === upperStr) return true;
     if (d.portalAccessCode?.toUpperCase() === upperStr) return true;
     if (d.blLtaNumber?.toUpperCase() === upperStr) return true;
@@ -556,11 +575,32 @@ export async function getDossierByPortalCode(portalAccessCode: string) {
   const db = await getDb();
   if (db) {
     try {
-      const row = (await db.select().from(dossiers).where(eq(dossiers.portalAccessCode, cleanCode)).limit(1))[0];
+      const row = (
+        await db
+          .select()
+          .from(dossiers)
+          .where(
+            or(
+              eq(dossiers.portalAccessCode, cleanCode),
+              eq(dossiers.dossierNumber, cleanCode),
+              eq(dossiers.blLtaNumber, cleanCode),
+              eq(dossiers.clientDossierNumber, cleanCode)
+            )
+          )
+          .limit(1)
+      )[0];
       if (row) return row;
-    } catch (e) {}
+    } catch (e) {
+      console.error("[DB] getDossierByPortalCode database query error:", e);
+    }
   }
-  return _memoryDossiers.find(d => d.portalAccessCode?.toUpperCase() === cleanCode || d.dossierNumber?.toUpperCase() === cleanCode || d.blLtaNumber?.toUpperCase() === cleanCode);
+  return _memoryDossiers.find(
+    d =>
+      d.portalAccessCode?.toUpperCase() === cleanCode ||
+      d.dossierNumber?.toUpperCase() === cleanCode ||
+      d.blLtaNumber?.toUpperCase() === cleanCode ||
+      d.clientDossierNumber?.toUpperCase() === cleanCode
+  );
 }
 
 export type EditableDossier = Omit<typeof dossiers.$inferInsert, "id" | "dossierNumber" | "calculatedStatus" | "calculatedPriority" | "completionRate" | "createdAt" | "updatedAt">;

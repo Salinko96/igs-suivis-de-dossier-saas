@@ -1,4 +1,5 @@
 import DashboardLayout from "@/components/DashboardLayout";
+import Breadcrumbs from "@/components/Breadcrumbs";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -220,6 +221,15 @@ export default function PlanningPage() {
   return (
     <DashboardLayout>
       <div className="space-y-6 pb-12">
+        {/* Fil d'Ariane & Navigation */}
+        <Breadcrumbs
+          items={[
+            { label: "Accueil", href: "/" },
+            { label: "Planning des Arrivées", active: true },
+          ]}
+          backHref="/"
+        />
+
         {/* En-tête Planning */}
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>

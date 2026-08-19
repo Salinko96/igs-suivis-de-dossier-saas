@@ -17,8 +17,6 @@ export function generateProactiveAlerts(dossiers: Dossier[]): ProactiveAlert[] {
   const now = new Date();
   now.setHours(0, 0, 0, 0);
 
-  let idCounter = 1;
-
   for (const d of dossiers) {
     if (!d.eta) continue;
 
@@ -29,10 +27,10 @@ export function generateProactiveAlerts(dossiers: Dossier[]): ProactiveAlert[] {
     const isReleased = Boolean(d.goodsReleaseDate);
     const daysSinceEta = Math.round((now.getTime() - etaDate.getTime()) / (1000 * 60 * 60 * 24));
 
-    // 1. Risque de surestaries au Port de Conakry (franchise 7 jours dépassée)
+    // 1. Risque de surestaries au Port de Conakry (franchise 7 jours dépassée) - Type Index 1
     if (isPastEta && !isReleased && daysSinceEta > 7) {
       alerts.push({
-        id: idCounter++,
+        id: d.id * 10 + 1,
         dossierId: d.id,
         dossierNumber: d.dossierNumber,
         type: "SURESTARIES_RISQUE",
@@ -40,14 +38,14 @@ export function generateProactiveAlerts(dossiers: Dossier[]): ProactiveAlert[] {
         message: `Au port depuis ${daysSinceEta} jours (franchise 7j dépassée de ${daysSinceEta - 7}j). ${d.client || "Client"} • BL: ${d.blLtaNumber || "N/A"}.`,
         severity: "critical",
         isRead: 0,
-        createdAt: new Date(Date.now() - (idCounter * 60000)),
+        createdAt: new Date(Date.now() - (d.id * 10 + 1) * 60000),
       });
     }
 
-    // 2. ETA Dépassée sans sortie de marchandise
+    // 2. ETA Dépassée sans sortie de marchandise - Type Index 2
     if (isPastEta && !isReleased) {
       alerts.push({
-        id: idCounter++,
+        id: d.id * 10 + 2,
         dossierId: d.id,
         dossierNumber: d.dossierNumber,
         type: "ETA_DEPASSEE",
@@ -55,14 +53,14 @@ export function generateProactiveAlerts(dossiers: Dossier[]): ProactiveAlert[] {
         message: `ETA échue le ${etaDate.toLocaleDateString("fr-FR")} (${daysSinceEta}j). Marchandise toujours au quai PAC.`,
         severity: daysSinceEta > 7 ? "critical" : "warning",
         isRead: 0,
-        createdAt: new Date(Date.now() - (idCounter * 120000)),
+        createdAt: new Date(Date.now() - (d.id * 10 + 2) * 60000),
       });
     }
 
-    // 3. Dossier arrivé sans N° de déclaration Sydonia
+    // 3. Dossier arrivé sans N° de déclaration Sydonia - Type Index 3
     if (isPastEta && !d.declarationNumber) {
       alerts.push({
-        id: idCounter++,
+        id: d.id * 10 + 3,
         dossierId: d.id,
         dossierNumber: d.dossierNumber,
         type: "DDI_MANQUANTE",
@@ -70,7 +68,7 @@ export function generateProactiveAlerts(dossiers: Dossier[]): ProactiveAlert[] {
         message: `Navire arrivé mais déclaration SYDONIA World non renseignée pour ${d.client || "le client"}.`,
         severity: "warning",
         isRead: 0,
-        createdAt: new Date(Date.now() - (idCounter * 180000)),
+        createdAt: new Date(Date.now() - (d.id * 10 + 3) * 60000),
       });
     }
   }

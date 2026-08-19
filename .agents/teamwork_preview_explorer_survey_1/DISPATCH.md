@@ -1,22 +1,11 @@
-## 2026-08-18T15:50:00Z
-You are Explorer 1 on the Survey phase of the IGS Guinée SaaS project.
+## 2026-08-19T11:21:45Z
+You are teamwork_preview_explorer_survey_1, an exploration subagent.
+Your working directory is: /Users/alphasalinkobarry/Downloads/igs-suivis de dossier SaaS/.agents/teamwork_preview_explorer_survey_1/
+Please read the authoritative requirements file: /Users/alphasalinkobarry/Downloads/igs-suivis de dossier SaaS/.agents/ORIGINAL_REQUEST.md
+Also read /Users/alphasalinkobarry/Downloads/igs-suivis de dossier SaaS/AGENTS.md for coding standards.
 
-Working Directory: /Users/alphasalinkobarry/Downloads/igs-suivis de dossier SaaS/.agents/teamwork_preview_explorer_survey_1
-Authoritative User Request: /Users/alphasalinkobarry/Downloads/igs-suivis de dossier SaaS/ORIGINAL_REQUEST.md
-Project Root: /Users/alphasalinkobarry/Downloads/igs-suivis de dossier SaaS
+Your mission is to explore and analyze:
+1. R1: Client Portal (`/portail-client`) search bug where searching an invalid code (e.g. `XXXX-9999`) gets stuck indefinitely in loading state. Locate the relevant components, tRPC/React Query hooks, error handling, state management, and determine the exact fix needed (handling isError/isFetching, displaying clear message, re-enabling input).
+2. R2: Dashboard Notification bell system where "Marquer lu" / "Tout marquer lu" does not update state or badge counter. Locate notification components, tRPC procedures (markAsRead, markAllAsRead), TanStack Query invalidation, badge counter state, and determine the exact fix needed.
 
-Objective:
-Thoroughly explore the FRONTEND architecture, UI components, routes, sidebar navigation, and current role simulation state:
-1. Examine `client/` structure: App.tsx, router setup (wouter), layout components, sidebar, header, role switcher widget.
-2. Investigate how current role state is managed (Context, Zustand, localStorage, cookies, or hooks).
-3. Investigate the views needed for each profile:
-   - Déclarant PAC (Mamadou Diallo): Planning & Échéances, Contrôles Douane & PAC, Tous les Dossiers (technical view), Tâches Opérationnelles Assignées. Verify if financial info is currently exposed to this profile and where it must be hidden.
-   - Comptable (Fatoumata Camara): Finances & Facturation, Pilotage & KPI (financial metrics), Tous les Dossiers (financial/invoicing view). Verify where customs action buttons must be hidden.
-   - Administrateur IGS: full access.
-   - Portail Client: restricted client view.
-4. Investigate current UI interactions for task checklist, customs identifier modal/inline editing, and invoice/multi-currency rate switcher.
-5. Identify all frontend files that need modification or creation.
-
-Output:
-Write a comprehensive report to `/Users/alphasalinkobarry/Downloads/igs-suivis de dossier SaaS/.agents/teamwork_preview_explorer_survey_1/handoff.md` detailing your findings, exact file paths, component hierarchy, current state vs desired state, and concrete recommendations.
-Send a message back to the orchestrator when completed.
+Write your findings and evidence chain in `/Users/alphasalinkobarry/Downloads/igs-suivis de dossier SaaS/.agents/teamwork_preview_explorer_survey_1/handoff.md` and send a summary message back to parent.

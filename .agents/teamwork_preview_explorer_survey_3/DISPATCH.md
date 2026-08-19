@@ -1,21 +1,11 @@
-## 2026-08-18T15:49:54Z
-You are Explorer 3 on the Survey phase of the IGS Guinée SaaS project.
+## 2026-08-19T11:21:46Z
+You are teamwork_preview_explorer_survey_3, an exploration subagent.
+Your working directory is: /Users/alphasalinkobarry/Downloads/igs-suivis de dossier SaaS/.agents/teamwork_preview_explorer_survey_3/
+Please read the authoritative requirements file: /Users/alphasalinkobarry/Downloads/igs-suivis de dossier SaaS/.agents/ORIGINAL_REQUEST.md
+Also read /Users/alphasalinkobarry/Downloads/igs-suivis de dossier SaaS/AGENTS.md for coding standards.
 
-Working Directory: /Users/alphasalinkobarry/Downloads/igs-suivis de dossier SaaS/.agents/teamwork_preview_explorer_survey_3
-Authoritative User Request: /Users/alphasalinkobarry/Downloads/igs-suivis de dossier SaaS/ORIGINAL_REQUEST.md
-Project Root: /Users/alphasalinkobarry/Downloads/igs-suivis de dossier SaaS
+Your mission is to explore and analyze:
+1. R5: Breadcrumb navigation and quick back button on all sub-pages and edit screens (e.g. Accueil > Tous les Dossiers > Fiche DOS-0054). Locate current navigation layout, router (Wouter/React Router), page components, and design a standardized Breadcrumb component and quick back button integration.
+2. Build & Test Infrastructure: Investigate how tests are structured (`npm run test`, vitest/jest), what test files exist, how `npm run vercel-build` / `npm run build` works, any existing lint/typecheck issues.
 
-Objective:
-Thoroughly explore the TESTING infrastructure, build configuration, quality gates, and test gaps:
-1. Inspect `package.json`, `tsconfig.json`, `vite.config.ts`, Vitest / Playwright / testing setups.
-2. Run (or inspect) current tests, build scripts, linting configs to see baseline health.
-3. Identify existing test files and calculate current test coverage around:
-   - RBAC and role switching logic
-   - Déclarant PAC views, customs identifiers editing, operational tasks persistence
-   - Comptable views, invoicing, débours, multi-currency conversion
-   - Dynamic UI navigation and route guards
-4. Formulate the E2E and unit testing strategy needed to guarantee 100% compliance with R1, R2, R3, R4.
-
-Output:
-Write a comprehensive report to `/Users/alphasalinkobarry/Downloads/igs-suivis de dossier SaaS/.agents/teamwork_preview_explorer_survey_3/handoff.md` detailing test framework setup, existing test coverage, baseline build status, required test suites (Tiers 1-4), and verification commands.
-Send a message back to the orchestrator when completed.
+Write your findings and evidence chain in `/Users/alphasalinkobarry/Downloads/igs-suivis de dossier SaaS/.agents/teamwork_preview_explorer_survey_3/handoff.md` and send a summary message back to parent.

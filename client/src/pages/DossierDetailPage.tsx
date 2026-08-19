@@ -1,5 +1,6 @@
 import DashboardLayout from "@/components/DashboardLayout";
 import { CustomsEditModal } from "@/components/CustomsEditModal";
+import Breadcrumbs from "@/components/Breadcrumbs";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -271,13 +272,24 @@ function DetailContent() {
   const rawId = params?.id;
   const perms = usePermissions();
 
+  const utils = trpc.useUtils();
   const { data: dossier, isLoading, isError, error, refetch } = trpc.dossier.get.useQuery(
     { id: rawId! },
-    { enabled: !isNew && Boolean(rawId), retry: 1 }
+    {
+      enabled: !isNew && Boolean(rawId),
+      retry: 1,
+      placeholderData: () => {
+        if (!rawId) return undefined;
+        const list = utils.dossier.list.getData();
+        if (!list) return undefined;
+        const num = Number(rawId);
+        return list.find(
+          d => d.id === num || d.dossierNumber === rawId || d.portalAccessCode === rawId
+        );
+      },
+    }
   );
   const { data: references = [] } = trpc.reference.list.useQuery();
-  const { data: dossiers = [] } = trpc.dossier.list.useQuery();
-  const utils = trpc.useUtils();
   const [form, setForm] = useState<FormState>(blank);
   const [showValidation, setShowValidation] = useState(false);
   const [customsModalOpen, setCustomsModalOpen] = useState(false);
@@ -299,12 +311,27 @@ function DetailContent() {
   // ID numérique résolu du dossier chargé
   const numericId = dossier?.id || (rawId && Number.isFinite(Number(rawId)) ? Number(rawId) : 0);
 
-  // Requêtes additionnelles pour les onglets
-  const docsQuery = trpc.document.list.useQuery({ dossierId: numericId }, { enabled: !isNew && Boolean(numericId) });
-  const auditQuery = trpc.audit.list.useQuery({ dossierId: numericId }, { enabled: !isNew && Boolean(numericId) && perms.canViewAudit });
-  const invoicesQuery = trpc.finance.listInvoices.useQuery({ dossierId: numericId }, { enabled: !isNew && Boolean(numericId) && perms.canViewFinances });
-  const tasksQuery = trpc.task.list.useQuery({ dossierId: numericId }, { enabled: !isNew && Boolean(numericId) });
-  const commentsQuery = trpc.comment.list.useQuery({ dossierId: numericId }, { enabled: !isNew && Boolean(numericId) });
+  // Requêtes additionnelles lazy pour les onglets (chargées uniquement si l'onglet est actif)
+  const docsQuery = trpc.document.list.useQuery(
+    { dossierId: numericId },
+    { enabled: !isNew && Boolean(numericId) && activeTab === "documents" }
+  );
+  const auditQuery = trpc.audit.list.useQuery(
+    { dossierId: numericId },
+    { enabled: !isNew && Boolean(numericId) && perms.canViewAudit && activeTab === "audit" }
+  );
+  const invoicesQuery = trpc.finance.listInvoices.useQuery(
+    { dossierId: numericId },
+    { enabled: !isNew && Boolean(numericId) && perms.canViewFinances && activeTab === "finances" }
+  );
+  const tasksQuery = trpc.task.list.useQuery(
+    { dossierId: numericId },
+    { enabled: !isNew && Boolean(numericId) && activeTab === "tasks" }
+  );
+  const commentsQuery = trpc.comment.list.useQuery(
+    { dossierId: numericId },
+    { enabled: !isNew && Boolean(numericId) && activeTab === "tasks" }
+  );
 
   // Mutations
   const uploadDocMutation = trpc.document.upload.useMutation({
@@ -418,9 +445,10 @@ function DetailContent() {
     });
   }, [dossier, isNew]);
 
+  const cachedDossiers = utils.dossier.list.getData() || [];
   const sortedDossiers = useMemo(
-    () => [...dossiers].sort((a, b) => a.dossierNumber.localeCompare(b.dossierNumber)),
-    [dossiers]
+    () => [...cachedDossiers].sort((a, b) => a.dossierNumber.localeCompare(b.dossierNumber)),
+    [cachedDossiers]
   );
   const currentIndex = sortedDossiers.findIndex(item => item.id === numericId || item.dossierNumber === rawId);
   const prev = currentIndex > 0 ? sortedDossiers[currentIndex - 1] : null;
@@ -653,6 +681,31 @@ function DetailContent() {
 
   return (
     <div className="space-y-6 pb-12">
+      {/* Fil d'Ariane & Retour rapide */}
+      <Breadcrumbs
+        items={
+          isNew
+            ? [
+                { label: "Accueil", href: "/" },
+                { label: "Tous les Dossiers", href: "/dossiers" },
+                { label: "Nouveau dossier", active: true },
+              ]
+            : [
+                { label: "Accueil", href: "/" },
+                { label: "Tous les Dossiers", href: "/dossiers" },
+                {
+                  label: dossier?.dossierNumber
+                    ? `Fiche ${dossier.dossierNumber}`
+                    : rawId
+                    ? `Fiche ${rawId}`
+                    : "Fiche Dossier",
+                  active: true,
+                },
+              ]
+        }
+        backHref="/dossiers"
+      />
+
       {/* En-tête du Dossier */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-3">
@@ -1158,7 +1211,7 @@ function DetailContent() {
                     </div>
                     <DialogFooter>
                       <Button onClick={() => createInvoiceMutation.mutate({
-                        dossierId: id,
+                        dossierId: numericId,
                         client: dossier?.client || "Client",
                         currency: invoiceCurrency,
                         amountHt: invoiceAmountHt,

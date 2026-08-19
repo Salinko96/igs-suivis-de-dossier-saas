@@ -22,7 +22,7 @@ import {
   ShieldAlert, 
   UserCheck 
 } from "lucide-react";
-import { CSSProperties, useEffect, useRef, useState } from "react";
+import { CSSProperties, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useLocation } from "wouter";
 import { DashboardLayoutSkeleton } from "./DashboardLayoutSkeleton";
@@ -176,19 +176,54 @@ function LayoutContent({ children, setSidebarWidth }: { children: React.ReactNod
   const visibleMenuItems = allMenuItems.filter(item => !item.roles || item.roles.includes(userRole));
   const active = visibleMenuItems.find(item => item.path === location || (item.path !== "/" && location.startsWith(item.path)));
 
+  const utils = trpc.useUtils();
   const [alertFilter, setAlertFilter] = useState<"all" | "surestaries" | "eta" | "douane">("all");
   const notificationsQuery = trpc.notification.list.useQuery(undefined, { refetchInterval: 30000 });
   const notifications = notificationsQuery.data || [];
   const unreadCount = notifications.filter(n => n.isRead === 0).length;
   
   const markReadMutation = trpc.notification.markAsRead.useMutation({
-    onSuccess: () => notificationsQuery.refetch(),
+    onMutate: async ({ id }) => {
+      await utils.notification.list.cancel();
+      const previousNotifications = utils.notification.list.getData();
+      utils.notification.list.setData(undefined, old => {
+        if (!old) return old;
+        return old.map(n => (n.id === id ? { ...n, isRead: 1 } : n));
+      });
+      return { previousNotifications };
+    },
+    onError: (_err, _vars, context) => {
+      if (context?.previousNotifications) {
+        utils.notification.list.setData(undefined, context.previousNotifications);
+      }
+      toast.error("Erreur lors de la mise à jour de l'alerte");
+    },
+    onSettled: () => {
+      utils.notification.list.invalidate();
+    },
   });
 
   const markAllReadMutation = trpc.notification.markAllAsRead.useMutation({
+    onMutate: async () => {
+      await utils.notification.list.cancel();
+      const previousNotifications = utils.notification.list.getData();
+      utils.notification.list.setData(undefined, old => {
+        if (!old) return old;
+        return old.map(n => ({ ...n, isRead: 1 }));
+      });
+      return { previousNotifications };
+    },
+    onError: (_err, _vars, context) => {
+      if (context?.previousNotifications) {
+        utils.notification.list.setData(undefined, context.previousNotifications);
+      }
+      toast.error("Erreur lors de la mise à jour des alertes");
+    },
     onSuccess: () => {
       toast.success("Toutes les alertes ont été marquées comme lues.");
-      notificationsQuery.refetch();
+    },
+    onSettled: () => {
+      utils.notification.list.invalidate();
     },
   });
 
@@ -432,7 +467,7 @@ function LayoutContent({ children, setSidebarWidth }: { children: React.ReactNod
                           if (!n.isRead) markReadMutation.mutate({ id: n.id });
                         }}
                         className={`p-3 text-xs transition cursor-pointer hover:bg-emerald-50/60 ${
-                          n.isRead ? "bg-white text-muted-foreground opacity-80" : "bg-emerald-50/30 text-emerald-950 font-medium"
+                          n.isRead ? "bg-gray-50/50 text-muted-foreground opacity-60 hover:opacity-90" : "bg-emerald-50/30 text-emerald-950 font-medium"
                         }`}
                       >
                         <div className="flex items-start justify-between gap-2">

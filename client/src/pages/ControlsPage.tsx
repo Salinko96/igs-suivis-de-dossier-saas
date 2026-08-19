@@ -1,5 +1,6 @@
 import DashboardLayout from "@/components/DashboardLayout";
 import { CustomsEditModal, CustomsEditDossier } from "@/components/CustomsEditModal";
+import Breadcrumbs from "@/components/Breadcrumbs";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -102,6 +103,15 @@ function ControlsContent() {
 
   return (
     <div className="mx-auto max-w-[1540px] space-y-6">
+      {/* Breadcrumb Navigation */}
+      <Breadcrumbs
+        items={[
+          { label: "Accueil", href: "/" },
+          { label: "Contrôles Douane & PAC", active: true },
+        ]}
+        backHref="/"
+      />
+
       {/* Header */}
       <section className="rounded-[1.7rem] bg-[#123e34] px-7 py-7 text-white shadow-lg">
         <p className="text-xs font-bold uppercase tracking-[0.18em] text-[#d9a94b]">Assurance opérationnelle & Douane</p>
@@ -276,86 +286,191 @@ function ControlsContent() {
         {dossiersError ? (
           <Card className="border-0 bg-white">
             <CardContent className="p-5 text-sm text-[#ad4c38]">
-              Impossible de charger la liste détaillée : {dossiersError.message}
+              Impossible de charger la liste détaillée : {(dossiersError as any)?.message || "Erreur de connexion"}
             </CardContent>
           </Card>
         ) : (
-          <Card className="overflow-hidden border-0 bg-white shadow-[0_10px_28px_rgba(23,54,46,0.06)]">
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[750px] text-left text-sm">
-                <thead className="bg-[#f8faf9] text-[10px] font-bold uppercase tracking-[0.12em] text-[#7d8d87]">
-                  <tr>
-                    <th className="px-5 py-3">Dossier</th>
-                    <th className="px-5 py-3">Client</th>
-                    <th className="px-5 py-3">Marchandise</th>
-                    <th className="px-5 py-3">Anomalies détectées</th>
-                    <th className="px-5 py-3 text-right">Régularisation Rapide</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-[#edf2ef]">
-                  {anomalies.map(dossier => {
-                    const issues: string[] = [
-                      [!dossier.clientDossierNumber, "N° client"],
-                      [!dossier.eta, "ETA"],
-                      [!dossier.declarationNumber, "SYDONIA manquant"],
-                      [!dossier.bulletinNumber, "BLD manquant"],
-                      [!dossier.goodsReleaseDate, "Sortie PAC non saisie"],
-                      [Boolean(dossier.blLtaNumber && (duplicates.get(dossier.blLtaNumber) || 0) > 1), "BL doublon"],
-                    ]
-                      .filter(([issue]) => Boolean(issue))
-                      .map(([, label]) => String(label));
-                    return (
-                      <tr key={dossier.id} className="hover:bg-[#f8faf9] transition">
-                        <td className="px-5 py-3 font-semibold text-[#176b55]">
-                          <button
-                            onClick={() => setLocation(`/dossiers/${dossier.id}`)}
-                            className="hover:underline text-left font-bold"
-                          >
-                            {dossier.dossierNumber}
-                          </button>
-                          <div className="text-[10px] text-muted-foreground font-mono">
-                            BL: {dossier.blLtaNumber || "—"}
+          <div>
+            {/* Desktop Table View with Sticky Action Column and Horizontal Scroll Indicator */}
+            <div className="hidden md:block">
+              <Card className="overflow-hidden border border-[#e2ece7] bg-white shadow-[0_10px_28px_rgba(23,54,46,0.06)]">
+                <div className="overflow-x-auto scrollbar-thin scrollbar-thumb-emerald-800/20 scrollbar-track-transparent">
+                  <table className="w-full min-w-[820px] text-left text-sm">
+                    <thead className="bg-[#f8faf9] text-[10px] font-bold uppercase tracking-[0.12em] text-[#7d8d87]">
+                      <tr>
+                        <th className="px-5 py-3.5">Dossier</th>
+                        <th className="px-5 py-3.5">Client</th>
+                        <th className="px-5 py-3.5">Marchandise</th>
+                        <th className="px-5 py-3.5">Anomalies détectées</th>
+                        <th className="px-5 py-3.5 text-right sticky right-0 bg-[#f8faf9] z-10 shadow-[-8px_0_12px_rgba(0,0,0,0.03)] min-w-[200px]">
+                          Régularisation Rapide
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-[#edf2ef]">
+                      {anomalies.length === 0 ? (
+                        <tr>
+                          <td colSpan={5} className="px-5 py-8 text-center text-xs text-muted-foreground">
+                            Aucun dossier nécessitant une action prioritaire.
+                          </td>
+                        </tr>
+                      ) : (
+                        anomalies.map(dossier => {
+                          const issues: string[] = [
+                            [!dossier.clientDossierNumber, "N° client"],
+                            [!dossier.eta, "ETA"],
+                            [!dossier.declarationNumber, "SYDONIA manquant"],
+                            [!dossier.bulletinNumber, "BLD manquant"],
+                            [!dossier.goodsReleaseDate, "Sortie PAC non saisie"],
+                            [Boolean(dossier.blLtaNumber && (duplicates.get(dossier.blLtaNumber) || 0) > 1), "BL doublon"],
+                          ]
+                            .filter(([issue]) => Boolean(issue))
+                            .map(([, label]) => String(label));
+                          return (
+                            <tr key={dossier.id} className="hover:bg-[#f8faf9] transition group">
+                              <td className="px-5 py-3.5 font-semibold text-[#176b55]">
+                                <button
+                                  onClick={() => setLocation(`/dossiers/${dossier.id}`)}
+                                  className="hover:underline text-left font-bold text-[#113b31]"
+                                >
+                                  {dossier.dossierNumber}
+                                </button>
+                                <div className="text-[10px] text-muted-foreground font-mono">
+                                  BL: {dossier.blLtaNumber || "—"}
+                                </div>
+                              </td>
+                              <td className="px-5 py-3.5 text-[#4d665e] font-medium">{dossier.client || "Client non renseigné"}</td>
+                              <td className="px-5 py-3.5 text-xs text-[#5f756e] truncate max-w-[180px]">
+                                {dossier.cargoNature || "—"}
+                              </td>
+                              <td className="px-5 py-3.5">
+                                <div className="flex flex-wrap gap-1">
+                                  {issues.map(issue => (
+                                    <Badge key={issue} className="border-0 bg-[#fff0eb] text-[#bd5038] text-[10px] font-medium">
+                                      {issue}
+                                    </Badge>
+                                  ))}
+                                </div>
+                              </td>
+                              <td className="px-5 py-3.5 text-right sticky right-0 bg-white group-hover:bg-[#f8faf9] z-10 shadow-[-8px_0_12px_rgba(0,0,0,0.03)] transition-colors">
+                                <div className="flex items-center justify-end gap-2">
+                                  <Button
+                                    size="sm"
+                                    onClick={() => setEditingCustomsDossier(dossier)}
+                                    className="h-7 rounded-lg bg-[#0b3b32] text-white hover:bg-[#164d41] text-xs px-2.5 shadow-sm font-medium"
+                                  >
+                                    <Edit3 size={12} className="mr-1" /> Régulariser
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => setLocation(`/dossiers/${dossier.id}`)}
+                                    className="h-7 text-xs text-[#294a40] border-[#dfe8e4] hover:bg-[#edf5f1] px-2 font-medium"
+                                  >
+                                    Fiche <ChevronRight size={12} className="ml-0.5" />
+                                  </Button>
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </Card>
+            </div>
+
+            {/* Mobile / Tablet Stacked Cards View */}
+            <div className="block md:hidden space-y-3">
+              {anomalies.length === 0 ? (
+                <Card className="border-0 bg-white p-6 text-center text-xs text-muted-foreground">
+                  Aucun dossier nécessitant une action prioritaire.
+                </Card>
+              ) : (
+                anomalies.map(dossier => {
+                  const issues: string[] = [
+                    [!dossier.clientDossierNumber, "N° client"],
+                    [!dossier.eta, "ETA"],
+                    [!dossier.declarationNumber, "SYDONIA manquant"],
+                    [!dossier.bulletinNumber, "BLD manquant"],
+                    [!dossier.goodsReleaseDate, "Sortie PAC non saisie"],
+                    [Boolean(dossier.blLtaNumber && (duplicates.get(dossier.blLtaNumber) || 0) > 1), "BL doublon"],
+                  ]
+                    .filter(([issue]) => Boolean(issue))
+                    .map(([, label]) => String(label));
+
+                  return (
+                    <Card
+                      key={dossier.id}
+                      className="overflow-hidden border border-[#e2ece7] bg-white shadow-sm hover:shadow-md transition-shadow"
+                    >
+                      <CardContent className="p-4 space-y-3">
+                        <div className="flex items-start justify-between gap-2 border-b border-[#edf2ef] pb-2.5">
+                          <div>
+                            <button
+                              onClick={() => setLocation(`/dossiers/${dossier.id}`)}
+                              className="text-base font-bold text-[#123e34] hover:underline flex items-center gap-1.5"
+                            >
+                              {dossier.dossierNumber}
+                              <ExternalLink size={13} className="text-[#1d7764]" />
+                            </button>
+                            <p className="text-xs font-medium text-[#4d665e] mt-0.5">
+                              {dossier.client || "Client non renseigné"}
+                            </p>
                           </div>
-                        </td>
-                        <td className="px-5 py-3 text-[#4d665e]">{dossier.client || "Client non renseigné"}</td>
-                        <td className="px-5 py-3 text-xs text-[#5f756e] truncate max-w-[180px]">
-                          {dossier.cargoNature || "—"}
-                        </td>
-                        <td className="px-5 py-3">
-                          <div className="flex flex-wrap gap-1">
+                          <Badge variant="outline" className="font-mono text-[11px] border-[#c2d6ce] text-[#245347] bg-[#f4f8f6]">
+                            BL: {dossier.blLtaNumber || "—"}
+                          </Badge>
+                        </div>
+
+                        {dossier.cargoNature && (
+                          <p className="text-xs text-[#637b73]">
+                            <span className="font-medium text-[#3b534c]">Marchandise :</span> {dossier.cargoNature}
+                          </p>
+                        )}
+
+                        <div>
+                          <p className="text-[11px] font-semibold text-[#7f908a] uppercase tracking-wider mb-1.5">
+                            Anomalies détectées ({issues.length})
+                          </p>
+                          <div className="flex flex-wrap gap-1.5">
                             {issues.map(issue => (
-                              <Badge key={issue} className="border-0 bg-[#fff0eb] text-[#bd5038] text-[10px]">
+                              <Badge
+                                key={issue}
+                                className="border-0 bg-[#fff0eb] text-[#bd5038] text-[11px] font-medium px-2 py-0.5"
+                              >
+                                <AlertCircle size={11} className="mr-1 inline" />
                                 {issue}
                               </Badge>
                             ))}
                           </div>
-                        </td>
-                        <td className="px-5 py-3 text-right">
-                          <div className="flex items-center justify-end gap-2">
-                            <Button
-                              size="sm"
-                              onClick={() => setEditingCustomsDossier(dossier)}
-                              className="h-7 rounded-lg bg-[#0b3b32] text-white hover:bg-[#164d41] text-xs px-2.5 shadow-sm"
-                            >
-                              <Edit3 size={12} className="mr-1" /> Régulariser
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              onClick={() => setLocation(`/dossiers/${dossier.id}`)}
-                              className="h-7 text-xs text-muted-foreground hover:text-emerald-900 px-2"
-                            >
-                              Fiche <ChevronRight size={12} />
-                            </Button>
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-2 pt-1 border-t border-[#edf2ef]">
+                          <Button
+                            size="default"
+                            onClick={() => setEditingCustomsDossier(dossier)}
+                            className="h-10 w-full rounded-xl bg-[#0b3b32] text-white hover:bg-[#164d41] text-xs font-semibold shadow-sm flex items-center justify-center gap-1.5"
+                          >
+                            <Edit3 size={14} /> Régulariser
+                          </Button>
+                          <Button
+                            size="default"
+                            variant="outline"
+                            onClick={() => setLocation(`/dossiers/${dossier.id}`)}
+                            className="h-10 w-full rounded-xl border-[#dfe8e4] text-[#23473d] hover:bg-[#edf5f1] text-xs font-semibold flex items-center justify-center gap-1.5"
+                          >
+                            Fiche <ChevronRight size={14} />
+                          </Button>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  );
+                })
+              )}
             </div>
-          </Card>
+          </div>
         )}
       </section>
 
@@ -376,3 +491,4 @@ export default function ControlsPage() {
     </DashboardLayout>
   );
 }
+

@@ -1,227 +1,320 @@
-# Rapport d'Exploration — Infrastructure de Test, Baseline Health & Stratégie de Couverture R1-R4
+# Handoff Report: R5 Breadcrumbs & Quick Back Navigation + Build & Test Infrastructure Survey
 
-**Auteur** : Explorer 3 (Teamwork Survey Phase)  
-**Date** : 2026-08-18T15:53:00Z  
-**Projet** : IGS Guinée SaaS — Suivi de Dossiers & Dédouanement  
-**Document de Référence** : `ORIGINAL_REQUEST.md` (Exigences R1, R2, R3, R4)  
+**Agent**: teamwork_preview_explorer_survey_3  
+**Date**: 2026-08-19T11:26:00Z  
+**Type**: Hard Handoff (Investigation Complete)  
 
 ---
 
 ## 1. Observation
 
-### 1.1 Configuration des Outils de Build et de Test
+### A. Navigation Architecture & Breadcrumb State (R5)
 
-1. **`package.json`** :
-   - Moteur & Scripts :
-     - `"check": "tsc --noEmit"`
-     - `"test": "vitest run"`
-     - `"build": "vite build && esbuild server/_core/index.ts --platform=node --packages=external --bundle --format=esm --outdir=dist"`
-   - Dépendances de test actuelles : `"vitest": "^3.0.0"` (v3.2.7 résolu).
-   - Dépendances UI & Runtime : React 19 (`^19.2.1`), Vite 7 (`^7.1.7`), Tailwind CSS 4 (`^4.1.14`), tRPC 11 (`^11.6.0`), Drizzle ORM (`^0.44.5`), Zod (`^4.1.12`), Wouter (`^3.3.5`).
-   - Aucune dépendance `@testing-library/react`, `jsdom`, ou `playwright` installée dans `devDependencies`.
+1. **Router & Route Hierarchy**:
+   - Router library: `wouter` v3.3.5 (configured in `client/src/App.tsx:4`, `App.tsx:29-96`).
+   - Dynamic & Static Routes in `client/src/App.tsx`:
+     - `/` → `Home` (Pilotage & KPI Dashboard)
+     - `/dossiers` → `DossiersPage` (Tous les Dossiers)
+     - `/dossiers/nouveau` → `DossierDetailPage` (Création d'un dossier)
+     - `/dossiers/:id` → `DossierDetailPage` (Consultation & Édition fiche dossier)
+     - `/finances` → `FinancesPage` (Finances, Facturation & Débours)
+     - `/planning` → `PlanningPage` (Planning des Arrivées & Check-list Terrain)
+     - `/controles` → `ControlsPage` (Contrôles Douane & PAC)
+     - `/portail-client` → `ClientPortalPage` (Portail de suivi public/externe)
+     - `*` → `NotFound` (Page 404)
 
-2. **`vitest.config.ts`** :
-   ```ts
-   // vitest.config.ts (l. 15-18)
-   test: {
-     environment: "node",
-     include: ["server/**/*.test.ts", "server/**/*.spec.ts"],
-   }
-   ```
-   *Constat direct* : Vitest est configuré en environnement `node` et filtre exclusivement `server/**/*.test.ts` et `server/**/*.spec.ts`. Les tests situés dans `client/` ou `shared/` ne sont pas exécutés par défaut.
+2. **Layout Structure (`client/src/components/DashboardLayout.tsx`)**:
+   - `DashboardLayout` wraps all authenticated views (`client/src/components/DashboardLayout.tsx:46-488`).
+   - In `DashboardLayout.tsx:348-358`:
+     ```tsx
+     <header className="sticky top-0 z-40 flex h-14 items-center justify-between border-b border-[#e4ebe8] bg-white/90 px-4 sm:px-6 backdrop-blur">
+       <div className="flex items-center gap-3">
+         {isMobile && <SidebarTrigger />}
+         <span className="font-semibold text-sm text-[#15362e] hidden sm:inline">{active?.label || "IGS Suivi"}</span>
+         {user?.role === "client" && (
+           <Badge className="bg-blue-100 text-blue-800 border-blue-200">
+             Espace Client : {user.clientCompany || "Société"}
+           </Badge>
+         )}
+       </div>
+     ```
+   - Currently, `DashboardLayout` displays only a static menu label (`active?.label`) in the top bar header. It does **not** include contextual breadcrumbs nor a quick back button.
 
-3. **`tsconfig.json`** :
-   - Chemins configurés : `"@/*": ["./client/src/*"]`, `"@shared/*": ["./shared/*"]`.
-   - Exclusions : `["node_modules", "build", "dist", "**/*.test.ts"]`.
+3. **Sub-Page Navigation & Back Buttons**:
+   - `DossierDetailPage.tsx` (`client/src/pages/DossierDetailPage.tsx:658-666`):
+     ```tsx
+     <Button
+       variant="ghost"
+       size="sm"
+       onClick={() => setLocation("/dossiers")}
+       className="rounded-xl border border-[#dfe8e4] bg-white text-[#3f5a52] hover:bg-[#ebf3f0]"
+     >
+       <ArrowLeft size={16} className="mr-1.5" /> Retour
+     </Button>
+     ```
+     Contains an isolated back button hardcoded to `/dossiers`, but lacks breadcrumbs (e.g. `Accueil > Tous les Dossiers > Fiche DOS-0054` or `Accueil > Tous les Dossiers > Nouveau dossier`).
+   - `DossiersPage.tsx`, `FinancesPage.tsx`, `PlanningPage.tsx`, `ControlsPage.tsx`: None of these sub-pages have breadcrumbs or standardized back navigation.
 
-4. **`vite.config.ts`** :
-   - Configuration manuelle des chunks Rollup (`vendor`, `ui`, `charts`, `trpc`).
-   - Plugin de log debug Manus (`vitePluginManusDebugCollector`).
-
----
-
-### 1.2 Baseline Health : Exécution des Outils Qualité
-
-Les commandes de validation ont été exécutées avec les résultats suivants :
-
-1. **`npm test`** :
-   ```
-   RUN v3.2.7
-   ✓ server/initialImportData.test.ts (2 tests) 3ms
-   ✓ server/dossierRules.test.ts (3 tests) 4ms
-   ✓ server/routers.integration.test.ts (3 tests) 54ms
-   ✓ server/dossierImport.test.ts (1 test) 2ms
-   ✓ server/auth.logout.test.ts (1 test) 4ms
-
-   Test Files  5 passed (5)
-   Tests       10 passed (10)
-   Duration    997ms
-   ```
-   *Statut* : **100 % Vert** (5 fichiers, 10 tests unitaires/intégration serveur).
-
-2. **`npm run check` (TypeScript `tsc --noEmit`)** :
-   ```
-   > tsc --noEmit
-   Exited with code 0 (Aucune erreur de type).
-   ```
-   *Statut* : **100 % Conforme**.
-
-3. **`npm run build` (Vite + esbuild)** :
-   ```
-   ✓ 2404 modules transformed.
-   dist/public/index.html (1.72 kB)
-   dist/public/assets/...
-   dist/index.js (137.3 kB)
-   Done in 12ms (server) / 3.23s (client)
-   ```
-   *Statut* : **Build Production Réussi sans erreur**.
+4. **UI Primitives Availability**:
+   - `client/src/components/ui/breadcrumb.tsx` (110 lines) exists and exports standard Radix/shadcn components:
+     - `Breadcrumb`, `BreadcrumbList`, `BreadcrumbItem`, `BreadcrumbLink`, `BreadcrumbPage`, `BreadcrumbSeparator`, `BreadcrumbEllipsis`.
 
 ---
 
-### 1.3 Audit Détaillé des Fichiers de Test Existants
+### B. Build, Test & Typecheck Infrastructure
 
-| Fichier de Test | Nombre de Tests | Périmètre Couvert | Limites / Gaps Identifiés |
-|---|---|---|---|
-| `server/auth.logout.test.ts` | 1 test | Nettoyage du cookie de session lors de `auth.logout` | Ne teste pas `auth.login`, ni l'attribution des rôles (`admin`, `declarant`, `comptable`, `client`), ni les permissions RBAC |
-| `server/dossierRules.test.ts` | 3 tests | `calculateDossierState` (Régularisé vs À régulariser, priorités Haute/Normale/Basse, completionRate) et formatage `DOS-XXXX` | Ne teste pas les règles douanières spécifiques (Sydonia, DDI GUCEG, validation BAE) |
-| `server/dossierImport.test.ts` | 1 test | `importDossiersBatch` (anti-doublon et mise à jour) | Ne teste pas l'import avec formats atypiques ou erreurs de validation Zod |
-| `server/initialImportData.test.ts` | 2 tests | Vérification des 54 dossiers initiaux et des catégories de référentiels (Port Conakry, devises GNF/USD) | Test statique de conformité des données mockées |
-| `server/routers.integration.test.ts` | 3 tests | `dossier.list`, `dashboard.get`, `reference.list`, CRUD basique `dossier`, `auth.login` générique | Mocks `vi.fn()` sans validation des rôles RBAC serveur, sans test des routes financières, sans test des tâches |
+1. **Test Infrastructure (`vitest` v3.2.7)**:
+   - Config file: `vitest.config.ts:15-18`:
+     ```ts
+     test: {
+       environment: "node",
+       include: ["server/**/*.test.ts", "server/**/*.spec.ts"],
+     },
+     ```
+   - Running `npm test` executes all 20 server test files with **181 tests passed, 0 failures**:
+     ```
+     RUN v3.2.7
+     ✓ server/__tests__/tier1_business_logic/currency_conversion.test.ts (14 tests)
+     ✓ server/__tests__/tier1_business_logic/proactive_alerts_service.test.ts (4 tests)
+     ✓ server/__tests__/tier3_ui_navigation_guards/route_guards.test.ts (10 tests)
+     ✓ server/routers.integration.test.ts (3 tests)
+     ✓ server/__tests__/tier2_trpc_rbac_integration/m1_backend_rbac_complete.test.ts (12 tests)
+     ✓ server/__tests__/tier4_e2e_scenarios/end_to_end_scenarios.test.ts (31 tests)
+     ✓ server/__tests__/tier2_trpc_rbac_integration/m1_persistence_currency_stress.test.ts (27 tests)
+     ✓ server/__tests__/tier1_business_logic/challenger2_frontend_finance_stress.test.ts (12 tests)
+     ✓ server/__tests__/tier2_trpc_rbac_integration/challenger_m1_adversarial_matrix.test.ts (12 tests)
+     ✓ server/__tests__/tier1_business_logic/customs_rules.test.ts (11 tests)
+     ✓ server/__tests__/tier2_trpc_rbac_integration/dossier_detail_dynamic_route.test.ts (6 tests)
+     ✓ server/initialImportData.test.ts (2 tests)
+     ✓ server/dossierRules.test.ts (3 tests)
+     ✓ server/__tests__/tier2_trpc_rbac_integration/client_portal_isolation.test.ts (6 tests)
+     ✓ server/__tests__/tier1_business_logic/rbac_permissions.test.ts (5 tests)
+     ✓ server/__tests__/tier2_trpc_rbac_integration/declarant_pac_workflow.test.ts (7 tests)
+     ✓ server/__tests__/tier2_trpc_rbac_integration/auth_role_simulation.test.ts (7 tests)
+     ✓ server/__tests__/tier2_trpc_rbac_integration/comptable_finance_workflow.test.ts (7 tests)
+     ✓ server/dossierImport.test.ts (1 test)
+     ✓ server/auth.logout.test.ts (1 test)
+     Test Files 20 passed (20) | Tests 181 passed (181) | Duration 7.94s
+     ```
+   - Client test files exist in `client/src/__tests__/challenger_fe_stress.test.ts` (444 lines) and `client/src/hooks/usePermissions.test.ts` (95 lines). They can be included in test runs by updating `vitest.config.ts` to include `client/**/*.test.ts`.
+
+2. **Production Build (`npm run vercel-build` and `npm run build`)**:
+   - `npm run vercel-build` (`vite build && esbuild server/vercel-entry.ts --bundle --platform=node --format=esm --outfile=api/index.mjs --packages=external`):
+     - **Status: PASS (Exit code 0)**.
+     - Built client bundle in `dist/public` (2.52 kB HTML, 150.62 kB CSS, chunks for react, charts, ui, trpc) and server endpoint `api/index.mjs` (147.7 kB).
+   - `npm run build` (`vite build && esbuild server/_core/index.ts ...`):
+     - **Status: PASS (Exit code 0)**.
+     - Generated `dist/public` and `dist/index.js` (155.1 kB).
+
+3. **TypeScript Typecheck (`npm run check` -> `tsc --noEmit`)**:
+   - **Status: FAILED (Exit code 2)** with 4 compile errors:
+     1. `client/src/components/DashboardLayout.tsx(195,33): error TS2304: Cannot find name 'useMemo'.`
+        - Cause: `useMemo` is used at line 195 (`const filteredNotifications = useMemo(...)`) but was not imported from `"react"` at line 25 (`import { CSSProperties, useEffect, useRef, useState } from "react";`).
+     2. `client/src/components/DashboardLayout.tsx(425,47): error TS7006: Parameter 'n' implicitly has an 'any' type.`
+        - Cause: In `filteredNotifications.map(n => ...)` at line 425, parameter `n` lacks explicit typing when inference defaults to any under strict mode.
+     3. `client/src/pages/ControlsPage.tsx(279,73): error TS2339: Property 'message' does not exist on type 'never'.`
+        - Cause: At line 48 `if (error || dossiersError)`, TypeScript's control flow analysis narrows `dossiersError` to `null` / `never` downstream at line 276 `dossiersError ? ... : ...`.
+     4. `client/src/pages/DossierDetailPage.tsx(1161,36): error TS2304: Cannot find name 'id'.`
+        - Cause: In `createInvoiceMutation.mutate({ dossierId: id, ... })`, variable `id` is not declared. The defined identifier is `numericId` (declared at line 300: `const numericId = dossier?.id || ...`).
 
 ---
 
-### 1.4 Matrice de Couverture Actuelle vs Exigences R1, R2, R3, R4
+## 2. Logic Chain
 
-| Exigence Métier | Couverture Actuelle | Fichiers de Code Associés | Gaps de Test Identifiés |
-|---|---|---|---|
-| **R1. Global State & RBAC** | **15 %** | `server/_core/trpc.ts`<br>`server/routers.ts`<br>`client/src/components/DashboardLayout.tsx`<br>`client/src/App.tsx` | - Aucun test sur la restriction d'accès aux routes API tRPC par rôle (ex: `finance.*` réservé à comptable/admin).<br>- Aucun test sur les filtres multi-tenant `currentUserCompany` pour le rôle `client`.<br>- Aucun test sur les gardes de navigation côté client (`App.tsx` n'a pas de guard sur `/finances`, `/planning`, etc.). |
-| **R2. Profil Déclarant PAC (Mamadou Diallo)** | **25 %** | `client/src/pages/PlanningPage.tsx`<br>`client/src/pages/ControlsPage.tsx`<br>`client/src/pages/DossierDetailPage.tsx`<br>`server/routers.ts:338-361` | - Aucun test unitaire sur la mutation `task.updateStatus` (persistance DB lors du cochage d'une tâche opérationnelle prioritaire).<br>- Aucun test sur l'édition des identifiants douaniers (BL/LTA, DDI GUCEG, Sydonia World) et le recalcul de statut.<br>- Aucun test garantissant le masquage des données financières et de marge pour le profil Déclarant. |
-| **R3. Profil Comptable (Fatoumata Camara)** | **10 %** | `client/src/pages/FinancesPage.tsx`<br>`server/routers.ts:291-335`<br>`drizzle/schema.ts:104-128` | - Aucun test sur `finance.createInvoice` avec débours (droits douane + PAC) et TVA 18 %.<br>- Aucun test sur la conversion multi-devises GNF/USD et le calcul des taux de change.<br>- Aucun test sur le cycle de vie des factures (Proforma → Émise → Payée) et l'émission de reçus.<br>- Aucun test garantissant la restriction des actions de terrain/douane pour le Comptable. |
-| **R4. UX Simulateur de Rôles** | **20 %** | `client/src/components/DashboardLayout.tsx:185-202`<br>`client/src/_core/hooks/useAuth.ts` | - Aucun test sur la transition instantanée de rôle sans rechargement de page.<br>- Aucun test sur la redirection automatique (`/planning` pour déclarant, `/finances` pour comptable, `/portail-client` pour client).<br>- Aucun test sur l'actualisation dynamique du badge et du menu latéral. |
+1. **R5 Breadcrumb Navigation**:
+   - Observation 1 shows that all top-level and detail routes follow a strict hierarchy (`/` -> `/dossiers` -> `/dossiers/:id` or `/dossiers/nouveau`, `/finances`, `/planning`, `/controles`).
+   - Observation 2 & 4 show that shadcn's `Breadcrumb` components are available in `client/src/components/ui/breadcrumb.tsx`.
+   - Creating a reusable navigation component (e.g. `client/src/components/PageBreadcrumb.tsx` or embedding directly into `DashboardLayout` header) with items `[{ label: "Accueil", href: "/" }, { label: "Tous les Dossiers", href: "/dossiers" }, { label: "Fiche DOS-0054" }]` and an integrated Quick Back button (`<Button onClick={...}><ArrowLeft /> Retour</Button>`) will provide consistent UX across all sub-pages and edit screens without duplicating code.
 
----
-
-## 2. Chaîne Logique (Logic Chain)
-
-1. **Observation 1.1 & 1.2** démontrent que l'environnement d'exécution des tests (`vitest.config.ts`) est fonctionnel et rapide (<1s), mais restreint au dossier `server/` en mode `node`.
-2. **Observation 1.3 & 1.4** démontrent que les 10 tests existants couvrent uniquement la mécanique générale de l'import et du CRUD standard, sans valider les 4 personas métier exigés par le cahier des charges (`Mamadou Diallo`, `Fatoumata Camara`, `Admin IGS`, `Portail Client GBG`).
-3. **Analyse du code source (`server/_core/trpc.ts` & `server/routers.ts`)** :
-   - `server/_core/trpc.ts` ne définit que `publicProcedure`, `protectedProcedure`, et `adminProcedure`.
-   - Il manque des procédures dédiées telles que `declarantProcedure`, `comptableProcedure`, ou un middleware générique `hasRole(["admin", "comptable"])`.
-   - Par conséquent, les endpoints de facturation (`finance.summary`, `finance.createInvoice`) et de tâches opérationnelles (`task.updateStatus`) ne sont pas sécurisés au niveau serveur contre les accès non autorisés.
-4. **Analyse du code client (`client/src/App.tsx`)** :
-   - Toutes les routes (`/finances`, `/planning`, `/controles`, `/portail-client`) sont directement déclarées dans `<Switch>` sans composant wrapper de protection de route (`<RoleRoute allowedRoles={[...]} />`).
-5. **Conclusion logique** : Pour atteindre 100 % de conformité avec R1, R2, R3 et R4, une architecture de test structurée en **4 Tiers** doit être mise en place pour tester unitairement et en intégration la logique métier pure, les procédures tRPC avec contexte de rôle, les composants UI et les scénarios de simulation.
+2. **Build & Test Infrastructure**:
+   - `npm test` runs 181 unit/integration tests with 100% pass rate.
+   - `npm run vercel-build` and `npm run build` execute cleanly with Vite + esbuild.
+   - `npm run check` detects 4 strict TypeScript errors.
+   - Fixing these 4 syntax/type references in `DashboardLayout.tsx`, `ControlsPage.tsx`, and `DossierDetailPage.tsx` will achieve 0 TypeScript errors on `npm run check` and full compliance with `AGENTS.md` and `ORIGINAL_REQUEST.md` acceptance criteria.
 
 ---
 
-## 3. Caveats (Limites & Hypothèses)
+## 3. Caveats
 
-1. **Environnement de Test Vitest** :
-   - `vitest.config.ts` utilise actuellement `environment: "node"`. Les tests de composants React purs nécessitent soit l'ajout de `jsdom` / `happy-dom` avec `@testing-library/react`, soit une approche de test d'intégration basée sur des callers tRPC typés combinée à des tests unitaires de fonctions pures pour la logique UI (filtrage, calculs devises).
-2. **Framework E2E** :
-   - Playwright n'est pas préinstallé dans le dépôt. Les scénarios E2E de niveau 4 peuvent être rigoureusement couverts via une suite d'intégration simulant les flux complets de bout en bout (tRPC callers + simulation d'états de session).
-3. **Persistance Base de Données** :
-   - `server/db.ts` inclut à la fois le support Drizzle PostgreSQL et un fallback robuste en mémoire persistée (`_memoryDossiers`, `_memoryUsers`, `_memoryInvoices`, `_memoryTasks`). Les tests d'intégration doivent vérifier le comportement sur les deux couches.
+1. **Client Portal Route (`/portail-client`)**: The external client tracking portal is intentionally standalone (not wrapped in `DashboardLayout`) to prevent exposing internal navigation to external clients, but already includes a top navigation bar with a link back to `/`.
+2. **Dynamic Breadcrumb Labels**: On dynamic routes like `/dossiers/:id`, the terminal breadcrumb label should display the loaded dossier number (e.g. `Fiche DOS-0054`) with fallback to the raw ID if the dossier record is loading.
 
 ---
 
-## 4. Conclusion & Stratégie de Test Recommandée (Tiers 1 à 4)
+## 4. Conclusion & Proposed Implementations
 
-Pour garantir 100 % de conformité avec les exigences R1, R2, R3, R4, nous recommandons le déploiement immédiat de la suite de tests suivante :
+### A. R5 Standardized Breadcrumb Component Design
 
-### 🎯 Architecture des Suites de Test (Tiers 1 à 4)
+Create a reusable component `client/src/components/PageBreadcrumb.tsx`:
 
+```tsx
+import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator } from "@/components/ui/breadcrumb";
+import { Button } from "@/components/ui/button";
+import { ArrowLeft, ChevronRight, Home } from "lucide-react";
+import { useLocation } from "wouter";
+
+export interface BreadcrumbStep {
+  label: string;
+  href?: string;
+}
+
+interface PageBreadcrumbProps {
+  items: BreadcrumbStep[];
+  backHref?: string;
+  className?: string;
+}
+
+export function PageBreadcrumb({ items, backHref, className = "" }: PageBreadcrumbProps) {
+  const [, setLocation] = useLocation();
+
+  const handleBack = () => {
+    if (backHref) {
+      setLocation(backHref);
+    } else if (window.history.length > 1) {
+      window.history.back();
+    } else {
+      setLocation("/");
+    }
+  };
+
+  return (
+    <div className={`flex items-center gap-3 py-1 ${className}`}>
+      <Button
+        variant="ghost"
+        size="sm"
+        onClick={handleBack}
+        className="h-8 rounded-xl border border-[#dfe8e4] bg-white px-2.5 text-xs text-[#3f5a52] hover:bg-[#ebf3f0] hover:text-[#102c26] shadow-sm transition"
+      >
+        <ArrowLeft size={14} className="mr-1.5" />
+        Retour
+      </Button>
+
+      <Breadcrumb>
+        <BreadcrumbList className="text-xs text-[#71827d]">
+          <BreadcrumbItem>
+            <BreadcrumbLink
+              onClick={() => setLocation("/")}
+              className="flex items-center gap-1 cursor-pointer hover:text-[#102c26] transition font-medium"
+            >
+              <Home size={13} className="text-[#204a3e]" />
+              Accueil
+            </BreadcrumbLink>
+          </BreadcrumbItem>
+
+          {items.map((item, index) => {
+            const isLast = index === items.length - 1;
+            return (
+              <div key={item.label + index} className="flex items-center gap-1.5 sm:gap-2.5">
+                <BreadcrumbSeparator className="text-[#a4b5af]">
+                  <ChevronRight size={13} />
+                </BreadcrumbSeparator>
+                <BreadcrumbItem>
+                  {isLast || !item.href ? (
+                    <BreadcrumbPage className="font-semibold text-[#102c26]">{item.label}</BreadcrumbPage>
+                  ) : (
+                    <BreadcrumbLink
+                      onClick={() => setLocation(item.href!)}
+                      className="cursor-pointer hover:text-[#102c26] transition font-medium"
+                    >
+                      {item.label}
+                    </BreadcrumbLink>
+                  )}
+                </BreadcrumbItem>
+              </div>
+            );
+          })}
+        </BreadcrumbList>
+      </Breadcrumb>
+    </div>
+  );
+}
 ```
-server/
-├── __tests__/
-│   ├── tier1_business_logic/
-│   │   ├── currency_conversion.test.ts      # R3: Calculs multi-devises GNF/USD, débours, TVA 18%, marges
-│   │   ├── customs_rules.test.ts            # R2: Règles Sydonia, DDI GUCEG, BAE, régularisation
-│   │   └── rbac_permissions.test.ts        # R1: Matrice des permissions par rôle
-│   ├── tier2_trpc_rbac_integration/
-│   │   ├── auth_role_simulation.test.ts     # R1/R4: Login/switch rôle, cookies, session context
-│   │   ├── declarant_pac_workflow.test.ts   # R2: Tâches interactives, persistance DB, édition douane
-│   │   ├── comptable_finance_workflow.test.ts # R3: Facturation, débours, GNF/USD, encaissements
-│   │   └── client_portal_isolation.test.ts  # R1: Étanchéité multi-société (Guinean Birimian Gold)
-│   ├── tier3_ui_navigation_guards/
-│   │   ├── route_guards.test.ts             # R1/R4: Filtrage menu sidebar et accessibilité routes
-│   │   └── role_state_transitions.test.ts   # R4: Transitions instantanées, redirections cibles
-│   └── tier4_e2e_scenarios/
-│       └── end_to_end_scenarios.test.ts     # R1-R4: Scénarios complets de simulation inter-rôles
-```
 
-### 📋 Détail des Tests par Exigence
-
-#### 🔹 Tier 1 : Logique Métier Pure & Fonctions Utilitaires
-- **`currency_conversion.test.ts` (R3)** :
-  - Conversion bidirectionnelle GNF ↔ USD au taux de référence (ex: 1 USD = 8 650 GNF).
-  - Calcul du TTC avec débours non assujettis à la TVA et prestations HT soumises à 18 % TVA.
-  - Calcul de la marge brute estimée (`amountHt - couts_transit`).
-- **`customs_rules.test.ts` (R2)** :
-  - Validation du format des numéros de déclaration SYDONIA (ex: `S 142- 2026`) et Bulletin de Liquidation (ex: `L 1723- 2026`).
-  - Détection automatique du passage à l'état `Régularisé` dès complétion des identifiants douaniers.
-- **`rbac_permissions.test.ts` (R1)** :
-  - Validation de la matrice des droits : `canViewFinances(role)`, `canEditCustoms(role)`, `canDeleteDossier(role)`.
-
-#### 🔹 Tier 2 : Procédures Serveur tRPC & Contrôle RBAC
-- **`auth_role_simulation.test.ts` (R1, R4)** :
-  - Vérification que `caller.auth.login({ role: "declarant" })` instancie le profil Mamadou Diallo.
-  - Vérification que `caller.auth.login({ role: "comptable" })` instancie Fatoumata Camara.
-  - Vérification de l'émission correcte du cookie de session et des métadonnées utilisateur.
-- **`declarant_pac_workflow.test.ts` (R2)** :
-  - Vérification que le déclarant peut lister et filtrer ses dossiers assignés (`myDossiersOnly`).
-  - Vérification que `caller.task.updateStatus({ id, status: "Termine" })` persiste immédiatement en base.
-  - Vérification de l'édition des champs BL/LTA, DDI, Sydonia via `caller.dossier.update`.
-  - Vérification que `caller.finance.summary()` ou `caller.finance.createInvoice()` rejette ou masque les données sensibles pour le profil déclarant.
-- **`comptable_finance_workflow.test.ts` (R3)** :
-  - Création de factures proforma et finales en GNF et USD (`caller.finance.createInvoice`).
-  - Agrégation exacte du CA total et des marges dans `caller.finance.summary()`.
-  - Enregistrement des débours (droits de douane avancés pour le client) et des surestaries PAC.
-- **`client_portal_isolation.test.ts` (R1)** :
-  - Vérification que l'utilisateur client (Birimian Gold) ne reçoit STRICTEMENT QUE les dossiers de sa société (`currentUserCompany`).
-  - Vérification que le client n'a pas accès aux notes internes, ni aux marges comptables, ni aux boutons de modification douane.
-
-#### 🔹 Tier 3 : Navigation Dynamique & Gardes de Rôles
-- **`route_guards.test.ts` (R1, R4)** :
-  - Vérification de la liste des menus autorisés par profil :
-    - Déclarant PAC → `Planning`, `Contrôles Douane`, `Tous les Dossiers`.
-    - Comptable → `Finances & Facturation`, `Pilotage & KPI`, `Tous les Dossiers`.
-    - Client → `Portail Client`, `Tous les Dossiers (vue filtrée)`.
-    - Admin → Accès total à tous les 6 modules.
-- **`role_state_transitions.test.ts` (R4)** :
-  - Validation du routage automatique lors du switch de profil (`/planning` pour déclarant, `/finances` pour comptable, `/portail-client` pour client, `/` pour admin).
-
-#### 🔹 Tier 4 : Scénarios E2E Intégrés (Smoke & Lifecycle)
-- **`end_to_end_scenarios.test.ts`** :
-  - Scénario complet 1 : L'Admin crée un dossier brut → Mamadou Diallo (Déclarant) le prend en charge, saisit la déclaration SYDONIA, valide la tâche prioritaire → Fatoumata Camara (Comptable) émet la facture GNF/USD et enregistre les débours → Le client GBG consulte l'avancement sur le portail public via le code de suivi.
+#### Page Integration Mapping:
+- `DossierDetailPage.tsx` (`/dossiers/:id` & `/dossiers/nouveau`):
+  ```tsx
+  <PageBreadcrumb
+    items={[
+      { label: "Tous les Dossiers", href: "/dossiers" },
+      { label: isNew ? "Nouveau dossier" : `Fiche ${dossier?.dossierNumber || rawId}` }
+    ]}
+    backHref="/dossiers"
+  />
+  ```
+- `DossiersPage.tsx` (`/dossiers`):
+  ```tsx
+  <PageBreadcrumb
+    items={[{ label: "Tous les Dossiers" }]}
+    backHref="/"
+  />
+  ```
+- `FinancesPage.tsx` (`/finances`):
+  ```tsx
+  <PageBreadcrumb
+    items={[{ label: "Finances & Facturation" }]}
+    backHref="/"
+  />
+  ```
+- `PlanningPage.tsx` (`/planning`):
+  ```tsx
+  <PageBreadcrumb
+    items={[{ label: "Planning & Échéances" }]}
+    backHref="/"
+  />
+  ```
+- `ControlsPage.tsx` (`/controles`):
+  ```tsx
+  <PageBreadcrumb
+    items={[{ label: "Contrôles Douane & PAC" }]}
+    backHref="/"
+  />
+  ```
 
 ---
 
-## 5. Méthode de Vérification Indépendante
+### B. Fixes for TypeScript Compile Errors
 
-Pour vérifier de manière autonome l'intégrité de la plateforme et des tests :
+1. **`client/src/components/DashboardLayout.tsx`**:
+   - Add `useMemo` to React imports:
+     ```tsx
+     import { CSSProperties, useEffect, useMemo, useRef, useState } from "react";
+     ```
+   - Type `n` in map callback:
+     ```tsx
+     filteredNotifications.map((n: any) => ( ... ))
+     ```
 
-1. **Exécution de l'ensemble des tests** :
-   ```bash
-   npm test
-   ```
-   *Critère d'acceptation* : 100 % des tests passent avec succès (0 échec).
+2. **`client/src/pages/ControlsPage.tsx`**:
+   - Fix line 279 error display:
+     ```tsx
+     Impossible de charger la liste détaillée : {(dossiersError as any)?.message || "Erreur inconnue"}
+     ```
 
-2. **Vérification statique des types TypeScript** :
-   ```bash
-   npm run check
-   ```
-   *Critère d'acceptation* : `tsc --noEmit` se termine avec code de sortie 0.
+3. **`client/src/pages/DossierDetailPage.tsx`**:
+   - Fix line 1161 in `createInvoiceMutation.mutate`:
+     ```tsx
+     dossierId: numericId,
+     ```
 
-3. **Validation du Build Production** :
-   ```bash
-   npm run build
-   ```
-   *Critère d'acceptation* : Compilation complète Vite (client) et esbuild (serveur) sans warning bloquant.
+---
 
-4. **Conditions d'invalidation** :
-   - Un utilisateur Déclarant pouvant accéder aux données financières ou de marge brute.
-   - Un utilisateur Comptable pouvant altérer les déclarations douanières SYDONIA.
-   - Un utilisateur Client pouvant voir les dossiers d'une autre compagnie minière.
-   - Un changement de profil dans le simulateur nécessitant un rafraîchissement complet de la page (`F5` / reload navigateur).
+## 5. Verification Method
+
+### Step 1: Run Full Test Suite
+```bash
+npm test
+```
+Expected output: 20 test files passed, 181+ tests passed, 0 failures.
+
+### Step 2: Run Strict TypeScript Check
+```bash
+npm run check
+```
+Expected output: `tsc --noEmit` exits with 0 errors.
+
+### Step 3: Run Production Build
+```bash
+npm run vercel-build
+npm run build
+```
+Expected output: Successful Vite client bundle compilation and esbuild server bundle generation.

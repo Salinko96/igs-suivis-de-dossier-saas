@@ -273,7 +273,12 @@ export const appRouter = router({
       .input(z.object({ accessCodeOrNumber: z.string().trim().min(2) }))
       .query(async ({ input }) => {
         const dossier = await db.getDossierByPortalCode(input.accessCodeOrNumber);
-        if (!dossier) throw new Error("Dossier introuvable. Vérifiez le numéro de BL ou le code de suivi.");
+        if (!dossier) {
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "Dossier introuvable. Aucun dossier trouvé pour ce code. Vérifiez le code d'accès et réessayez.",
+          });
+        }
         const docs = await db.listDocuments(dossier.id);
         const history = await db.listDossierHistory(dossier.id);
         return {

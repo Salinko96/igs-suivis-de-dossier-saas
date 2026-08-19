@@ -1,5 +1,6 @@
 import DashboardLayout from "@/components/DashboardLayout";
 import { CustomsEditModal, CustomsEditDossier } from "@/components/CustomsEditModal";
+import Breadcrumbs from "@/components/Breadcrumbs";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -560,6 +561,15 @@ function DossiersContent() {
 
   return (
     <div className="mx-auto max-w-[1540px] space-y-6">
+      {/* Fil d'Ariane & Navigation */}
+      <Breadcrumbs
+        items={[
+          { label: "Accueil", href: "/" },
+          { label: "Tous les Dossiers", active: true },
+        ]}
+        backHref="/"
+      />
+
       {/* Header */}
       <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
         <div>

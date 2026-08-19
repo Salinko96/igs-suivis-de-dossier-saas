@@ -28,14 +28,30 @@ export default function ClientPortalPage() {
 
   const portalQuery = trpc.portal.track.useQuery(
     { accessCodeOrNumber: submittedCode },
-    { enabled: Boolean(submittedCode.trim()) }
+    {
+      enabled: Boolean(submittedCode.trim()),
+      retry: false,
+      refetchOnWindowFocus: false,
+    }
   );
+
+  const sampleCodes = [
+    { label: "IGS-1001", desc: "Code de suivi direct" },
+    { label: "CKYSI26000340", desc: "Réf. Client Birimian" },
+    { label: "HLCUNG12604AUQG1", desc: "N° Connaissement BL" },
+  ];
+
+  const triggerSearchWithCode = (code: string) => {
+    const trimmed = code.trim();
+    if (trimmed) {
+      setSearchCode(trimmed);
+      setSubmittedCode(trimmed);
+    }
+  };
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
-    if (searchCode.trim()) {
-      setSubmittedCode(searchCode.trim());
-    }
+    triggerSearchWithCode(searchCode);
   };
 
   const data = portalQuery.data;
@@ -84,28 +100,82 @@ export default function ClientPortalPage() {
                 className="pl-9 h-11 rounded-2xl border-emerald-950/20 bg-white text-xs"
               />
             </div>
-            <Button type="submit" className="h-11 rounded-2xl bg-[#0b3b32] text-white hover:bg-[#164d41] px-5 text-xs">
-              {portalQuery.isLoading ? <Loader2 size={15} className="animate-spin" /> : "Consulter"}
+            <Button
+              type="submit"
+              disabled={portalQuery.isFetching}
+              className="h-11 rounded-2xl bg-[#0b3b32] text-white hover:bg-[#164d41] px-5 text-xs font-semibold"
+            >
+              {portalQuery.isFetching ? (
+                <div className="flex items-center gap-1.5">
+                  <Loader2 size={15} className="animate-spin" />
+                  <span>Recherche...</span>
+                </div>
+              ) : (
+                "Consulter"
+              )}
             </Button>
           </form>
+
+          {/* Badges d'exemples cliquables sous le formulaire */}
+          <div className="flex flex-wrap items-center justify-center gap-1.5 pt-2 text-xs">
+            <span className="text-muted-foreground text-[11px] font-medium mr-1">Exemples rapides :</span>
+            {sampleCodes.map(sample => (
+              <button
+                key={sample.label}
+                type="button"
+                onClick={() => triggerSearchWithCode(sample.label)}
+                className="inline-flex items-center gap-1 rounded-full border border-emerald-900/20 bg-white px-2.5 py-0.5 text-[11px] font-medium text-emerald-900 shadow-sm transition hover:bg-emerald-50 hover:border-emerald-700 hover:text-emerald-950 cursor-pointer"
+              >
+                <span className="font-mono font-semibold">{sample.label}</span>
+              </button>
+            ))}
+          </div>
         </div>
 
-        {/* Résultat du Suivi */}
-        {portalQuery.isLoading && (
+        {/* Résultat du Suivi - Indicateur de chargement */}
+        {portalQuery.isFetching && (
           <div className="text-center py-12">
             <Loader2 className="mx-auto h-8 w-8 animate-spin text-emerald-800" />
-            <p className="text-xs text-muted-foreground mt-2">Recherche des informations maritimes et douanières...</p>
+            <p className="text-xs text-muted-foreground mt-2 font-medium">Recherche des informations maritimes et douanières...</p>
           </div>
         )}
 
-        {portalQuery.isError && (
-          <Card className="border-rose-200 bg-rose-50/50 p-6 text-center">
-            <p className="font-semibold text-xs text-rose-800">{portalQuery.error.message}</p>
-            <p className="text-[11px] text-muted-foreground mt-1">Exemples valides : IGS-1001, CKYSI26000340, HLCUNG12604AUQG1</p>
+        {/* Résultat du Suivi - Carte d'erreur claire et stylée */}
+        {!portalQuery.isFetching && portalQuery.isError && (
+          <Card className="border-rose-200 bg-white p-6 sm:p-8 text-center rounded-3xl shadow-sm max-w-xl mx-auto space-y-4">
+            <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-rose-100 text-rose-700">
+              <Search size={22} />
+            </div>
+            <div className="space-y-1.5">
+              <h3 className="font-bold text-sm text-rose-950">Dossier introuvable</h3>
+              <p className="font-semibold text-xs text-rose-800">
+                « Aucun dossier trouvé pour ce code. Vérifiez le code d'accès et réessayez. »
+              </p>
+              <p className="text-[11px] text-muted-foreground">
+                Le code saisi (« <span className="font-mono font-semibold text-rose-950">{submittedCode}</span> ») ne correspond à aucun dossier en cours d'acheminement ou de dédouanement.
+              </p>
+            </div>
+
+            <div className="pt-3 border-t border-gray-100">
+              <p className="text-[11px] font-medium text-muted-foreground mb-2">Cliquez sur un dossier exemple pour tester :</p>
+              <div className="flex flex-wrap items-center justify-center gap-2">
+                {sampleCodes.map(sample => (
+                  <button
+                    key={sample.label}
+                    type="button"
+                    onClick={() => triggerSearchWithCode(sample.label)}
+                    className="inline-flex items-center gap-1.5 rounded-xl border border-emerald-200 bg-emerald-50/50 px-3 py-1.5 text-xs font-semibold text-emerald-950 shadow-sm transition hover:bg-emerald-100 hover:border-emerald-400 cursor-pointer"
+                  >
+                    <span className="font-mono">{sample.label}</span>
+                    <span className="text-[10px] text-emerald-700 font-normal">({sample.desc})</span>
+                  </button>
+                ))}
+              </div>
+            </div>
           </Card>
         )}
 
-        {dossier && (
+        {!portalQuery.isFetching && !portalQuery.isError && dossier && (
           <div className="space-y-6">
             {/* Carte Récapitulative */}
             <Card className="border-0 bg-white p-6 shadow-[0_12px_36px_rgba(20,50,43,0.06)] rounded-3xl">

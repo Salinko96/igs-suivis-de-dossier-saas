@@ -1,13 +1,13 @@
-# Progress - Explorer 2 (Backend & Schema Survey)
+# Progress
 
-Last visited: 2026-08-18T15:53:30Z
+Last visited: 2026-08-19T11:24:45Z
+Status: Completed
 
-## Status
-- [x] Initialized workspace, dispatch log and briefing
-- [x] Explore server/ and shared/ directory structure
-- [x] Inspect database schema (Drizzle), tables, enums, migrations
-- [x] Inspect existing customs fields, task persistence, financial models
-- [x] Inspect tRPC routers, context, authentication, RBAC middleware
-- [x] Analyze required backend changes for Mamadou Diallo (Déclarant) & Fatoumata Camara (Comptable)
-- [x] Compile comprehensive 5-component handoff report (`handoff.md`)
-- [x] Transmit completion message to orchestrator
+## Completed Steps
+- [x] Initialized DISPATCH.md and BRIEFING.md
+- [x] Read ORIGINAL_REQUEST.md and AGENTS.md
+- [x] Investigated R3: `/controles` table layout, horizontal overflow, `min-w-[750px]`, lack of mobile stacked cards and scroll indicator
+- [x] Investigated R4: `/dossiers/[id]` detail page performance, identified unconditional `dossier.list` call, eager tab sub-queries, lack of lazy loading, and multi-condition OR queries in `db.getDossier`
+- [x] Verified test suite passes (`181 passed`)
+- [x] Generated structured 5-component handoff report in `handoff.md`
+- [x] Sent summary back to parent agent

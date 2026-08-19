@@ -1,207 +1,250 @@
-# Rapport d'Exploration Backend, Schéma & RBAC (Survey Explorer 2)
+# Rapport d'Exploration Détaillé : R3 (UX Contrôles Actions Prioritaires) & R4 (Performance Fiche Dossier)
 
-**Projet :** IGS Guinée SaaS — Suivi de Dossiers & Dédouanement  
-**Auteur :** Explorer 2 (Backend, tRPC, Drizzle Schema & RBAC Specialist)  
-**Date :** 2026-08-18  
-**Référence :** `ORIGINAL_REQUEST.md` (Acceptance Criteria R1, R2, R3, R4)  
+**Agent :** `teamwork_preview_explorer_survey_2`  
+**Date :** 2026-08-19T11:24:45Z  
+**Type de handoff :** Hard (Recherche & analyse complètes)  
 
 ---
 
 ## 1. Observation
 
-### 1.1. Architecture Backend et Organisation des Fichiers
-- **Structure Globale :**
-  - `server/` :
-    - `server/routers.ts` (395 lignes) : Routeur tRPC racine (`appRouter`) regroupant les sous-routeurs : `auth`, `reference`, `dossier`, `portal`, `document`, `audit`, `finance`, `task`, `comment`, `notification`, `dashboard`, `system`.
-    - `server/db.ts` (1166 lignes) : Couche d'accès aux données double-mode : PostgreSQL via Drizzle ORM (`drizzle-orm/postgres-js`) avec repli transparent en mémoire vive (`_memoryUsers`, `_memoryDossiers`, `_memoryInvoices`, `_memoryTasks`, `_memoryComments`, `_memoryNotifications`, `_memoryReferenceItems`).
-    - `server/_core/trpc.ts` (46 lignes) : Initialisation tRPC avec transformateur `superjson`, `publicProcedure`, `protectedProcedure` (vérifiant `ctx.user`), et `adminProcedure` (vérifiant `ctx.user.role === 'admin'`).
-    - `server/_core/context.ts` (29 lignes) : Construction du contexte Express avec extraction de session via `sdk.authenticateRequest(req)`.
-    - `server/_core/sdk.ts` (351 lignes) : Gestion des tokens JWT signés (`jose` HS256) stockés dans le cookie `app_session_id` ou transmis via `Authorization: Bearer <token>`.
-    - `server/dossierRules.ts` (51 lignes) : Calcul automatique de l'état du dossier (`calculatedStatus`: "Régularisé" / "À régulariser", `calculatedPriority`: "Haute" / "Normale" / "Basse", `completionRate`: 0-100%).
-    - `server/seed.ts` (63 lignes) : Script d'initialisation de la base PostgreSQL à partir de `server/initialImportData.ts`.
-  - `drizzle/` :
-    - `drizzle/schema.ts` (202 lignes) : Définition des tables PostgreSQL Drizzle (`users`, `dossiers`, `documents`, `dossier_status_history`, `invoices`, `dossier_tasks`, `dossier_comments`, `notifications`, `reference_items`).
-    - `drizzle.config.ts` (16 lignes) : Configuration Drizzle Kit (`dialect: "postgresql"`, `schema: "./drizzle/schema.ts"`).
-  - `shared/` :
-    - `shared/const.ts` (38 lignes) : Constantes d'authentification (`COOKIE_NAME = "app_session_id"`, `ONE_YEAR_MS`, messages d'erreur).
-    - `shared/types.ts` (8 lignes) : Réexport unifié des types Drizzle (`User`, `Dossier`, `Invoice`, `DossierTask`, etc.).
+### 1.1 Exigences Spécifiées (ORIGINAL_REQUEST.md)
+* **R3 : Amélioration UX du Tableau « Actions Prioritaires » (`/controles`)**
+  * *Problème :* Le tableau des dossiers à régulariser déborde horizontalement et masque les boutons d'action (« Régulariser », « Fiche ») sans indication visuelle.
+  * *Solution :* Conteneur avec scrollbar horizontale fluide et visible / ombre de dégradé, et mode cartes empilées responsive (mobile/tablette).
+* **R4 : Optimisation des Performances de Chargement (`/dossiers/[id]`)**
+  * *Problème :* L'ouverture d'une fiche dossier individuelle prend 5 à 8 secondes avec skeleton loader prolongé.
+  * *Solution :* Supprimer tout délai artificiel, requêtes redondantes / N+1, et optimiser le cache client + requêtes backend pour un affichage < 300ms.
 
-### 1.2. État Existant des Tables et Modèles de Données
+---
 
-#### A. Table `dossiers` (`drizzle/schema.ts`, lignes 25-72)
-- **Identifiants Douane & Logistique Existants :**
-  - `blLtaNumber` (`varchar(160)`) : N° Connaissement maritime (BL) ou Lettre de Transport Aérien (LTA).
-  - `declarationNumber` (`varchar(160)`) : N° Déclaration douane (ex: "S 142- 27/07/2026" dans SYDONIA World).
-  - `bulletinNumber` (`varchar(160)`) : N° Bulletin de Liquidation Douane (BLD, ex: "L 1774 Du 28/07/2026").
-  - `finalDeclarationNumber` (`varchar(160)`) : N° Déclaration définitive (ex: "C 1398-2026").
-  - `clientDossierNumber` (`varchar(120)`) : Référence interne client (ex: "CKYSI26000340").
-  - `portalAccessCode` (`varchar(32)`) : Code de suivi public direct (ex: "IGS-1001").
-- **Statuts Métier & Opérations :**
-  - `calculatedStatus` (`enum: "Régularisé", "À régulariser"`), `calculatedPriority` (`enum: "Haute", "Normale", "Basse"`), `completionRate` (`integer`).
-  - `customsStatus` (`varchar(80)`), `portStatus` (`varchar(100)`), `financialStatus` (`varchar(100)`), `documentStatus` (`varchar(80)`).
-  - `fieldOperation` (`varchar(160)`), `fieldAlert` (`varchar(120)`), `nextAction` (`varchar(255)`), `deliveryLocation` (`varchar(120)`), `declarant` (`varchar(120)`), `service` (`varchar(80)`), `regime` (`varchar(80)`).
-- **Constat :** Les champs fondamentaux pour Mamadou Diallo (BL/LTA, Sydonia, BLD, statuts) sont présents dans la table `dossiers`. Il manque toutefois des drapeaux explicites pour la validation des documents de transit (BAD - Bon à Délivrer PAC, BAE - Bon à Enlever Douane, DDI GUCEG validée).
+### 1.2 R3 — Examen du Code Source (`/controles`)
 
-#### B. Table `dossier_tasks` (`drizzle/schema.ts`, lignes 130-145)
-- **Colonnes :**
-  - `id` (`serial`), `dossierId` (`integer`), `title` (`varchar(255)`), `assignedTo` (`varchar(120)`), `dueDate` (`timestamp`), `status` (`enum: "A_faire", "En_cours", "Termine", "Bloque"`), `priority` (`enum: "Haute", "Normale", "Basse"`), `completedAt` (`timestamp`), `createdById` (`integer`), `createdAt` (`timestamp`).
-- **Données en mémoire (`server/db.ts`, lignes 212-297) :**
-  - 7 tâches initiales pré-remplies : 5 assignées à `"Mamadou Diallo"` (DDI GUCEG, Sydonia World, BAD Port de Conakry, Inspection physique quai PAC, Régularisation BLD) et 2 assignées à `"Fatoumata Camara"` (Paiement débours & taxes PAC, Émission facture définitive).
-- **Constat :** La table et les fonctions de persistance (`listTasks`, `createTask`, `updateTaskStatus`) existent dans `server/db.ts` et `server/routers.ts`. Cependant, `task.list` ne filtre pas par utilisateur assigné (`assignedTo`), et il manque une procédure de bascule rapide (`toggleTask`) ou de génération de checklist standard.
+**Fichier :** `client/src/pages/ControlsPage.tsx`
+* **Lignes 283–358 :**
+  ```tsx
+  <Card className="overflow-hidden border-0 bg-white shadow-[0_10px_28px_rgba(23,54,46,0.06)]">
+    <div className="overflow-x-auto">
+      <table className="w-full min-w-[750px] text-left text-sm">
+        <thead className="bg-[#f8faf9] text-[10px] font-bold uppercase tracking-[0.12em] text-[#7d8d87]">
+          <tr>
+            <th className="px-5 py-3">Dossier</th>
+            <th className="px-5 py-3">Client</th>
+            <th className="px-5 py-3">Marchandise</th>
+            <th className="px-5 py-3">Anomalies détectées</th>
+            <th className="px-5 py-3 text-right">Régularisation Rapide</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-[#edf2ef]">
+          {anomalies.map(dossier => {
+            ...
+            return (
+              <tr key={dossier.id} className="hover:bg-[#f8faf9] transition">
+                ...
+                <td className="px-5 py-3 text-right">
+                  <div className="flex items-center justify-end gap-2">
+                    <Button
+                      size="sm"
+                      onClick={() => setEditingCustomsDossier(dossier)}
+                      className="h-7 rounded-lg bg-[#0b3b32] text-white hover:bg-[#164d41] text-xs px-2.5 shadow-sm"
+                    >
+                      <Edit3 size={12} className="mr-1" /> Régulariser
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => setLocation(`/dossiers/${dossier.id}`)}
+                      className="h-7 text-xs text-muted-foreground hover:text-emerald-900 px-2"
+                    >
+                      Fiche <ChevronRight size={12} />
+                    </Button>
+                  </div>
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  </Card>
+  ```
+* **Lignes 363–367 :**
+  ```tsx
+  <CustomsEditModal
+    isOpen={Boolean(editingCustomsDossier)}
+    onClose={() => setEditingCustomsDossier(null)}
+    dossier={editingCustomsDossier}
+  />
+  ```
 
-#### C. Table `invoices` (`drizzle/schema.ts`, lignes 104-128)
-- **Colonnes :**
-  - `id` (`serial`), `dossierId` (`integer`), `invoiceNumber` (`varchar(32)`), `client` (`varchar(255)`), `currency` (`varchar(8)`, défaut "GNF"), `amountHt` (`integer`), `amountTva` (`integer`), `amountTtc` (`integer`), `disbursementsAmount` (`integer`), `storageAndDemurrageFees` (`integer`), `estimatedMargin` (`integer`), `status` (`enum: "Proforma", "Émise", "Payée", "En_retard", "Annulée"`), `dueDate` (`timestamp`), `paidAt` (`timestamp`), `notes` (`text`), `createdById` (`integer`), `createdAt` (`timestamp`), `updatedAt` (`timestamp`).
-- **Constat sur le Module Financier :**
-  - Support multi-devises partiel : le champ `currency` stocke "GNF" ou "USD", mais la conversion automatique entre GNF et USD est absente du backend.
-  - La procédure `finance.summary` calcule séparément `totalCA_GNF` et `totalCA_USD` sans taux de change de référence unifié (ex: 1 USD = 8 650 GNF).
-  - Les débours douaniers (`disbursementsAmount`) sont stockés sous forme d'un montant agrégé, sans décomposition détaillée (Droits de douane Sydonia, Redevance portuaire PAC, Magasinage/Surestaries).
-  - L'encaissement et la quittance de paiement : `paidAt` existe, mais il manque les champs de mode de paiement (`paymentMethod`: Virement, Chèque, Espèces), référence de transaction, et génération de quittance (`receiptNumber`).
+---
 
-### 1.3. Analyse des Procédures tRPC et Middleware RBAC (`server/routers.ts` & `server/_core/trpc.ts`)
+### 1.3 R4 — Examen du Code Source (`/dossiers/[id]`)
 
-| Routeur / Procédure | Type | Middleware Actuel | Rôles Autorisés Actuels | Gaps / Besoins RBAC & Métier |
-|---|---|---|---|---|
-| `auth.me` | Query | `publicProcedure` | Tous | Fonctionnel (renvoie l'utilisateur de session) |
-| `auth.login` | Mutation | `publicProcedure` | Tous | Permet la simulation instantanée de rôle (`role`, `name`, `clientCompany`) |
-| `auth.logout` | Mutation | `publicProcedure` | Tous | Supprime le cookie `app_session_id` |
-| `reference.list` | Query | `protectedProcedure` | Authentifié | Fonctionnel |
-| `reference.create` | Mutation | `adminProcedure` | `admin` uniquement | Fonctionnel |
-| `dossier.list` | Query | `protectedProcedure` | Authentifié | Filtre déjà `currentUserCompany` pour le rôle `client` et `responsible` pour `myDossiersOnly` |
-| `dossier.get` | Query | `protectedProcedure` | Authentifié | Devrait restreindre l'accès client à sa propre société |
-| `dossier.create` | Mutation | `protectedProcedure` | Authentifié | Devrait interdire la création par le profil `client` |
-| `dossier.update` | Mutation | `protectedProcedure` | Authentifié | Devrait interdire l'édition financière par `declarant` et douanière par `comptable` |
-| `dossier.remove` | Mutation | `adminProcedure` | `admin` uniquement | Fonctionnel |
-| `dossier.importBatch` | Mutation | `protectedProcedure` | Authentifié | Réservé à `admin`, `manager`, `declarant` |
-| `portal.track` | Query | `publicProcedure` | Public | Fonctionnel pour recherche par BL / Code `IGS-XXXX` |
-| `document.list` / `upload` / `remove` | Mix | `protectedProcedure` | Authentifié | Traçabilité automatique dans `dossier_status_history` active |
-| `finance.listInvoices` | Query | `protectedProcedure` | Authentifié | **CRITIQUE :** Accessible à `declarant` alors que R2 exige "hide finances" |
-| `finance.createInvoice` | Mutation | `protectedProcedure` | Authentifié | Devrait être restreint à `admin`, `comptable`, `manager` |
-| `finance.summary` | Query | `protectedProcedure` | Authentifié | **CRITIQUE :** Devrait être bloqué pour `declarant` et `client` |
-| `task.list` | Query | `protectedProcedure` | Authentifié | Manque le filtrage par `assignedTo` ou rôle courant |
-| `task.create` | Mutation | `protectedProcedure` | Authentifié | Fonctionnel |
-| `task.updateStatus` | Mutation | `protectedProcedure` | Authentifié | Fonctionnel (met à jour `status` et `completedAt`) |
+**Fichier Frontend :** `client/src/pages/DossierDetailPage.tsx`
+* **Lignes 274–280 (Sur-requêtage massif sur chaque fiche) :**
+  ```tsx
+  const { data: dossier, isLoading, isError, error, refetch } = trpc.dossier.get.useQuery(
+    { id: rawId! },
+    { enabled: !isNew && Boolean(rawId), retry: 1 }
+  );
+  const { data: references = [] } = trpc.reference.list.useQuery();
+  const { data: dossiers = [] } = trpc.dossier.list.useQuery(); // <-- PROBLÈME: Télécharge tous les dossiers de la base
+  ```
+* **Lignes 303–307 (Exécution eagerly de toutes les sous-requêtes) :**
+  ```tsx
+  const docsQuery = trpc.document.list.useQuery({ dossierId: numericId }, { enabled: !isNew && Boolean(numericId) });
+  const auditQuery = trpc.audit.list.useQuery({ dossierId: numericId }, { enabled: !isNew && Boolean(numericId) && perms.canViewAudit });
+  const invoicesQuery = trpc.finance.listInvoices.useQuery({ dossierId: numericId }, { enabled: !isNew && Boolean(numericId) && perms.canViewFinances });
+  const tasksQuery = trpc.task.list.useQuery({ dossierId: numericId }, { enabled: !isNew && Boolean(numericId) });
+  const commentsQuery = trpc.comment.list.useQuery({ dossierId: numericId }, { enabled: !isNew && Boolean(numericId) });
+  ```
+* **Lignes 421–427 (Raison de l'appel à `dossier.list`) :**
+  ```tsx
+  const sortedDossiers = useMemo(
+    () => [...dossiers].sort((a, b) => a.dossierNumber.localeCompare(b.dossierNumber)),
+    [dossiers]
+  );
+  const currentIndex = sortedDossiers.findIndex(item => item.id === numericId || item.dossierNumber === rawId);
+  const prev = currentIndex > 0 ? sortedDossiers[currentIndex - 1] : null;
+  const next = currentIndex >= 0 && currentIndex < sortedDossiers.length - 1 ? sortedDossiers[currentIndex + 1] : null;
+  ```
 
-### 1.4. Résultats des Commandes de Test & Build
-- `npm test` : Exécuté avec succès (`5 passed, 10 tests passed`).
-- `npm run check` (`tsc --noEmit`) : Exécuté avec code 0 (zéro erreur TypeScript).
-- `npm run build` : Échec lors du bundling Vite dû à une anomalie de syntaxe dans `client/src/pages/FinancesPage.tsx:140` (crochet de fermeture JSX manquant au-dessus d'une déclaration d'état).
+**Fichier Backend :** `server/routers.ts`
+* **Lignes 231–243 :**
+  ```ts
+  get: protectedProcedure
+    .input(z.object({ id: z.union([z.number(), z.string()]) }))
+    .query(async ({ ctx, input }) => {
+      const dossier = await db.getDossier(input.id);
+      if (!dossier) {
+        console.error(`[tRPC] Dossier introuvable pour l'identifiant: "${input.id}"`);
+        throw new TRPCError({ code: "NOT_FOUND", message: `Dossier introuvable pour l'identifiant "${input.id}"` });
+      }
+      if (ctx.user?.role === "client" && ctx.user?.clientCompany && dossier.client !== ctx.user.clientCompany) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Accès refusé pour ce dossier" });
+      }
+      return dossier;
+    }),
+  ```
+
+**Fichier DB / Repository :** `server/db.ts`
+* **Lignes 514–552 :**
+  ```ts
+  export async function getDossier(idOrIdentifier: number | string) {
+    const db = await getDb();
+    const rawStr = String(idOrIdentifier).trim();
+    const numId = Number(idOrIdentifier);
+    const isValidNum = !isNaN(numId) && Number.isInteger(numId) && numId > 0;
+    const formattedNum = isValidNum ? formatDossierNumber(numId) : null;
+    const upperStr = rawStr.toUpperCase();
+
+    if (db) {
+      try {
+        const conditions = [];
+        if (isValidNum) {
+          conditions.push(eq(dossiers.id, numId));
+        }
+        if (formattedNum) {
+          conditions.push(eq(dossiers.dossierNumber, formattedNum));
+        }
+        conditions.push(eq(dossiers.dossierNumber, upperStr));
+        conditions.push(eq(dossiers.portalAccessCode, upperStr));
+        conditions.push(eq(dossiers.blLtaNumber, upperStr));
+        conditions.push(eq(dossiers.clientDossierNumber, upperStr));
+
+        const row = (await db.select().from(dossiers).where(or(...conditions)).limit(1))[0];
+        if (row) return row;
+      } catch (e) {
+        console.error("[DB] getDossier database query error:", e);
+      }
+    }
+  ```
+
+**Vérification des Délais Artificiels :**
+* Commande : Recherche globale de `setTimeout`, `sleep`, `delay` dans `server/` et `client/`.
+* Résultat : **Aucun délai artificiel `setTimeout` ni `sleep`** n'est présent dans le code de récupération des dossiers.
 
 ---
 
 ## 2. Logic Chain
 
-1. **R1 (Global State & RBAC) :**
-   - *Observation :* Le simulateur de rôles s'appuie sur `auth.login` qui régénère un token JWT contenant le `openId` du profil simulé (`admin`, `declarant`, `comptable`, `client`).
-   - *Raisonnement :* Pour que le RBAC soit 100 % cohérent de bout en bout, le backend tRPC doit disposer de middlewares de rôle dédiés (`adminProcedure`, `declarantProcedure`, `comptableProcedure`, `internalProcedure`) qui rejettent avec `TRPCError({ code: "FORBIDDEN" })` toute tentative d'un rôle d'exécuter une procédure hors de son périmètre métier.
+### 2.1 Logic Chain pour R3 (Tableau Actions Prioritaires `/controles`)
+1. **Observation 1.2 :** Dans `ControlsPage.tsx`, la table est contrainte par `min-w-[750px]` dans un `<div className="overflow-x-auto">` sans style de barre de défilement personnalisé ni ombre d'indication de scroll.
+2. **Déduction :** Sur les écrans de taille moyenne ou petite (tablettes, mobiles, ou fenêtres desktop étroites avec barre latérale de 270px ouverte), la largeur utile est inférieure à 750px.
+3. **Conséquence :** La dernière colonne ("Régularisation Rapide") qui héberge les boutons « Régulariser » et « Fiche » est repoussée hors de l'écran visible vers la droite. L'absence d'indicateur visuel (shadow/scrollbar contrastée) fait croire à l'utilisateur que les boutons ont disparu.
+4. **Conclusion R3 :**
+   - Implémenter une **vue double responsive** :
+     - Sur écran large (`md:block`) : Tableau avec conteneur à défilement fluide, indicateur de scroll ou colonne d'actions sticky (`sticky right-0 bg-white`).
+     - Sur écran mobile / tablette (`block md:hidden`) : Mode **cartes empilées** avec chaque anomalie présentée dans une Card contenant l'en-tête (Dossier, Client, BL), les badges d'anomalies, et la barre d'action immédiate avec boutons pleins et ergonomiques (« Régulariser » et « Fiche »).
 
-2. **R2 (Déclarant PAC — Mamadou Diallo) :**
-   - *Observation :* Les dossiers comportent les identifiants SYDONIA (`declarationNumber`), BLD (`bulletinNumber`), BL (`blLtaNumber`), mais `finance.listInvoices` et `finance.summary` sont actuellement accessibles sans restriction de rôle.
-   - *Observation :* Les tâches assignées existent dans la base (`dossier_tasks`), mais la procédure `task.list` renvoie toutes les tâches sans distinction de déclarant, et `PlanningPage.tsx` contenait un appel à une mutation non instanciée.
-   - *Raisonnement :* Il faut :
-     1. Ajouter dans `task.list` un filtre optionnel `assignedTo` / `role` pour que Mamadou Diallo reçoive immédiatement sa liste de tâches opérationnelles (DDI, SYDONIA, inspection PAC).
-     2. Créer une procédure `dossier.updateCustoms` ou sécuriser `dossier.update` pour permettre au déclarant de mettre à jour les identifiants douaniers, valider les étapes de transit (BAD, BAE) et ajouter des pièces jointes scannées.
-     3. Restreindre l'accès aux données financières (`finance.*`) aux rôles comptable et admin uniquement.
-
-3. **R3 (Comptable — Fatoumata Camara) :**
-   - *Observation :* La table `invoices` supporte les montants HT, TVA, TTC, les débours et la marge, avec les devises "GNF" et "USD", mais ne stocke pas de taux de change fixe et ne gère pas les conversions consolidées.
-   - *Observation :* Les procédures existantes permettent de créer une facture (`finance.createInvoice`) et de lister (`finance.listInvoices`), mais il manque `finance.updateInvoice` (passage de Proforma à Définitive/Payée), `finance.recordPayment` (avec quittance), et `finance.setExchangeRate` / `finance.getExchangeRate`.
-   - *Raisonnement :* Il faut enrichir le routeur `finance` avec :
-     1. Gestion du taux de change GNF/USD (taux par défaut 8 650 GNF/USD, configurable par la comptabilité).
-     2. Calculs consolidés multi-devises dans `finance.summary` (CA total exprimé à la fois en GNF et en contre-valeur USD).
-     3. Procédures de cycle de vie de facture : émission proforma, conversion en facture définitive, enregistrement de paiement avec génération de numéro de quittance (`REC-YYYY-XXXX`).
-     4. Décomposition claire des débours (Droits de douane, Redevance PAC, Magasinage/Surestaries).
-
-4. **R4 (Portail Client & Expérience Simulateur) :**
-   - *Observation :* Le portail client (`portal.track`) fonctionne par code d'accès (`IGS-XXXX`) ou par N° de BL (`blLtaNumber`).
-   - *Raisonnement :* Pour un client authentifié via le simulateur (`role: "client"` avec `clientCompany: "Guinean Birimian Gold S.A"`), `dossier.list` applique déjà un filtre strict sur sa société. Il convient de s'assurer que les notes internes, les marges financières et les dossiers des autres clients ne sont jamais exposés.
+### 2.2 Logic Chain pour R4 (Performance de `/dossiers/[id]`)
+1. **Observation 1.3 :** `DossierDetailPage.tsx` (ligne 279) exécute systématiquement `trpc.dossier.list.useQuery()`, qui interroge et sérialise la totalité de la table `dossiers`.
+2. **Observation 1.3 :** Simultanément, 5 requêtes secondaires (`document.list`, `audit.list`, `finance.listInvoices`, `task.list`, `comment.list`) sont toutes lancées en eager loading via `httpBatchLink` sur le premier rendu alors que l'utilisateur n'est que sur le premier onglet `general`.
+3. **Observation 1.3 :** Si l'identifiant dans l'URL est un code métier (ex: `/dossiers/DOS-0054`), `numericId` est initialement `0`, entraînant une cascade séquentielle : d'abord le batch avec `dossier.get`, puis une fois le dossier résolu, un 2nd batch avec les 5 sous-requêtes.
+4. **Observation 1.3 :** Le repository `db.getDossier` effectue une requête Postgres avec 6 clauses `OR` sur des colonnes varchar non indexées en composite, forçant un scan de table.
+5. **Déduction :** L'accumulation de (1) requête totale `dossier.list` + (2) batch de 8 requêtes simultanées + (3) requêtes en cascade pour les routes textuelles + (4) absence d'utilisation du cache client TanStack Query crée le délai ressenti de 5 à 8 secondes.
+6. **Conclusion R4 :**
+   - Supprimer le fetch global `dossier.list` sur la page de détail (utiliser les données de cache ou une pagination légère).
+   - Rendre paresseux (*lazy*) les 5 sous-requêtes des onglets secondaires (`enabled: activeTab === '...'`).
+   - Optimiser `getDossier` dans `db.ts` pour résoudre directement par clé primaire / identifiant indexé.
+   - Utiliser `placeholderData` depuis le cache TanStack Query pour un affichage instantané (< 100ms).
 
 ---
 
 ## 3. Caveats
 
-1. **Persistance Double (Drizzle Postgres vs Mémoire) :** L'application fonctionne avec PostgreSQL quand `DATABASE_URL` est fournie, mais bascule en mémoire locale si la base est absente. Toutes les nouvelles fonctions et mutations ajoutées dans `server/db.ts` doivent impérativement maintenir la synchronisation des deux modes.
-2. **Tests Frontend lors du Survey :** L'anomalie de syntaxe dans `FinancesPage.tsx` a été identifiée lors du `npm run build` et doit être corrigée par l'implémenteur lors de la phase d'exécution.
-3. **Aucune modification de code de production :** Conformément au protocole de la phase Survey, aucune modification directe des fichiers de code n'a été effectuée.
+1. **Permissions RBAC :** Les requêtes d'onglets (`finance.listInvoices`, `audit.list`) sont déjà soumises à `perms.canViewFinances` et `perms.canViewAudit`. Le lazy loading doit préserver ces vérifications.
+2. **Navigation Précédent / Suivant :** Les boutons `<ChevronLeft>` et `<ChevronRight>` dans l'en-tête de `DossierDetailPage` utilisent actuellement `sortedDossiers`. Si `dossier.list` est retiré, ces flèches peuvent utiliser le cache React Query existant (`utils.dossier.list.getData()`) sans déclencher de requête réseau bloquante.
+3. **Données de test en mémoire vs Postgres :** En mode développement sans `DATABASE_URL`, l'application utilise les tableaux mémoire `_memoryDossiers`. Les optimisations s'appliquent identiquement au mode mémoire et au mode Postgres Drizzle.
 
 ---
 
-## 4. Conclusion & Recommandations d'Implémentation
+## 4. Conclusion
 
-### 4.1. Fichiers Backend à Modifier / Créer
+### Plan d'implémentation ciblé :
 
-1. **`server/_core/trpc.ts` :**
-   - Ajouter les middlewares de contrôle de rôle :
-     - `declarantProcedure` : autorisé pour `admin`, `manager`, `declarant`.
-     - `comptableProcedure` : autorisé pour `admin`, `manager`, `comptable`.
-     - `internalProcedure` : autorisé pour tous sauf `client`.
+#### Pour R3 (`ControlsPage.tsx`) :
+1. Structurer la section "Actions prioritaires" en composant responsive bi-mode :
+   - Mode `<div className="hidden md:block">` : Table avec `overflow-x-auto`, scrollbar stylisée et colonne d'actions avec boutons toujours visibles.
+   - Mode `<div className="block md:hidden space-y-3">` : Liste de cartes empilées. Chaque carte affiche le numéro de dossier, le client, le connaissement BL/LTA, la liste des badges d'anomalies, et deux boutons d'action pleine largeur (« Régulariser » et « Fiche »).
+2. Tester le comportement sur viewports mobiles (375px, 414px, 768px) et desktop (1024px, 1440px).
 
-2. **`drizzle/schema.ts` :**
-   - Ajouter dans la table `invoices` :
-     - `invoiceType` (`enum: "Proforma", "Definitive"`, défaut "Proforma").
-     - `exchangeRate` (`integer`, défaut 8650).
-     - `paymentMethod` (`varchar(64)` : "Virement", "Chèque", "Espèces", "Mobile Money").
-     - `paymentReference` (`varchar(120)`).
-     - `receiptNumber` (`varchar(64)`).
-     - `customsDutiesAmount` (`integer`, droits de douane débours).
-     - `portFeesAmount` (`integer`, redevance PAC débours).
-   - Ajouter dans la table `dossiers` (optionnel ou via métadonnées/historique) :
-     - `ddiGucegNumber` (`varchar(160)`).
-     - `badStatus` (`varchar(64)` : "En attente", "Obtenu").
-     - `baeStatus` (`varchar(64)` : "En attente", "Accordé").
-
-3. **`server/db.ts` :**
-   - Étendre `listTasks` avec le support du filtre `{ assignedTo?: string; status?: string }`.
-   - Ajouter `updateInvoice(id, data)` pour la mise à jour des montants, du statut et du type de facture.
-   - Ajouter `recordInvoicePayment(id, paymentData)` avec calcul de la date de paiement, génération de quittance et mise à jour automatique du `financialStatus` du dossier associé.
-   - Ajouter la gestion du taux de change GNF/USD dans les référentiels (`getExchangeRate`, `setExchangeRate`).
-   - Mettre à jour `_memoryTasks` et `_memoryInvoices` pour refléter les données de test enrichies.
-
-4. **`server/routers.ts` :**
-   - Sécuriser les routeurs `finance`, `dossier`, `task` avec les middlewares appropriés.
-   - Enrichir `finance` avec :
-     - `updateInvoice` (mutation sécurisée comptable/admin).
-     - `recordPayment` (mutation sécurisée comptable/admin avec génération de reçu).
-     - `getExchangeRate` & `setExchangeRate` (gestion dynamique du cours GNF/USD).
-     - `summary` (calculs consolidés bidevises GNF et USD).
-   - Enrichir `task` avec :
-     - `list` (filtrage par `assignedTo` pour affichage dynamique sur les vues Déclarant et Comptable).
-     - `toggle` (mutation rapide pour cocher/décocher une tâche).
-   - Enrichir `dossier` avec :
-     - `updateCustoms` (mise à jour rapide des identifiants BL, Sydonia, DDI, BLD et validation BAD/BAE avec audit trail).
-
-5. **`server/routers.integration.test.ts` :**
-   - Ajouter des tests d'intégration unitaires pour :
-     - Le filtrage des tâches par profil déclarant / comptable.
-     - L'émission et le paiement d'une facture multi-devises GNF/USD.
-     - La validation des permissions RBAC (rejet 403 Forbidden sur `finance` pour un profil `declarant` ou `client`).
+#### Pour R4 (`DossierDetailPage.tsx` + `db.ts`) :
+1. **Frontend `DossierDetailPage.tsx`** :
+   - Remplacer `const { data: dossiers = [] } = trpc.dossier.list.useQuery();` par la lecture du cache `utils.dossier.list.getData() || []` pour les flèches prev/next.
+   - Activer les sous-requêtes des onglets à la demande :
+     - `docsQuery`: `enabled: !isNew && Boolean(numericId) && activeTab === "documents"`
+     - `auditQuery`: `enabled: !isNew && Boolean(numericId) && perms.canViewAudit && activeTab === "audit"`
+     - `invoicesQuery`: `enabled: !isNew && Boolean(numericId) && perms.canViewFinances && activeTab === "finances"`
+     - `tasksQuery`: `enabled: !isNew && Boolean(numericId) && activeTab === "tasks"`
+     - `commentsQuery`: `enabled: !isNew && Boolean(numericId) && activeTab === "tasks"`
+   - Ajouter `placeholderData` pour afficher instantanément les données déjà présentes en mémoire cache.
+2. **Backend `server/db.ts`** :
+   - Optimiser `getDossier` : recherche ciblée directe `eq(dossiers.id, numId)` en priorité si numérique, sinon recherche exacte par `dossierNumber` ou `portalAccessCode`.
 
 ---
 
 ## 5. Verification Method
 
-Pour vérifier indépendamment les observations et valider la future implémentation :
+1. **Vérification R3 (UX Contrôles) :**
+   - Inspecter `ControlsPage.tsx` sur écran étroit (< 768px).
+   - Constater la présence immédiate des boutons « Régulariser » et « Fiche » sur chaque carte de dossier sans besoin de défilement horizontal.
+   - Cliquer sur « Régulariser » : vérifier que la modale `CustomsEditModal` s'ouvre correctement.
+   - Cliquer sur « Fiche » : vérifier que la navigation vers `/dossiers/:id` s'effectue instantanément.
 
-1. **Vérification des Tests Unitaires & Intégration :**
-   ```bash
-   npm test
-   ```
-   *Résultat attendu :* 100 % des tests passent (vitest).
+2. **Vérification R4 (Performance Fiche Dossier) :**
+   - Lancer les tests unitaires et d'intégration :
+     ```bash
+     npm test
+     ```
+   - Vérifier le temps d'exécution de la suite `dossier_detail_dynamic_route.test.ts` (< 100ms).
+   - Vérifier le build de production :
+     ```bash
+     npm run build
+     ```
+   - Valider la résolution de la route dynamique avec identifiant numérique (`/dossiers/1`), chaîne (`/dossiers/54`) et code métier (`/dossiers/DOS-0054`, `/dossiers/IGS-1001`).
 
-2. **Vérification des Types TypeScript :**
-   ```bash
-   npm run check
-   ```
-   *Résultat attendu :* `tsc --noEmit` se termine sans aucune erreur.
-
-3. **Vérification du Build Complet :**
-   ```bash
-   npm run build
-   ```
-   *Résultat attendu :* Bundle Vite client + bundle esbuild serveur compilés avec succès dans `dist/`.
-
-4. **Fichiers Clés à Inspecter :**
-   - `server/routers.ts` : Définition des procédures tRPC et contrôles de permissions.
-   - `server/db.ts` : Fonctions d'accès DB et mémoire persistée.
-   - `drizzle/schema.ts` : Schéma Drizzle PostgreSQL.
-   - `server/_core/trpc.ts` : Middlewares de contexte et de rôles.
+3. **Conditions d'invalidation :**
+   - Si les boutons d'action sont encore tronqués ou invisibles sur mobile/tablette sur `/controles`.
+   - Si l'ouverture d'une fiche dossier prend plus de 500ms ou bloque sur le skeleton loader.

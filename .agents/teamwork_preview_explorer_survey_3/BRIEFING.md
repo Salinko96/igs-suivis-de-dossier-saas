@@ -1,38 +1,50 @@
-# BRIEFING — 2026-08-18T15:53:15Z
+# BRIEFING — 2026-08-19T11:25:50Z
 
 ## Mission
-Investigate testing infrastructure, build setup, test gaps, baseline health, and formulate a rigorous testing strategy for R1-R4 compliance.
+Explore R5 (Breadcrumb navigation and quick back button across sub-pages and edit screens) and Build & Test infrastructure (test setup, build scripts, lint/typecheck).
 
 ## 🔒 My Identity
 - Archetype: explorer
-- Roles: tester, test-gap-analyst, build-analyst
-- Working directory: /Users/alphasalinkobarry/Downloads/igs-suivis de dossier SaaS/.agents/teamwork_preview_explorer_survey_3
-- Original parent: 3bba92c2-33c3-493f-8daa-7cb66a8d90a8
-- Milestone: Survey
+- Roles: Teamwork explorer
+- Working directory: /Users/alphasalinkobarry/Downloads/igs-suivis de dossier SaaS/.agents/teamwork_preview_explorer_survey_3/
+- Original parent: 7e34697f-8374-458f-91db-f80cdb8a5ab3
+- Milestone: Exploration & Investigation
 
 ## 🔒 Key Constraints
-- Read-only investigation — do NOT implement
-- Inspect build, test runner, package scripts, linting, Vitest/Playwright setups
-- Assess current test coverage and gaps for R1-R4
-- Produce structured 5-component handoff.md
+- Read-only investigation — do NOT implement changes in source code
+- Adhere to AGENTS.md rules and project conventions
+- Self-contained 5-component handoff report
 
 ## Current Parent
-- Conversation ID: 3bba92c2-33c3-493f-8daa-7cb66a8d90a8
-- Updated: 2026-08-18T15:53:15Z
+- Conversation ID: 7e34697f-8374-458f-91db-f80cdb8a5ab3
+- Updated: 2026-08-19T11:25:50Z
 
 ## Investigation State
-- **Explored paths**: `package.json`, `tsconfig.json`, `vite.config.ts`, `vitest.config.ts`, `server/_core/trpc.ts`, `server/routers.ts`, `server/db.ts`, `drizzle/schema.ts`, `client/src/App.tsx`, `client/src/components/DashboardLayout.tsx`, `client/src/pages/PlanningPage.tsx`, `client/src/pages/FinancesPage.tsx`, `client/src/pages/ControlsPage.tsx`, `client/src/pages/ClientPortalPage.tsx`, `client/src/pages/DossierDetailPage.tsx`, `server/auth.logout.test.ts`, `server/dossierImport.test.ts`, `server/dossierRules.test.ts`, `server/initialImportData.test.ts`, `server/routers.integration.test.ts`.
+- **Explored paths**:
+  - `package.json`
+  - `vitest.config.ts`, `vite.config.ts`, `tsconfig.json`
+  - `TEST_INFRA.md`, `TEST_READY.md`
+  - `client/src/App.tsx`
+  - `client/src/components/DashboardLayout.tsx`
+  - `client/src/components/ui/breadcrumb.tsx`
+  - `client/src/pages/Home.tsx`, `DossiersPage.tsx`, `DossierDetailPage.tsx`, `FinancesPage.tsx`, `PlanningPage.tsx`, `ControlsPage.tsx`, `ClientPortalPage.tsx`, `NotFound.tsx`
+  - `server/__tests__/` (Tier 1-4 suites, 20 test files)
+  - `client/src/__tests__/` (`challenger_fe_stress.test.ts`, `usePermissions.test.ts`)
 - **Key findings**:
-  - Baseline health is 100% green (`npm test` 5 files, 10 tests passed; `npm run check` 0 errors; `npm run build` succeeds cleanly).
-  - Existing tests only cover basic batch import, status rule calculations, and generic context logout/queries.
-  - Critical test gaps exist for R1 (RBAC procedure guards, client multi-tenant isolation), R2 (Déclarant PAC task checklist toggle DB persistence, Sydonia/DDI editing, financial hiding), R3 (Comptable multi-currency GNF/USD calculations, débours, invoice workflow), R4 (Role simulator instant switching and route guards).
-  - Formulated a 4-Tier test architecture strategy covering Pure Logic, tRPC Integration, UI Navigation Guards, and E2E Scenarios.
-- **Unexplored areas**: None within survey scope.
+  - `npm test` runs 20 test files, 181 tests, 100% passing.
+  - `npm run vercel-build` and `npm run build` succeed with 0 build errors.
+  - `npm run check` (`tsc --noEmit`) fails with 4 specific TypeScript errors in `DashboardLayout.tsx` (2), `ControlsPage.tsx` (1), and `DossierDetailPage.tsx` (1).
+  - Breadcrumb UI primitives exist in `client/src/components/ui/breadcrumb.tsx`.
+  - Router is Wouter (`wouter@3.3.5`).
+  - Standardized Breadcrumb & Quick Back button component specification created for R5.
+- **Unexplored areas**: None for this survey scope.
 
 ## Key Decisions Made
-- Structured the testing strategy into Tiers 1-4 with specific test files and acceptance criteria to ensure full R1-R4 compliance.
+- Analyzed router hierarchy, navigation layout, page structure, and test/build infrastructure.
+- Designed standardized Breadcrumb & Quick Back component pattern for implementation.
+- Documented exact root causes and code locations for all 4 TypeScript errors.
 
 ## Artifact Index
-- `/Users/alphasalinkobarry/Downloads/igs-suivis de dossier SaaS/.agents/teamwork_preview_explorer_survey_3/handoff.md` — Comprehensive Handoff Report
-- `/Users/alphasalinkobarry/Downloads/igs-suivis de dossier SaaS/.agents/teamwork_preview_explorer_survey_3/progress.md` — Step tracking & liveness
-- `/Users/alphasalinkobarry/Downloads/igs-suivis de dossier SaaS/.agents/teamwork_preview_explorer_survey_3/DISPATCH.md` — Incoming dispatch log
+- DISPATCH.md — Initial task dispatch
+- progress.md — Liveness and progress tracking
+- handoff.md — Comprehensive handoff report

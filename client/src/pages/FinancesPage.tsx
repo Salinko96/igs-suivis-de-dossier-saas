@@ -1,4 +1,5 @@
 import DashboardLayout from "@/components/DashboardLayout";
+import Breadcrumbs from "@/components/Breadcrumbs";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -395,6 +396,15 @@ export default function FinancesPage() {
   return (
     <DashboardLayout>
       <div className="space-y-6 pb-12">
+        {/* Fil d'Ariane & Navigation */}
+        <Breadcrumbs
+          items={[
+            { label: "Accueil", href: "/" },
+            { label: "Finances & Facturation", active: true },
+          ]}
+          backHref="/"
+        />
+
         {/* En-tête Finances avec Multi-Devises & Gestion Taux */}
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
