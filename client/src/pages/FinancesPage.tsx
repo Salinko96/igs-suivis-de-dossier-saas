@@ -772,7 +772,12 @@ export default function FinancesPage() {
                     const grandTotal = inv.amountTtc + (inv.disbursementsAmount || 0);
 
                     return (
-                      <tr key={inv.id} className="hover:bg-gray-50/50 transition">
+                      <tr
+                        key={inv.id}
+                        onMouseEnter={() => utils.dossier.get.prefetch({ id: inv.dossierId })}
+                        onFocus={() => utils.dossier.get.prefetch({ id: inv.dossierId })}
+                        className="hover:bg-gray-50/50 transition"
+                      >
                         <td className="p-3.5 pl-5">
                           <span className="font-bold text-emerald-950">{inv.invoiceNumber}</span>
                           <span className="block text-[10px] text-muted-foreground font-mono">

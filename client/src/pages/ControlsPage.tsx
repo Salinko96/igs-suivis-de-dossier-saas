@@ -40,6 +40,7 @@ const controls = [
 
 function ControlsContent() {
   const [, setLocation] = useLocation();
+  const utils = trpc.useUtils();
   const [selectedAlert, setSelectedAlert] = useState<string | null>(null);
   const [editingCustomsDossier, setEditingCustomsDossier] = useState<CustomsEditDossier | null>(null);
 
@@ -339,7 +340,12 @@ function ControlsContent() {
                             .filter(([issue]) => Boolean(issue))
                             .map(([, label]) => String(label));
                           return (
-                            <tr key={dossier.id} className="hover:bg-[#f8faf9] transition group">
+                            <tr
+                              key={dossier.id}
+                              onMouseEnter={() => utils.dossier.get.prefetch({ id: dossier.id })}
+                              onFocus={() => utils.dossier.get.prefetch({ id: dossier.id })}
+                              className="hover:bg-[#f8faf9] transition group"
+                            >
                               <td className="px-5 py-3.5 font-semibold text-[#176b55]">
                                 <button
                                   onClick={() => setLocation(`/dossiers/${dossier.id}`)}

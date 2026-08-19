@@ -776,10 +776,13 @@ function DossiersContent() {
                 : dossiers?.map(dossier => (
                     <div
                       key={dossier.id}
-                      className="group rounded-2xl border border-[#edf3f0] bg-white p-4 transition-all hover:border-[#1d7764]/40 hover:shadow-md"
+                      onMouseEnter={() => utils.dossier.get.prefetch({ id: dossier.id })}
+                      onFocus={() => utils.dossier.get.prefetch({ id: dossier.id })}
+                      className="group rounded-2xl border border-[#edf3f0] bg-white p-4 transition-all hover:border-[#1d7764]/40 hover:shadow-md cursor-pointer"
+                      onClick={() => setLocation(`/dossiers/${dossier.id}`)}
                     >
                       <div className="flex items-start justify-between gap-2">
-                        <div onClick={() => setLocation(`/dossiers/${dossier.id}`)} className="cursor-pointer">
+                        <div>
                           <p className="font-semibold text-[#176b55] group-hover:underline">{dossier.dossierNumber}</p>
                           <p className="text-xs text-[#687e77]">{dossier.client || "Client non renseigné"}</p>
                         </div>
@@ -806,18 +809,13 @@ function DossiersContent() {
                         <div className="flex items-center gap-2">
                           {perms.canEditCustoms && (
                             <button
-                              onClick={() => setEditingCustomsDossier(dossier)}
+                              onClick={(e) => { e.stopPropagation(); setEditingCustomsDossier(dossier); }}
                               className="font-semibold text-emerald-800 hover:text-emerald-950 flex items-center gap-1"
                             >
                               <Edit3 size={12} /> Douane
                             </button>
                           )}
-                          <button
-                            onClick={() => setLocation(`/dossiers/${dossier.id}`)}
-                            className="font-medium text-[#1d7764] hover:underline"
-                          >
-                            Voir détails →
-                          </button>
+                          <span className="font-medium text-[#1d7764] hover:underline">Voir détails →</span>
                         </div>
                       </div>
                     </div>
@@ -866,7 +864,12 @@ function DossiersContent() {
                         </tr>
                       ))
                     : dossiers?.map(dossier => (
-                        <tr key={dossier.id} className="group transition hover:bg-[#f8fbf9]">
+                        <tr 
+                          key={dossier.id} 
+                          onMouseEnter={() => utils.dossier.get.prefetch({ id: dossier.id })}
+                          onFocus={() => utils.dossier.get.prefetch({ id: dossier.id })}
+                          className="group transition hover:bg-[#f8fbf9]"
+                        >
                           <td className="px-4 py-3">
                             <button
                               onClick={() => setLocation(`/dossiers/${dossier.id}`)}
