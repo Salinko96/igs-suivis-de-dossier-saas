@@ -554,9 +554,71 @@ export const appRouter = router({
           paymentMethod: optionalText,
           paymentReference: optionalText,
           paidAmount: z.number().min(0).optional().nullable(),
+          proofUrl: optionalText,
+          notes: optionalText,
         })
       )
-      .mutation(async ({ input }) => db.recordInvoicePayment(input.id, input)),
+      .mutation(async ({ ctx, input }) => db.recordInvoicePayment(input.id, { ...input, userId: ctx.user.id })),
+    listPayments: comptableProcedure
+      .input(z.object({ invoiceId: z.number().optional() }).nullish())
+      .query(async ({ input }) => db.listInvoicePayments(input?.invoiceId)),
+    listDebours: comptableProcedure
+      .input(z.object({ dossierId: z.number().optional() }).nullish())
+      .query(async ({ input }) => db.listPacDisbursements(input?.dossierId)),
+    createDebour: comptableProcedure
+      .input(
+        z.object({
+          dossierId: z.number().int().positive(),
+          invoiceId: z.number().optional(),
+          type: z.string().default("douane"),
+          amountAdvanced: z.number().min(0),
+          amountReimbursed: z.number().min(0).default(0),
+          status: z.string().default("avance"),
+          receiptNumber: optionalText,
+          notes: optionalText,
+        })
+      )
+      .mutation(async ({ ctx, input }) => db.createPacDisbursement({ ...input, createdById: ctx.user.id })),
+    saveInvoicePdf: comptableProcedure
+      .input(
+        z.object({
+          invoiceId: z.number().int().positive(),
+          invoiceNumber: z.string(),
+          pdfBase64: z.string(),
+        })
+      )
+      .mutation(async ({ input }) => {
+        try {
+          const { uploadInvoicePdf } = await import("./supabase");
+          const buffer = Buffer.from(input.pdfBase64.replace(/^data:application\/pdf;base64,/, ""), "base64");
+          const url = await uploadInvoicePdf(input.invoiceNumber, buffer);
+          if (url) {
+            await db.updateInvoice(input.invoiceId, { pdfUrl: url });
+          }
+          return { success: true, pdfUrl: url };
+        } catch (e: any) {
+          return { success: false, error: e.message };
+        }
+      }),
+    uploadProof: comptableProcedure
+      .input(
+        z.object({
+          invoiceId: z.number().int().positive(),
+          fileName: z.string(),
+          fileBase64: z.string(),
+          mimeType: z.string().default("image/jpeg"),
+        })
+      )
+      .mutation(async ({ input }) => {
+        try {
+          const { uploadPaymentProof } = await import("./supabase");
+          const buffer = Buffer.from(input.fileBase64.replace(/^data:[^;]+;base64,/, ""), "base64");
+          const url = await uploadPaymentProof(input.invoiceId, buffer, input.fileName, input.mimeType);
+          return { success: true, proofUrl: url };
+        } catch (e: any) {
+          return { success: false, error: e.message };
+        }
+      }),
     getExchangeRate: internalProcedure.query(async () => db.getExchangeRate()),
     setExchangeRate: comptableProcedure
       .input(z.object({ rate: z.number().int().positive() }))

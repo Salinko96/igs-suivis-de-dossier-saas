@@ -8,32 +8,46 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { trpc } from "@/lib/trpc";
+import { useFinanceRealtime } from "@/hooks/useFinanceRealtime";
 import {
   AlertCircle,
   AlertTriangle,
   Banknote,
+  CheckCircle,
   CheckCircle2,
   Coins,
   CreditCard,
   Download,
   Edit,
+  Eye,
   FileCheck,
   FileText,
+  FileUp,
   Loader2,
+  Lock,
   Plus,
   Printer,
   Receipt,
   RefreshCw,
   RotateCcw,
+  ShieldAlert,
   SlidersHorizontal,
   TrendingUp,
+  Upload,
   Wallet,
 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 
 export default function FinancesPage() {
+  // Synchronisation Supabase Realtime (WebSockets multi-postes)
+  useFinanceRealtime();
+
   const utils = trpc.useUtils();
+  const meQuery = trpc.auth.me.useQuery();
+  const currentUser = meQuery.data;
+  const isAdminOrComptable = currentUser?.role === "admin" || currentUser?.role === "comptable" || currentUser?.role === "manager";
+
   const summaryQuery = trpc.finance.summary.useQuery();
   const invoicesQuery = trpc.finance.listInvoices.useQuery({});
   const dossiersQuery = trpc.dossier.list.useQuery({});
@@ -58,14 +72,21 @@ export default function FinancesPage() {
   const [invoiceDueDate, setInvoiceDueDate] = useState("");
   const [invoiceNotes, setInvoiceNotes] = useState("");
 
-  // Payment Recording Modal State
+  // Payment Recording Modal & Proof Upload State
   const [paymentModalOpen, setPaymentModalOpen] = useState(false);
   const [payingInvoice, setPayingInvoice] = useState<any | null>(null);
   const [paymentMethod, setPaymentMethod] = useState("Virement bancaire Ecobank / Vistabank");
   const [paymentReference, setPaymentReference] = useState("");
   const [paidAmount, setPaidAmount] = useState<number | undefined>();
+  const [proofFile, setProofFile] = useState<File | null>(null);
+  const [proofBase64, setProofBase64] = useState<string | null>(null);
+  const [isUploadingProof, setIsUploadingProof] = useState(false);
 
   const activeRate = summaryQuery.data?.exchangeRate || 8650;
+
+  // Mutations
+  const uploadProofMutation = trpc.finance.uploadProof.useMutation();
+  const saveInvoicePdfMutation = trpc.finance.saveInvoicePdf.useMutation();
 
   // Mutations
   const setExchangeRateMutation = trpc.finance.setExchangeRate.useMutation({
@@ -163,21 +184,61 @@ export default function FinancesPage() {
     });
   };
 
+  const handleProofChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error("Le fichier dépasse la taille maximale autorisée (5 Mo).");
+      return;
+    }
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      setProofFile(file);
+      setProofBase64(reader.result as string);
+    };
+    reader.readAsDataURL(file);
+  };
+
   const handleOpenPayment = (inv: any) => {
     setPayingInvoice(inv);
     setPaymentReference(`VIR-ECOBANK-${Math.floor(100000 + Math.random() * 900000)}`);
     setPaidAmount(inv.amountTtc + (inv.disbursementsAmount || 0));
+    setProofFile(null);
+    setProofBase64(null);
     setPaymentModalOpen(true);
   };
 
-  const handleConfirmPayment = (e: React.FormEvent) => {
+  const handleConfirmPayment = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!payingInvoice) return;
+
+    let uploadedProofUrl: string | undefined = undefined;
+
+    if (proofFile && proofBase64) {
+      setIsUploadingProof(true);
+      try {
+        const uploadRes = await uploadProofMutation.mutateAsync({
+          invoiceId: payingInvoice.id,
+          fileName: proofFile.name,
+          fileBase64: proofBase64,
+          mimeType: proofFile.type || "image/jpeg",
+        });
+        if (uploadRes.success && uploadRes.proofUrl) {
+          uploadedProofUrl = uploadRes.proofUrl;
+        }
+      } catch (err: any) {
+        toast.warning("Enregistrement du paiement en local (Supabase Storage en attente)...");
+      } finally {
+        setIsUploadingProof(false);
+      }
+    }
+
     recordPaymentMutation.mutate({
       id: payingInvoice.id,
       paymentMethod,
       paymentReference,
       paidAmount: paidAmount || (payingInvoice.amountTtc + (payingInvoice.disbursementsAmount || 0)),
+      proofUrl: uploadedProofUrl,
     });
   };
 
@@ -463,8 +524,13 @@ export default function FinancesPage() {
             {/* Bouton Émettre Facture */}
             <Dialog open={createOpen} onOpenChange={setCreateOpen}>
               <DialogTrigger asChild>
-                <Button className="h-9 rounded-xl bg-[#0b3b32] text-white hover:bg-[#164d41] text-xs shadow-sm">
-                  <Plus size={15} className="mr-1.5" /> Émettre une Facture
+                <Button
+                  disabled={!isAdminOrComptable}
+                  title={!isAdminOrComptable ? "Réservé aux administrateurs et comptables" : "Créer une nouvelle facture"}
+                  className="h-9 rounded-xl bg-[#0b3b32] text-white hover:bg-[#164d41] text-xs shadow-sm disabled:opacity-50"
+                >
+                  {isAdminOrComptable ? <Plus size={15} className="mr-1.5" /> : <Lock size={13} className="mr-1.5" />}
+                  Émettre une Facture
                 </Button>
               </DialogTrigger>
               <DialogContent className="max-w-xl rounded-3xl bg-white p-6 shadow-2xl">
@@ -813,10 +879,12 @@ export default function FinancesPage() {
                             {!isPaid && (
                               <Button
                                 size="sm"
+                                disabled={!isAdminOrComptable}
+                                title={!isAdminOrComptable ? "Réservé aux administrateurs et comptables" : "Encaisser la facture"}
                                 onClick={() => handleOpenPayment(inv)}
-                                className="h-7 text-[11px] rounded-lg bg-emerald-800 text-white hover:bg-emerald-900 gap-1 px-2.5 shadow-sm"
+                                className="h-7 text-[11px] rounded-lg bg-emerald-800 text-white hover:bg-emerald-900 gap-1 px-2.5 shadow-sm disabled:opacity-40"
                               >
-                                <CreditCard size={11} /> Encaisser
+                                {isAdminOrComptable ? <CreditCard size={11} /> : <Lock size={10} />} Encaisser
                               </Button>
                             )}
                             <Button
@@ -825,11 +893,11 @@ export default function FinancesPage() {
                               onClick={async () => {
                                 try {
                                   toast.info("Génération de la facture officielle PDF...");
-                                  const { generateInvoicePdf } = await import("@/lib/pdfGenerator");
-                                  await generateInvoicePdf({
+                                  const { generateInvoicePdf, generateInvoicePdfBase64 } = await import("@/lib/pdfGenerator");
+                                  const pdfParams = {
                                     invoiceNumber: inv.invoiceNumber,
-                                    type: inv.invoiceType || "Definitive",
-                                    status: inv.status,
+                                    type: (inv.invoiceType || "Definitive") as any,
+                                    status: inv.status as any,
                                     dossierNumber: `DOS-${String(inv.dossierId).padStart(4, "0")}`,
                                     client: inv.client,
                                     amountTtc: inv.amountTtc + (inv.disbursementsAmount || 0),
@@ -838,8 +906,18 @@ export default function FinancesPage() {
                                     createdAt: inv.createdAt,
                                     dueDate: inv.dueDate,
                                     portalAccessCode: `IGS-${1000 + inv.dossierId}`,
-                                  });
+                                  };
+                                  await generateInvoicePdf(pdfParams);
                                   toast.success(`Facture ${inv.invoiceNumber} téléchargée en PDF.`);
+
+                                  // Sauvegarde automatique et archivage Supabase Storage
+                                  generateInvoicePdfBase64(pdfParams).then(base64 => {
+                                    saveInvoicePdfMutation.mutate({
+                                      invoiceId: inv.id,
+                                      invoiceNumber: inv.invoiceNumber,
+                                      pdfBase64: base64,
+                                    });
+                                  }).catch(() => {});
                                 } catch (e) {
                                   toast.error("Erreur lors de la génération du PDF");
                                 }
@@ -916,6 +994,29 @@ export default function FinancesPage() {
                   required
                 />
               </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs font-semibold text-[#3a504a]">Justificatif / Preuve d'encaissement (Optionnel)</Label>
+                <div className="rounded-xl border border-dashed border-emerald-300 bg-emerald-50/30 p-3 text-center transition hover:bg-emerald-50/60">
+                  <input
+                    type="file"
+                    id="payment-proof-input"
+                    accept="image/*,application/pdf"
+                    onChange={handleProofChange}
+                    className="hidden"
+                  />
+                  <label htmlFor="payment-proof-input" className="cursor-pointer flex flex-col items-center gap-1">
+                    <FileUp size={18} className="text-emerald-800" />
+                    <span className="text-[11px] font-medium text-emerald-950">
+                      {proofFile ? proofFile.name : "Joindre un reçu bancaire, chèque ou quittance (≤ 5 Mo)"}
+                    </span>
+                    {proofFile && (
+                      <Badge variant="outline" className="text-[10px] text-emerald-800 bg-white mt-0.5">
+                        {(proofFile.size / 1024).toFixed(0)} Ko • Archivage Supabase Storage
+                      </Badge>
+                    )}
+                  </label>
+                </div>
+              </div>
 
               <div className="rounded-xl bg-emerald-50/70 p-3 text-xs text-emerald-950 space-y-1">
                 <span className="font-semibold flex items-center gap-1.5">
@@ -930,10 +1031,10 @@ export default function FinancesPage() {
               <DialogFooter className="pt-2">
                 <Button
                   type="submit"
-                  disabled={recordPaymentMutation.isPending}
+                  disabled={recordPaymentMutation.isPending || isUploadingProof}
                   className="w-full rounded-xl bg-[#0b3b32] text-white hover:bg-[#164d41] text-xs h-9"
                 >
-                  {recordPaymentMutation.isPending && <Loader2 size={14} className="mr-1.5 animate-spin" />}
+                  {(recordPaymentMutation.isPending || isUploadingProof) && <Loader2 size={14} className="mr-1.5 animate-spin" />}
                   Valider le Paiement & Émettre la Quittance
                 </Button>
               </DialogFooter>

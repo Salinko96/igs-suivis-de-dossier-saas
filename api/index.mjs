@@ -1,3 +1,110 @@
+var __defProp = Object.defineProperty;
+var __getOwnPropNames = Object.getOwnPropertyNames;
+var __esm = (fn, res) => function __init() {
+  return fn && (res = (0, fn[__getOwnPropNames(fn)[0]])(fn = 0)), res;
+};
+var __export = (target, all) => {
+  for (var name in all)
+    __defProp(target, name, { get: all[name], enumerable: true });
+};
+
+// server/supabase.ts
+var supabase_exports = {};
+__export(supabase_exports, {
+  getSignedDownloadUrl: () => getSignedDownloadUrl,
+  getSupabaseServerClient: () => getSupabaseServerClient,
+  isSupabaseConfigured: () => isSupabaseConfigured,
+  uploadInvoicePdf: () => uploadInvoicePdf,
+  uploadPaymentProof: () => uploadPaymentProof
+});
+import { createClient } from "@supabase/supabase-js";
+function getSupabaseServerClient() {
+  if (_supabaseClient) return _supabaseClient;
+  const url = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.VITE_SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY;
+  if (!url || !key) {
+    return null;
+  }
+  try {
+    _supabaseClient = createClient(url, key, {
+      auth: {
+        persistSession: false,
+        autoRefreshToken: false
+      }
+    });
+    return _supabaseClient;
+  } catch (err) {
+    console.warn("[Supabase] Failed to initialize server client:", err);
+    return null;
+  }
+}
+function isSupabaseConfigured() {
+  const url = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.VITE_SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY;
+  return Boolean(url && key);
+}
+async function uploadInvoicePdf(invoiceNumber, pdfBuffer, mimeType = "application/pdf") {
+  const supabase = getSupabaseServerClient();
+  if (!supabase) return null;
+  const cleanNumber = invoiceNumber.replace(/[^a-zA-Z0-9_-]/g, "_");
+  const fileName = `facture_${cleanNumber}_${Date.now()}.pdf`;
+  const filePath = `invoices/${fileName}`;
+  try {
+    const { data, error } = await supabase.storage.from("factures").upload(filePath, pdfBuffer, {
+      contentType: mimeType,
+      upsert: true
+    });
+    if (error) {
+      console.warn("[Supabase Storage] Error uploading invoice PDF:", error.message);
+      return null;
+    }
+    const { data: publicUrlData } = supabase.storage.from("factures").getPublicUrl(data.path);
+    return publicUrlData.publicUrl;
+  } catch (err) {
+    console.warn("[Supabase Storage] Exception during invoice PDF upload:", err);
+    return null;
+  }
+}
+async function uploadPaymentProof(invoiceId, fileBuffer, originalFileName, mimeType = "image/jpeg") {
+  const supabase = getSupabaseServerClient();
+  if (!supabase) return null;
+  const ext = originalFileName.split(".").pop() || "jpg";
+  const filePath = `payments/invoice_${invoiceId}_${Date.now()}.${ext}`;
+  try {
+    const { data, error } = await supabase.storage.from("preuves_paiement").upload(filePath, fileBuffer, {
+      contentType: mimeType,
+      upsert: true
+    });
+    if (error) {
+      console.warn("[Supabase Storage] Error uploading payment proof:", error.message);
+      return null;
+    }
+    const { data: publicUrlData } = supabase.storage.from("preuves_paiement").getPublicUrl(data.path);
+    return publicUrlData.publicUrl;
+  } catch (err) {
+    console.warn("[Supabase Storage] Exception during payment proof upload:", err);
+    return null;
+  }
+}
+async function getSignedDownloadUrl(bucket, filePath, expiresInSeconds = 3600) {
+  const supabase = getSupabaseServerClient();
+  if (!supabase) return null;
+  try {
+    const { data, error } = await supabase.storage.from(bucket).createSignedUrl(filePath, expiresInSeconds);
+    if (error || !data?.signedUrl) return null;
+    return data.signedUrl;
+  } catch {
+    return null;
+  }
+}
+var _supabaseClient;
+var init_supabase = __esm({
+  "server/supabase.ts"() {
+    "use strict";
+    _supabaseClient = null;
+  }
+});
+
 // server/_core/app.ts
 import "dotenv/config";
 import express from "express";
@@ -58,10 +165,25 @@ var users = pgTable("users", {
   updatedAt: timestamp("updatedAt").defaultNow().notNull(),
   lastSignedIn: timestamp("lastSignedIn").defaultNow().notNull()
 });
+var clients = pgTable("clients", {
+  id: serial("id").primaryKey(),
+  name: varchar("name", { length: 255 }).notNull(),
+  contactPerson: varchar("contactPerson", { length: 160 }),
+  email: varchar("email", { length: 320 }),
+  phone: varchar("phone", { length: 32 }),
+  country: varchar("country", { length: 100 }).default("Guin\xE9e"),
+  taxId: varchar("taxId", { length: 80 }),
+  address: text("address"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull()
+}, (table) => [
+  uniqueIndex("clients_name_unique").on(table.name)
+]);
 var dossiers = pgTable("dossiers", {
   id: serial("id").primaryKey(),
   dossierNumber: varchar("dossierNumber", { length: 16 }).notNull(),
   clientDossierNumber: varchar("clientDossierNumber", { length: 120 }),
+  clientId: integer("clientId"),
   client: varchar("client", { length: 255 }),
   blLtaNumber: varchar("blLtaNumber", { length: 160 }),
   cargoNature: text("cargoNature"),
@@ -69,9 +191,12 @@ var dossiers = pgTable("dossiers", {
   eta: timestamp("eta"),
   originPort: varchar("originPort", { length: 255 }),
   destinationPort: varchar("destinationPort", { length: 255 }),
+  port: varchar("port", { length: 120 }).default("Port Autonome de Conakry (PAC)"),
   container: varchar("container", { length: 255 }),
   bulk: varchar("bulk", { length: 255 }),
   goodsReleaseDate: timestamp("goodsReleaseDate"),
+  daysOnQuay: integer("daysOnQuay").default(0),
+  // Jours de séjour quai (alerte si > 7j)
   declarationNumber: varchar("declarationNumber", { length: 160 }),
   bulletinNumber: varchar("bulletinNumber", { length: 160 }),
   finalDeclarationNumber: varchar("finalDeclarationNumber", { length: 160 }),
@@ -143,6 +268,7 @@ var dossierStatusHistory = pgTable("dossier_status_history", {
 var invoices = pgTable("invoices", {
   id: serial("id").primaryKey(),
   dossierId: integer("dossierId").notNull(),
+  clientId: integer("clientId"),
   invoiceNumber: varchar("invoiceNumber", { length: 32 }).notNull(),
   client: varchar("client", { length: 255 }).notNull(),
   currency: varchar("currency", { length: 8 }).notNull().default("GNF"),
@@ -153,7 +279,7 @@ var invoices = pgTable("invoices", {
   amountTva: integer("amountTva").notNull().default(0),
   amountTtc: integer("amountTtc").notNull().default(0),
   disbursementsAmount: integer("disbursementsAmount").notNull().default(0),
-  // Débours totaux (douane, PAC)
+  // Débours totaux (douane + PAC)
   customsDutiesAmount: integer("customsDutiesAmount").notNull().default(0),
   // Droits de douane
   portFeesAmount: integer("portFeesAmount").notNull().default(0),
@@ -166,6 +292,8 @@ var invoices = pgTable("invoices", {
   paymentReference: varchar("paymentReference", { length: 120 }),
   receiptNumber: varchar("receiptNumber", { length: 64 }),
   status: invoiceStatusEnum("status").notNull().default("Proforma"),
+  pdfUrl: text("pdfUrl"),
+  // URL Supabase Storage du PDF généré
   dueDate: timestamp("dueDate"),
   paidAt: timestamp("paidAt"),
   notes: text("notes"),
@@ -178,6 +306,51 @@ var invoices = pgTable("invoices", {
   index("invoices_client_idx").on(table.client),
   index("invoices_status_idx").on(table.status)
 ]);
+var invoicePayments = pgTable("invoice_payments", {
+  id: serial("id").primaryKey(),
+  invoiceId: integer("invoiceId").notNull(),
+  amount: integer("amount").notNull(),
+  currency: varchar("currency", { length: 8 }).notNull().default("GNF"),
+  paymentMethod: varchar("paymentMethod", { length: 64 }).notNull(),
+  paymentReference: varchar("paymentReference", { length: 120 }),
+  paymentDate: timestamp("paymentDate").defaultNow().notNull(),
+  proofUrl: text("proofUrl"),
+  // URL Supabase Storage du justificatif bancaire / quittance
+  notes: text("notes"),
+  createdById: integer("createdById"),
+  createdAt: timestamp("createdAt").defaultNow().notNull()
+}, (table) => [
+  index("invoice_payments_invoice_idx").on(table.invoiceId)
+]);
+var pacDisbursements = pgTable("pac_disbursements", {
+  id: serial("id").primaryKey(),
+  dossierId: integer("dossierId").notNull(),
+  invoiceId: integer("invoiceId"),
+  type: varchar("type", { length: 64 }).notNull().default("douane"),
+  // douane, port, surestaries, acconage, autre
+  amountAdvanced: integer("amountAdvanced").notNull().default(0),
+  // Montant avancé par IGS
+  amountReimbursed: integer("amountReimbursed").notNull().default(0),
+  // Montant remboursé par le client
+  status: varchar("status", { length: 32 }).notNull().default("avance"),
+  // avance, rembourse_partiel, rembourse_total
+  receiptNumber: varchar("receiptNumber", { length: 64 }),
+  notes: text("notes"),
+  createdById: integer("createdById"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull()
+}, (table) => [
+  index("pac_disbursements_dossier_idx").on(table.dossierId),
+  index("pac_disbursements_invoice_idx").on(table.invoiceId)
+]);
+var exchangeRates = pgTable("exchange_rates", {
+  id: serial("id").primaryKey(),
+  sourceCurrency: varchar("sourceCurrency", { length: 8 }).notNull().default("USD"),
+  targetCurrency: varchar("targetCurrency", { length: 8 }).notNull().default("GNF"),
+  rate: integer("rate").notNull().default(8650),
+  updatedById: integer("updatedById"),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull()
+});
 var dossierTasks = pgTable("dossier_tasks", {
   id: serial("id").primaryKey(),
   dossierId: integer("dossierId").notNull(),
@@ -2538,6 +2711,9 @@ var _memoryDossiers = initialImportData.dossiers.map((source, idx) => {
     regime: "IM4 - Mise \xE0 la consommation",
     notes: null,
     portalAccessCode: `IGS-${1e3 + idx + 1}`,
+    clientId: null,
+    port: "Port Autonome de Conakry (PAC)",
+    daysOnQuay: 0,
     createdById: 1,
     updatedById: 1,
     createdAt: now,
@@ -2619,7 +2795,54 @@ var _memoryInvoices = [
     dueDate: new Date(Date.now() + 864e5 * 15),
     paidAt: null,
     notes: "Facture transit maritime 4 conteneurs 20 pieds",
+    clientId: null,
+    pdfUrl: null,
     createdById: 3,
+    createdAt: /* @__PURE__ */ new Date(),
+    updatedAt: /* @__PURE__ */ new Date()
+  }
+];
+var _memoryPayments = [
+  {
+    id: 1,
+    invoiceId: 1,
+    amount: 2183e4,
+    currency: "GNF",
+    paymentMethod: "Virement Bancaire",
+    paymentReference: "VIR-2026-0812",
+    paymentDate: /* @__PURE__ */ new Date(),
+    proofUrl: null,
+    notes: "Encaissement initial",
+    createdById: 3,
+    createdAt: /* @__PURE__ */ new Date()
+  }
+];
+var _memoryPacDisbursements = [
+  {
+    id: 1,
+    dossierId: 1,
+    invoiceId: 1,
+    type: "douane",
+    amountAdvanced: 35e6,
+    amountReimbursed: 35e6,
+    status: "rembourse_total",
+    receiptNumber: "REC-DOUANE-2026-01",
+    notes: "Droits de douane SYDONIA S 142",
+    createdById: 2,
+    createdAt: /* @__PURE__ */ new Date(),
+    updatedAt: /* @__PURE__ */ new Date()
+  },
+  {
+    id: 2,
+    dossierId: 1,
+    invoiceId: 1,
+    type: "port",
+    amountAdvanced: 1e7,
+    amountReimbursed: 1e7,
+    status: "rembourse_total",
+    receiptNumber: "REC-PAC-2026-01",
+    notes: "Redevance portuaire PAC quai 3",
+    createdById: 2,
     createdAt: /* @__PURE__ */ new Date(),
     updatedAt: /* @__PURE__ */ new Date()
   }
@@ -3019,6 +3242,9 @@ async function createDossier(input, userId, authorName) {
     regime: input.regime ?? "IM4",
     notes: input.notes ?? null,
     portalAccessCode: portalCode,
+    clientId: input.clientId ?? null,
+    port: input.port ?? "Port Autonome de Conakry (PAC)",
+    daysOnQuay: input.daysOnQuay ?? 0,
     createdById: userId ?? 1,
     updatedById: userId ?? 1,
     createdAt: now,
@@ -3233,6 +3459,9 @@ async function importDossiersBatch(items, userId, authorName) {
         regime: item.regime ?? "IM4",
         notes: item.notes ?? null,
         portalAccessCode: portalCode,
+        clientId: item.clientId ?? null,
+        port: item.port ?? "Port Autonome de Conakry (PAC)",
+        daysOnQuay: item.daysOnQuay ?? 0,
         createdById: userId ?? 1,
         updatedById: userId ?? 1,
         createdAt: now,
@@ -3444,6 +3673,8 @@ async function createInvoice(input) {
     paymentReference: input.paymentReference ?? null,
     receiptNumber: input.receiptNumber ?? (isPaid ? `REC-2026-${sequence}` : null),
     status: input.status ?? "Proforma",
+    pdfUrl: input.pdfUrl ?? null,
+    clientId: input.clientId ?? null,
     dueDate: input.dueDate ?? new Date(Date.now() + 864e5 * 30),
     paidAt: isPaid ? input.paidAt ?? now : null,
     notes: input.notes ?? null,
@@ -3453,6 +3684,17 @@ async function createInvoice(input) {
   };
   _memoryInvoices.unshift(inv);
   await updateDossier(input.dossierId, { financialStatus: isPaid ? "Pay\xE9" : inv.invoiceType === "Proforma" ? "Fact. Proforma" : "Factur\xE9" });
+  try {
+    await addNotification({
+      dossierId: input.dossierId,
+      dossierNumber: null,
+      type: "FACTURE_GENEREE",
+      title: `Facture ${invNum} g\xE9n\xE9r\xE9e`,
+      message: `Facture ${inv.invoiceType} de ${inv.amountTtc.toLocaleString("fr-FR")} ${inv.currency} \xE9mise pour ${inv.client}.`,
+      recipientRole: "comptable"
+    });
+  } catch (e) {
+  }
   const db = await getDb();
   if (db) {
     try {
@@ -3510,6 +3752,7 @@ async function recordInvoicePayment(id, data) {
   const now = /* @__PURE__ */ new Date();
   const idx = _memoryInvoices.findIndex((i) => i.id === id);
   let invoice = idx >= 0 ? _memoryInvoices[idx] : null;
+  const finalAmount = data.paidAmount ?? (invoice?.amountTtc ?? 0);
   const updatePayload = {
     status: "Pay\xE9e",
     invoiceType: "Definitive",
@@ -3529,10 +3772,25 @@ async function recordInvoicePayment(id, data) {
     };
     invoice = _memoryInvoices[idx];
   }
+  const paymentEntry = {
+    id: _memoryPayments.length + 1,
+    invoiceId: id,
+    amount: finalAmount,
+    currency: invoice?.currency ?? "GNF",
+    paymentMethod: data.paymentMethod ?? "Virement Bancaire",
+    paymentReference: data.paymentReference ?? `REF-PAY-${id}`,
+    paymentDate: now,
+    proofUrl: data.proofUrl ?? null,
+    notes: data.notes ?? null,
+    createdById: data.userId ?? 1,
+    createdAt: now
+  };
+  _memoryPayments.unshift(paymentEntry);
   const db = await getDb();
   if (db) {
     try {
       await db.update(invoices).set(updatePayload).where(eq(invoices.id, id));
+      await db.insert(invoicePayments).values(paymentEntry);
       if (!invoice) {
         const rows = await db.select().from(invoices).where(eq(invoices.id, id)).limit(1);
         if (rows.length > 0) invoice = rows[0];
@@ -3547,10 +3805,69 @@ async function recordInvoicePayment(id, data) {
       fieldChanged: "Paiement Facture",
       previousValue: "Non pay\xE9e",
       newValue: `Pay\xE9e (Quittance ${receiptNumber})`,
-      comment: `Mode: ${updatePayload.paymentMethod}, R\xE9f: ${updatePayload.paymentReference}, Montant: ${invoice.amountTtc} ${invoice.currency}`
+      comment: `Mode: ${updatePayload.paymentMethod}, R\xE9f: ${updatePayload.paymentReference}, Montant: ${finalAmount} ${invoice.currency}`
     });
+    try {
+      await addNotification({
+        dossierId: invoice.dossierId,
+        dossierNumber: null,
+        type: "STATUT_MODIFIE",
+        title: `Paiement encaiss\xE9 \u2014 Facture ${invoice.invoiceNumber}`,
+        message: `Paiement de ${finalAmount.toLocaleString("fr-FR")} ${invoice.currency} enregistr\xE9 pour ${invoice.client} (Quittance ${receiptNumber}).`,
+        recipientRole: "comptable"
+      });
+    } catch (e) {
+    }
   }
   return invoice;
+}
+async function listInvoicePayments(invoiceId) {
+  const db = await getDb();
+  if (db) {
+    try {
+      return await db.select().from(invoicePayments).where(invoiceId ? eq(invoicePayments.invoiceId, invoiceId) : void 0).orderBy(desc(invoicePayments.paymentDate));
+    } catch (e) {
+    }
+  }
+  if (invoiceId) return _memoryPayments.filter((p) => p.invoiceId === invoiceId);
+  return _memoryPayments;
+}
+async function listPacDisbursements(dossierId) {
+  const db = await getDb();
+  if (db) {
+    try {
+      return await db.select().from(pacDisbursements).where(dossierId ? eq(pacDisbursements.dossierId, dossierId) : void 0).orderBy(desc(pacDisbursements.createdAt));
+    } catch (e) {
+    }
+  }
+  if (dossierId) return _memoryPacDisbursements.filter((d) => d.dossierId === dossierId);
+  return _memoryPacDisbursements;
+}
+async function createPacDisbursement(input) {
+  const now = /* @__PURE__ */ new Date();
+  const entry = {
+    id: _memoryPacDisbursements.length + 1,
+    dossierId: input.dossierId,
+    invoiceId: input.invoiceId ?? null,
+    type: input.type ?? "douane",
+    amountAdvanced: input.amountAdvanced ?? 0,
+    amountReimbursed: input.amountReimbursed ?? 0,
+    status: input.status ?? "avance",
+    receiptNumber: input.receiptNumber ?? null,
+    notes: input.notes ?? null,
+    createdById: input.createdById ?? 1,
+    createdAt: now,
+    updatedAt: now
+  };
+  _memoryPacDisbursements.unshift(entry);
+  const db = await getDb();
+  if (db) {
+    try {
+      await db.insert(pacDisbursements).values(entry);
+    } catch (e) {
+    }
+  }
+  return entry;
 }
 async function getExchangeRate() {
   const db = await getDb();
@@ -3702,6 +4019,30 @@ async function addComment(input) {
   return comment;
 }
 var _readNotificationIds = /* @__PURE__ */ new Set();
+async function addNotification(input) {
+  const now = /* @__PURE__ */ new Date();
+  const entry = {
+    id: _memoryNotifications.length + 1,
+    dossierId: input.dossierId ?? null,
+    dossierNumber: input.dossierNumber ?? null,
+    type: input.type,
+    title: input.title,
+    message: input.message,
+    recipientEmail: input.recipientEmail ?? null,
+    recipientRole: input.recipientRole ?? null,
+    isRead: 0,
+    createdAt: now
+  };
+  _memoryNotifications.unshift(entry);
+  const db = await getDb();
+  if (db) {
+    try {
+      await db.insert(notifications).values(entry);
+    } catch (e) {
+    }
+  }
+  return entry;
+}
 async function listNotifications(limit = 40) {
   const dossiers2 = await listDossiers();
   const alerts = generateProactiveAlerts(dossiers2);
@@ -4866,9 +5207,61 @@ var appRouter = router({
         id: z2.number().int().positive(),
         paymentMethod: optionalText,
         paymentReference: optionalText,
-        paidAmount: z2.number().min(0).optional().nullable()
+        paidAmount: z2.number().min(0).optional().nullable(),
+        proofUrl: optionalText,
+        notes: optionalText
       })
-    ).mutation(async ({ input }) => recordInvoicePayment(input.id, input)),
+    ).mutation(async ({ ctx, input }) => recordInvoicePayment(input.id, { ...input, userId: ctx.user.id })),
+    listPayments: comptableProcedure.input(z2.object({ invoiceId: z2.number().optional() }).nullish()).query(async ({ input }) => listInvoicePayments(input?.invoiceId)),
+    listDebours: comptableProcedure.input(z2.object({ dossierId: z2.number().optional() }).nullish()).query(async ({ input }) => listPacDisbursements(input?.dossierId)),
+    createDebour: comptableProcedure.input(
+      z2.object({
+        dossierId: z2.number().int().positive(),
+        invoiceId: z2.number().optional(),
+        type: z2.string().default("douane"),
+        amountAdvanced: z2.number().min(0),
+        amountReimbursed: z2.number().min(0).default(0),
+        status: z2.string().default("avance"),
+        receiptNumber: optionalText,
+        notes: optionalText
+      })
+    ).mutation(async ({ ctx, input }) => createPacDisbursement({ ...input, createdById: ctx.user.id })),
+    saveInvoicePdf: comptableProcedure.input(
+      z2.object({
+        invoiceId: z2.number().int().positive(),
+        invoiceNumber: z2.string(),
+        pdfBase64: z2.string()
+      })
+    ).mutation(async ({ input }) => {
+      try {
+        const { uploadInvoicePdf: uploadInvoicePdf2 } = await Promise.resolve().then(() => (init_supabase(), supabase_exports));
+        const buffer = Buffer.from(input.pdfBase64.replace(/^data:application\/pdf;base64,/, ""), "base64");
+        const url = await uploadInvoicePdf2(input.invoiceNumber, buffer);
+        if (url) {
+          await updateInvoice(input.invoiceId, { pdfUrl: url });
+        }
+        return { success: true, pdfUrl: url };
+      } catch (e) {
+        return { success: false, error: e.message };
+      }
+    }),
+    uploadProof: comptableProcedure.input(
+      z2.object({
+        invoiceId: z2.number().int().positive(),
+        fileName: z2.string(),
+        fileBase64: z2.string(),
+        mimeType: z2.string().default("image/jpeg")
+      })
+    ).mutation(async ({ input }) => {
+      try {
+        const { uploadPaymentProof: uploadPaymentProof2 } = await Promise.resolve().then(() => (init_supabase(), supabase_exports));
+        const buffer = Buffer.from(input.fileBase64.replace(/^data:[^;]+;base64,/, ""), "base64");
+        const url = await uploadPaymentProof2(input.invoiceId, buffer, input.fileName, input.mimeType);
+        return { success: true, proofUrl: url };
+      } catch (e) {
+        return { success: false, error: e.message };
+      }
+    }),
     getExchangeRate: internalProcedure.query(async () => getExchangeRate()),
     setExchangeRate: comptableProcedure.input(z2.object({ rate: z2.number().int().positive() })).mutation(async ({ input }) => setExchangeRate(input.rate)),
     summary: comptableProcedure.query(async () => {

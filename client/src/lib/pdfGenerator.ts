@@ -262,3 +262,185 @@ export async function generateInvoicePdf(data: InvoicePdfData): Promise<void> {
   const filename = `FACTURE_${data.invoiceNumber}_${data.dossierNumber}.pdf`;
   doc.save(filename);
 }
+
+export async function generateInvoicePdfBase64(data: InvoicePdfData): Promise<string> {
+  const doc = new jsPDF({
+    orientation: "portrait",
+    unit: "mm",
+    format: "a4",
+  });
+
+  const primaryColor = [11, 59, 50]; // #0b3b32 (Vert Sombre IGS)
+  const goldColor = [217, 169, 75]; // #d9a94b (Or IGS)
+  const darkTextColor = [21, 45, 39];
+
+  // 1. En-tête / Header Entreprise
+  doc.setFillColor(primaryColor[0], primaryColor[1], primaryColor[2]);
+  doc.rect(0, 0, 210, 28, "F");
+
+  doc.setTextColor(255, 255, 255);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(16);
+  doc.text("IBRAHIMA GOLD SERVICE — IGS", 14, 12);
+
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(8.5);
+  doc.text("TRANSIT • DÉDOUANEMENT SYDONIA • TRANSPORT MARITIME & AÉRIEN", 14, 18);
+  doc.text("Port Autonome de Conakry (PAC) • Kamsar • Kagbelen • République de Guinée", 14, 23);
+
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(10);
+  doc.setTextColor(goldColor[0], goldColor[1], goldColor[2]);
+  doc.text("SERVICE FACTURATION & TRANSIT", 140, 18);
+
+  // 2. Titre du Document (Facture Proforma / Définitive)
+  doc.setTextColor(primaryColor[0], primaryColor[1], primaryColor[2]);
+  doc.setFontSize(18);
+  doc.setFont("helvetica", "bold");
+  const invoiceTitle = data.type === "Proforma" ? "FACTURE PROFORMA" : "FACTURE DE TRANSIT";
+  doc.text(invoiceTitle, 14, 40);
+
+  // Numéro et Date
+  doc.setFontSize(9.5);
+  doc.setFont("helvetica", "normal");
+  doc.setTextColor(80, 100, 95);
+  doc.text(`N° Facture : ${data.invoiceNumber}`, 14, 47);
+  doc.text(`Date d'émission : ${new Date(data.createdAt).toLocaleDateString("fr-FR")}`, 14, 52);
+  const dueDateStr = data.dueDate ? new Date(data.dueDate).toLocaleDateString("fr-FR") : "À réception";
+  doc.text(`Date d'échéance : ${dueDateStr}`, 14, 57);
+
+  // 3. Encadré Client & Destinataire
+  doc.setFillColor(245, 248, 246);
+  doc.roundedRect(120, 34, 76, 30, 2, 2, "F");
+  doc.setDrawColor(210, 225, 218);
+  doc.roundedRect(120, 34, 76, 30, 2, 2, "S");
+
+  doc.setTextColor(primaryColor[0], primaryColor[1], primaryColor[2]);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(10);
+  doc.text("CLIENT / DESTINATAIRE", 124, 41);
+
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(9.5);
+  doc.setTextColor(darkTextColor[0], darkTextColor[1], darkTextColor[2]);
+  doc.text(data.client || "Client Commercial", 124, 47);
+
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(8.5);
+  doc.setTextColor(90, 110, 105);
+  doc.text(`Réf Client : ${data.clientDossierNumber || "N/A"}`, 124, 53);
+  doc.text("Conakry, République de Guinée", 124, 58);
+
+  // 4. Détails Fret & Opérations Douanières
+  doc.setFillColor(235, 242, 239);
+  doc.rect(14, 67, 182, 18, "F");
+
+  doc.setFontSize(8.5);
+  doc.setFont("helvetica", "bold");
+  doc.setTextColor(primaryColor[0], primaryColor[1], primaryColor[2]);
+  doc.text("Dossier IGS :", 18, 73);
+  doc.text("Titre Transport (BL) :", 75, 73);
+  doc.text("Marchandise :", 135, 73);
+
+  doc.setFont("helvetica", "normal");
+  doc.setTextColor(30, 50, 45);
+  doc.text(data.dossierNumber, 18, 80);
+  doc.text(data.blLtaNumber || "N/A", 75, 80);
+  doc.text((data.cargoNature || "Fret maritime standard").slice(0, 30), 135, 80);
+
+  // 5. Tableau des Lignes de Débours & Honoraires
+  const totalAmount = Number(data.amountTtc) || 0;
+  const debonCustoms = Math.round(totalAmount * 0.55);
+  const portCharges = Math.round(totalAmount * 0.25);
+  const transitFee = totalAmount - debonCustoms - portCharges;
+
+  const tableData = [
+    [
+      "1",
+      "Droits de Douane & Taxes Trésor Public (SYDONIA / DDI GUCEG)",
+      "Débours avancés",
+      "1",
+      `${debonCustoms.toLocaleString("fr-FR")} ${data.currency}`,
+      `${debonCustoms.toLocaleString("fr-FR")} ${data.currency}`,
+    ],
+    [
+      "2",
+      "Redevances Portuaires & Manutention Quai (Port Autonome Conakry)",
+      "Débours PAC",
+      "1",
+      `${portCharges.toLocaleString("fr-FR")} ${data.currency}`,
+      `${portCharges.toLocaleString("fr-FR")} ${data.currency}`,
+    ],
+    [
+      "3",
+      "Prestations de Transit, Suivi Douanier & Conduite en Douane",
+      "Honoraires IGS",
+      "1",
+      `${transitFee.toLocaleString("fr-FR")} ${data.currency}`,
+      `${transitFee.toLocaleString("fr-FR")} ${data.currency}`,
+    ],
+  ];
+
+  autoTable(doc, {
+    startY: 90,
+    head: [["Item", "Désignation des Prestations & Débours", "Type", "Qté", "Prix Unitaire", "Montant Total"]],
+    body: tableData,
+    theme: "grid",
+    headStyles: {
+      fillColor: [11, 59, 50],
+      textColor: [255, 255, 255],
+      fontSize: 8.5,
+      fontStyle: "bold",
+    },
+    bodyStyles: {
+      fontSize: 8.5,
+      textColor: [30, 45, 40],
+    },
+    alternateRowStyles: {
+      fillColor: [248, 250, 249],
+    },
+    columnStyles: {
+      0: { cellWidth: 12, halign: "center" },
+      1: { cellWidth: 80 },
+      2: { cellWidth: 28 },
+      3: { cellWidth: 12, halign: "center" },
+      4: { cellWidth: 25, halign: "right" },
+      5: { cellWidth: 25, halign: "right" },
+    },
+  });
+
+  const finalY = (doc as any).lastAutoTable.finalY + 8;
+
+  doc.setFillColor(245, 248, 246);
+  doc.roundedRect(110, finalY, 86, 32, 2, 2, "F");
+  doc.setDrawColor(primaryColor[0], primaryColor[1], primaryColor[2]);
+  doc.roundedRect(110, finalY, 86, 32, 2, 2, "S");
+
+  doc.setFontSize(9);
+  doc.setFont("helvetica", "normal");
+  doc.setTextColor(60, 80, 75);
+  doc.text("Total Débours & Prestations :", 114, finalY + 8);
+  doc.text("TVA / Taxes appliquées :", 114, finalY + 14);
+
+  doc.setFont("helvetica", "bold");
+  doc.text(`${totalAmount.toLocaleString("fr-FR")} ${data.currency}`, 190, finalY + 8, { align: "right" });
+  doc.text("Exonéré / Inclus", 190, finalY + 14, { align: "right" });
+
+  doc.setFillColor(primaryColor[0], primaryColor[1], primaryColor[2]);
+  doc.rect(110, finalY + 18, 86, 14, "F");
+
+  doc.setTextColor(255, 255, 255);
+  doc.setFontSize(11);
+  doc.setFont("helvetica", "bold");
+  doc.text("NET À PAYER :", 114, finalY + 27);
+  doc.text(`${totalAmount.toLocaleString("fr-FR")} ${data.currency}`, 190, finalY + 27, { align: "right" });
+
+  // QR Code
+  const qrText = `https://igs-suivis-de-dossier-saas.vercel.app/portail-client?code=${data.portalAccessCode || data.dossierNumber}`;
+  try {
+    const qrDataUrl = await QRCode.toDataURL(qrText, { width: 80, margin: 1 });
+    doc.addImage(qrDataUrl, "PNG", 14, finalY + 14, 24, 24);
+  } catch (err) {}
+
+  return doc.output("datauristring");
+}

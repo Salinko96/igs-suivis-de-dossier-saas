@@ -8,6 +8,10 @@ import {
   Document, documents, InsertDocument,
   DossierStatusHistory, dossierStatusHistory, InsertDossierStatusHistory,
   Invoice, invoices, InsertInvoice,
+  InvoicePayment, invoicePayments, InsertInvoicePayment,
+  PacDisbursement, pacDisbursements, InsertPacDisbursement,
+  Client, clients, InsertClient,
+  ExchangeRate, exchangeRates, InsertExchangeRate,
   DossierTask, dossierTasks, InsertDossierTask,
   DossierComment, dossierComments, InsertDossierComment,
   Notification, notifications, InsertNotification
@@ -131,6 +135,9 @@ let _memoryDossiers: Dossier[] = initialImportData.dossiers.map((source, idx) =>
     regime: "IM4 - Mise à la consommation",
     notes: null,
     portalAccessCode: `IGS-${1000 + idx + 1}`,
+    clientId: null,
+    port: "Port Autonome de Conakry (PAC)",
+    daysOnQuay: 0,
     createdById: 1,
     updatedById: 1,
     createdAt: now,
@@ -216,7 +223,56 @@ let _memoryInvoices: Invoice[] = [
     dueDate: new Date(Date.now() + 86400000 * 15),
     paidAt: null,
     notes: "Facture transit maritime 4 conteneurs 20 pieds",
+    clientId: null,
+    pdfUrl: null,
     createdById: 3,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  }
+];
+
+let _memoryPayments: InvoicePayment[] = [
+  {
+    id: 1,
+    invoiceId: 1,
+    amount: 21830000,
+    currency: "GNF",
+    paymentMethod: "Virement Bancaire",
+    paymentReference: "VIR-2026-0812",
+    paymentDate: new Date(),
+    proofUrl: null,
+    notes: "Encaissement initial",
+    createdById: 3,
+    createdAt: new Date(),
+  }
+];
+
+let _memoryPacDisbursements: PacDisbursement[] = [
+  {
+    id: 1,
+    dossierId: 1,
+    invoiceId: 1,
+    type: "douane",
+    amountAdvanced: 35000000,
+    amountReimbursed: 35000000,
+    status: "rembourse_total",
+    receiptNumber: "REC-DOUANE-2026-01",
+    notes: "Droits de douane SYDONIA S 142",
+    createdById: 2,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  },
+  {
+    id: 2,
+    dossierId: 1,
+    invoiceId: 1,
+    type: "port",
+    amountAdvanced: 10000000,
+    amountReimbursed: 10000000,
+    status: "rembourse_total",
+    receiptNumber: "REC-PAC-2026-01",
+    notes: "Redevance portuaire PAC quai 3",
+    createdById: 2,
     createdAt: new Date(),
     updatedAt: new Date(),
   }
@@ -668,6 +724,9 @@ export async function createDossier(input: EditableDossier, userId?: number, aut
     regime: input.regime ?? "IM4",
     notes: input.notes ?? null,
     portalAccessCode: portalCode,
+    clientId: input.clientId ?? null,
+    port: input.port ?? "Port Autonome de Conakry (PAC)",
+    daysOnQuay: input.daysOnQuay ?? 0,
     createdById: userId ?? 1,
     updatedById: userId ?? 1,
     createdAt: now,
@@ -921,6 +980,9 @@ export async function importDossiersBatch(
         regime: item.regime ?? "IM4",
         notes: item.notes ?? null,
         portalAccessCode: portalCode,
+        clientId: item.clientId ?? null,
+        port: item.port ?? "Port Autonome de Conakry (PAC)",
+        daysOnQuay: item.daysOnQuay ?? 0,
         createdById: userId ?? 1,
         updatedById: userId ?? 1,
         createdAt: now,
@@ -1156,6 +1218,8 @@ export async function createInvoice(input: Omit<InsertInvoice, "invoiceNumber"> 
     paymentReference: input.paymentReference ?? null,
     receiptNumber: input.receiptNumber ?? (isPaid ? `REC-2026-${sequence}` : null),
     status: input.status ?? "Proforma",
+    pdfUrl: input.pdfUrl ?? null,
+    clientId: input.clientId ?? null,
     dueDate: input.dueDate ?? new Date(Date.now() + 86400000 * 30),
     paidAt: isPaid ? (input.paidAt ?? now) : null,
     notes: input.notes ?? null,
@@ -1167,6 +1231,18 @@ export async function createInvoice(input: Omit<InsertInvoice, "invoiceNumber"> 
 
   // Mise à jour du statut financier du dossier
   await updateDossier(input.dossierId, { financialStatus: isPaid ? "Payé" : inv.invoiceType === "Proforma" ? "Fact. Proforma" : "Facturé" });
+
+  // Notification automatique de facturation
+  try {
+    await addNotification({
+      dossierId: input.dossierId,
+      dossierNumber: null,
+      type: "FACTURE_GENEREE",
+      title: `Facture ${invNum} générée`,
+      message: `Facture ${inv.invoiceType} de ${inv.amountTtc.toLocaleString("fr-FR")} ${inv.currency} émise pour ${inv.client}.`,
+      recipientRole: "comptable",
+    });
+  } catch (e) {}
 
   const db = await getDb();
   if (db) {
@@ -1224,11 +1300,23 @@ export async function updateInvoice(id: number, input: Partial<InsertInvoice>) {
   return result!;
 }
 
-export async function recordInvoicePayment(id: number, data: { paymentMethod?: string | null; paymentReference?: string | null; paidAmount?: number | null }) {
+export async function recordInvoicePayment(
+  id: number,
+  data: {
+    paymentMethod?: string | null;
+    paymentReference?: string | null;
+    paidAmount?: number | null;
+    proofUrl?: string | null;
+    notes?: string | null;
+    userId?: number;
+  }
+) {
   const receiptNumber = "REC-2026-" + id;
   const now = new Date();
   const idx = _memoryInvoices.findIndex(i => i.id === id);
   let invoice = idx >= 0 ? _memoryInvoices[idx] : null;
+
+  const finalAmount = data.paidAmount ?? (invoice?.amountTtc ?? 0);
 
   const updatePayload: Partial<InsertInvoice> = {
     status: "Payée",
@@ -1251,10 +1339,27 @@ export async function recordInvoicePayment(id: number, data: { paymentMethod?: s
     invoice = _memoryInvoices[idx];
   }
 
+  // Enregistrer l'encaissement
+  const paymentEntry: InvoicePayment = {
+    id: _memoryPayments.length + 1,
+    invoiceId: id,
+    amount: finalAmount,
+    currency: invoice?.currency ?? "GNF",
+    paymentMethod: data.paymentMethod ?? "Virement Bancaire",
+    paymentReference: data.paymentReference ?? `REF-PAY-${id}`,
+    paymentDate: now,
+    proofUrl: data.proofUrl ?? null,
+    notes: data.notes ?? null,
+    createdById: data.userId ?? 1,
+    createdAt: now,
+  };
+  _memoryPayments.unshift(paymentEntry);
+
   const db = await getDb();
   if (db) {
     try {
       await db.update(invoices).set(updatePayload).where(eq(invoices.id, id));
+      await db.insert(invoicePayments).values(paymentEntry);
       if (!invoice) {
         const rows = await db.select().from(invoices).where(eq(invoices.id, id)).limit(1);
         if (rows.length > 0) invoice = rows[0];
@@ -1269,11 +1374,75 @@ export async function recordInvoicePayment(id: number, data: { paymentMethod?: s
       fieldChanged: "Paiement Facture",
       previousValue: "Non payée",
       newValue: `Payée (Quittance ${receiptNumber})`,
-      comment: `Mode: ${updatePayload.paymentMethod}, Réf: ${updatePayload.paymentReference}, Montant: ${invoice.amountTtc} ${invoice.currency}`,
+      comment: `Mode: ${updatePayload.paymentMethod}, Réf: ${updatePayload.paymentReference}, Montant: ${finalAmount} ${invoice.currency}`,
     });
+
+    try {
+      await addNotification({
+        dossierId: invoice.dossierId,
+        dossierNumber: null,
+        type: "STATUT_MODIFIE",
+        title: `Paiement encaissé — Facture ${invoice.invoiceNumber}`,
+        message: `Paiement de ${finalAmount.toLocaleString("fr-FR")} ${invoice.currency} enregistré pour ${invoice.client} (Quittance ${receiptNumber}).`,
+        recipientRole: "comptable",
+      });
+    } catch (e) {}
   }
 
   return invoice!;
+}
+
+export async function listInvoicePayments(invoiceId?: number) {
+  const db = await getDb();
+  if (db) {
+    try {
+      return await db.select().from(invoicePayments)
+        .where(invoiceId ? eq(invoicePayments.invoiceId, invoiceId) : undefined)
+        .orderBy(desc(invoicePayments.paymentDate));
+    } catch (e) {}
+  }
+  if (invoiceId) return _memoryPayments.filter(p => p.invoiceId === invoiceId);
+  return _memoryPayments;
+}
+
+export async function listPacDisbursements(dossierId?: number) {
+  const db = await getDb();
+  if (db) {
+    try {
+      return await db.select().from(pacDisbursements)
+        .where(dossierId ? eq(pacDisbursements.dossierId, dossierId) : undefined)
+        .orderBy(desc(pacDisbursements.createdAt));
+    } catch (e) {}
+  }
+  if (dossierId) return _memoryPacDisbursements.filter(d => d.dossierId === dossierId);
+  return _memoryPacDisbursements;
+}
+
+export async function createPacDisbursement(input: InsertPacDisbursement) {
+  const now = new Date();
+  const entry: PacDisbursement = {
+    id: _memoryPacDisbursements.length + 1,
+    dossierId: input.dossierId,
+    invoiceId: input.invoiceId ?? null,
+    type: input.type ?? "douane",
+    amountAdvanced: input.amountAdvanced ?? 0,
+    amountReimbursed: input.amountReimbursed ?? 0,
+    status: input.status ?? "avance",
+    receiptNumber: input.receiptNumber ?? null,
+    notes: input.notes ?? null,
+    createdById: input.createdById ?? 1,
+    createdAt: now,
+    updatedAt: now,
+  };
+  _memoryPacDisbursements.unshift(entry);
+
+  const db = await getDb();
+  if (db) {
+    try {
+      await db.insert(pacDisbursements).values(entry);
+    } catch (e) {}
+  }
+  return entry;
 }
 
 export async function getExchangeRate() {
@@ -1443,6 +1612,30 @@ export async function addComment(input: InsertDossierComment) {
 
 // ----------------- NOTIFICATIONS PROACTIVES -----------------
 const _readNotificationIds = new Set<number>();
+
+export async function addNotification(input: InsertNotification) {
+  const now = new Date();
+  const entry: Notification = {
+    id: _memoryNotifications.length + 1,
+    dossierId: input.dossierId ?? null,
+    dossierNumber: input.dossierNumber ?? null,
+    type: input.type,
+    title: input.title,
+    message: input.message,
+    recipientEmail: input.recipientEmail ?? null,
+    recipientRole: input.recipientRole ?? null,
+    isRead: 0,
+    createdAt: now,
+  };
+  _memoryNotifications.unshift(entry);
+  const db = await getDb();
+  if (db) {
+    try {
+      await db.insert(notifications).values(entry);
+    } catch (e) {}
+  }
+  return entry;
+}
 
 export async function listNotifications(limit = 40) {
   const dossiers = await listDossiers();

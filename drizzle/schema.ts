@@ -23,10 +23,26 @@ export const users = pgTable("users", {
   lastSignedIn: timestamp("lastSignedIn").defaultNow().notNull(),
 });
 
+export const clients = pgTable("clients", {
+  id: serial("id").primaryKey(),
+  name: varchar("name", { length: 255 }).notNull(),
+  contactPerson: varchar("contactPerson", { length: 160 }),
+  email: varchar("email", { length: 320 }),
+  phone: varchar("phone", { length: 32 }),
+  country: varchar("country", { length: 100 }).default("Guinée"),
+  taxId: varchar("taxId", { length: 80 }),
+  address: text("address"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull(),
+}, table => [
+  uniqueIndex("clients_name_unique").on(table.name),
+]);
+
 export const dossiers = pgTable("dossiers", {
   id: serial("id").primaryKey(),
   dossierNumber: varchar("dossierNumber", { length: 16 }).notNull(),
   clientDossierNumber: varchar("clientDossierNumber", { length: 120 }),
+  clientId: integer("clientId"),
   client: varchar("client", { length: 255 }),
   blLtaNumber: varchar("blLtaNumber", { length: 160 }),
   cargoNature: text("cargoNature"),
@@ -34,9 +50,11 @@ export const dossiers = pgTable("dossiers", {
   eta: timestamp("eta"),
   originPort: varchar("originPort", { length: 255 }),
   destinationPort: varchar("destinationPort", { length: 255 }),
+  port: varchar("port", { length: 120 }).default("Port Autonome de Conakry (PAC)"),
   container: varchar("container", { length: 255 }),
   bulk: varchar("bulk", { length: 255 }),
   goodsReleaseDate: timestamp("goodsReleaseDate"),
+  daysOnQuay: integer("daysOnQuay").default(0), // Jours de séjour quai (alerte si > 7j)
   declarationNumber: varchar("declarationNumber", { length: 160 }),
   bulletinNumber: varchar("bulletinNumber", { length: 160 }),
   finalDeclarationNumber: varchar("finalDeclarationNumber", { length: 160 }),
@@ -108,6 +126,7 @@ export const dossierStatusHistory = pgTable("dossier_status_history", {
 export const invoices = pgTable("invoices", {
   id: serial("id").primaryKey(),
   dossierId: integer("dossierId").notNull(),
+  clientId: integer("clientId"),
   invoiceNumber: varchar("invoiceNumber", { length: 32 }).notNull(),
   client: varchar("client", { length: 255 }).notNull(),
   currency: varchar("currency", { length: 8 }).notNull().default("GNF"), // GNF, USD, EUR
@@ -116,7 +135,7 @@ export const invoices = pgTable("invoices", {
   amountHt: integer("amountHt").notNull().default(0),
   amountTva: integer("amountTva").notNull().default(0),
   amountTtc: integer("amountTtc").notNull().default(0),
-  disbursementsAmount: integer("disbursementsAmount").notNull().default(0), // Débours totaux (douane, PAC)
+  disbursementsAmount: integer("disbursementsAmount").notNull().default(0), // Débours totaux (douane + PAC)
   customsDutiesAmount: integer("customsDutiesAmount").notNull().default(0), // Droits de douane
   portFeesAmount: integer("portFeesAmount").notNull().default(0), // Redevance portuaire PAC
   storageAndDemurrageFees: integer("storageAndDemurrageFees").notNull().default(0), // Surestaries / magasinage
@@ -125,6 +144,7 @@ export const invoices = pgTable("invoices", {
   paymentReference: varchar("paymentReference", { length: 120 }),
   receiptNumber: varchar("receiptNumber", { length: 64 }),
   status: invoiceStatusEnum("status").notNull().default("Proforma"),
+  pdfUrl: text("pdfUrl"), // URL Supabase Storage du PDF généré
   dueDate: timestamp("dueDate"),
   paidAt: timestamp("paidAt"),
   notes: text("notes"),
@@ -137,6 +157,49 @@ export const invoices = pgTable("invoices", {
   index("invoices_client_idx").on(table.client),
   index("invoices_status_idx").on(table.status),
 ]);
+
+export const invoicePayments = pgTable("invoice_payments", {
+  id: serial("id").primaryKey(),
+  invoiceId: integer("invoiceId").notNull(),
+  amount: integer("amount").notNull(),
+  currency: varchar("currency", { length: 8 }).notNull().default("GNF"),
+  paymentMethod: varchar("paymentMethod", { length: 64 }).notNull(),
+  paymentReference: varchar("paymentReference", { length: 120 }),
+  paymentDate: timestamp("paymentDate").defaultNow().notNull(),
+  proofUrl: text("proofUrl"), // URL Supabase Storage du justificatif bancaire / quittance
+  notes: text("notes"),
+  createdById: integer("createdById"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, table => [
+  index("invoice_payments_invoice_idx").on(table.invoiceId),
+]);
+
+export const pacDisbursements = pgTable("pac_disbursements", {
+  id: serial("id").primaryKey(),
+  dossierId: integer("dossierId").notNull(),
+  invoiceId: integer("invoiceId"),
+  type: varchar("type", { length: 64 }).notNull().default("douane"), // douane, port, surestaries, acconage, autre
+  amountAdvanced: integer("amountAdvanced").notNull().default(0), // Montant avancé par IGS
+  amountReimbursed: integer("amountReimbursed").notNull().default(0), // Montant remboursé par le client
+  status: varchar("status", { length: 32 }).notNull().default("avance"), // avance, rembourse_partiel, rembourse_total
+  receiptNumber: varchar("receiptNumber", { length: 64 }),
+  notes: text("notes"),
+  createdById: integer("createdById"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull(),
+}, table => [
+  index("pac_disbursements_dossier_idx").on(table.dossierId),
+  index("pac_disbursements_invoice_idx").on(table.invoiceId),
+]);
+
+export const exchangeRates = pgTable("exchange_rates", {
+  id: serial("id").primaryKey(),
+  sourceCurrency: varchar("sourceCurrency", { length: 8 }).notNull().default("USD"),
+  targetCurrency: varchar("targetCurrency", { length: 8 }).notNull().default("GNF"),
+  rate: integer("rate").notNull().default(8650),
+  updatedById: integer("updatedById"),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull(),
+});
 
 export const dossierTasks = pgTable("dossier_tasks", {
   id: serial("id").primaryKey(),
@@ -195,6 +258,8 @@ export const referenceItems = pgTable("reference_items", {
 
 export type User = typeof users.$inferSelect;
 export type InsertUser = typeof users.$inferInsert;
+export type Client = typeof clients.$inferSelect;
+export type InsertClient = typeof clients.$inferInsert;
 export type Dossier = typeof dossiers.$inferSelect;
 export type InsertDossier = typeof dossiers.$inferInsert;
 export type Document = typeof documents.$inferSelect;
@@ -203,6 +268,12 @@ export type DossierStatusHistory = typeof dossierStatusHistory.$inferSelect;
 export type InsertDossierStatusHistory = typeof dossierStatusHistory.$inferInsert;
 export type Invoice = typeof invoices.$inferSelect;
 export type InsertInvoice = typeof invoices.$inferInsert;
+export type InvoicePayment = typeof invoicePayments.$inferSelect;
+export type InsertInvoicePayment = typeof invoicePayments.$inferInsert;
+export type PacDisbursement = typeof pacDisbursements.$inferSelect;
+export type InsertPacDisbursement = typeof pacDisbursements.$inferInsert;
+export type ExchangeRate = typeof exchangeRates.$inferSelect;
+export type InsertExchangeRate = typeof exchangeRates.$inferInsert;
 export type DossierTask = typeof dossierTasks.$inferSelect;
 export type InsertDossierTask = typeof dossierTasks.$inferInsert;
 export type DossierComment = typeof dossierComments.$inferSelect;
