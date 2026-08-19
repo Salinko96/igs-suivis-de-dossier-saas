@@ -306,38 +306,86 @@ export const appRouter = router({
     get: protectedProcedure
       .input(z.object({ id: z.union([z.number(), z.string()]) }))
       .query(async ({ ctx, input }) => {
-        const dossier = await db.getDossier(input.id);
-        if (!dossier) {
-          console.error(`[tRPC] Dossier introuvable pour l'identifiant: "${input.id}"`);
-          throw new TRPCError({ code: "NOT_FOUND", message: `Dossier introuvable pour l'identifiant "${input.id}"` });
+        try {
+          const rawId = String(input.id).trim();
+          if (!rawId) {
+            throw new TRPCError({ code: "BAD_REQUEST", message: "Identifiant de dossier manquant ou invalide" });
+          }
+          const dossier = await db.getDossier(input.id);
+          if (!dossier) {
+            console.error(`[tRPC] Dossier introuvable pour l'identifiant: "${input.id}"`);
+            throw new TRPCError({ code: "NOT_FOUND", message: `Dossier introuvable pour l'identifiant "${input.id}"` });
+          }
+          if (ctx.user?.role === "client" && ctx.user?.clientCompany && dossier.client !== ctx.user.clientCompany) {
+            throw new TRPCError({ code: "FORBIDDEN", message: "Accès refusé pour ce dossier" });
+          }
+          return dossier;
+        } catch (err: any) {
+          if (err instanceof TRPCError) throw err;
+          console.error("[tRPC dossier.get Error]", err);
+          throw new TRPCError({
+            code: "INTERNAL_SERVER_ERROR",
+            message: `Erreur interne lors de la récupération du dossier: ${err.message}`,
+          });
         }
-        if (ctx.user?.role === "client" && ctx.user?.clientCompany && dossier.client !== ctx.user.clientCompany) {
-          throw new TRPCError({ code: "FORBIDDEN", message: "Accès refusé pour ce dossier" });
-        }
-        return dossier;
       }),
     create: internalProcedure
       .input(dossierPayload)
       .mutation(async ({ ctx, input }) => {
-        invalidateDashboardCache();
-        return db.createDossier(input, ctx.user.id, ctx.user.name || "Opérateur");
+        try {
+          invalidateDashboardCache();
+          return await db.createDossier(input, ctx.user.id, ctx.user.name || "Opérateur");
+        } catch (err: any) {
+          if (err instanceof TRPCError) throw err;
+          console.error("[tRPC dossier.create Error]", err);
+          throw new TRPCError({
+            code: "INTERNAL_SERVER_ERROR",
+            message: `Erreur interne lors de la création du dossier: ${err.message}`,
+          });
+        }
       }),
     update: internalProcedure
-      .input(z.object({ id: z.number().int().positive(), data: dossierPayload }))
+      .input(z.object({ id: z.union([z.number(), z.string()]), data: dossierPayload }))
       .mutation(async ({ ctx, input }) => {
-        invalidateDashboardCache();
-        return db.updateDossier(input.id, input.data, ctx.user.id, ctx.user.name || "Opérateur");
+        try {
+          const numId = Number(input.id);
+          if (isNaN(numId) || numId <= 0) {
+            throw new TRPCError({ code: "BAD_REQUEST", message: `Identifiant de dossier invalide: ${input.id}` });
+          }
+          invalidateDashboardCache();
+          return await db.updateDossier(numId, input.data, ctx.user.id, ctx.user.name || "Opérateur");
+        } catch (err: any) {
+          if (err instanceof TRPCError) throw err;
+          console.error("[tRPC dossier.update Error]", err);
+          throw new TRPCError({
+            code: "INTERNAL_SERVER_ERROR",
+            message: `Erreur lors de la mise à jour du dossier: ${err.message}`,
+          });
+        }
       }),
     updateCustoms: declarantProcedure
       .input(
         z.object({
-          id: z.number().int().positive(),
+          id: z.union([z.number(), z.string()]),
           data: dossierPayload.partial(),
         })
       )
       .mutation(async ({ ctx, input }) => {
-        invalidateDashboardCache();
-        return db.updateDossier(input.id, input.data, ctx.user.id, ctx.user.name || "Déclarant PAC");
+        try {
+          const numId = Number(input.id);
+          if (isNaN(numId) || numId <= 0) {
+            throw new TRPCError({ code: "BAD_REQUEST", message: `Identifiant de dossier invalide: ${input.id}` });
+          }
+          invalidateDashboardCache();
+          return await db.updateDossier(numId, input.data, ctx.user.id, ctx.user.name || "Déclarant PAC");
+        } catch (err: any) {
+          if (err instanceof TRPCError) throw err;
+          console.error("[tRPC dossier.updateCustoms Error]", err);
+          throw new TRPCError({
+            code: "INTERNAL_SERVER_ERROR",
+            message: `Erreur lors de la mise à jour des contrôles douane: ${err.message}`,
+          });
+        }
       }),
     remove: adminProcedure
       .input(z.object({ id: z.number().int().positive() }))

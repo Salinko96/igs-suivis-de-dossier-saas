@@ -674,8 +674,10 @@ function DetailContent() {
             Le dossier avec l'identifiant <strong className="font-mono text-red-700">« {rawId || "inconnu"} »</strong> n'a pas pu être chargé. Il se peut qu'il ait été archivé, supprimé, ou que vos droits d'accès soient restreints.
           </p>
           {error?.message && (
-            <div className="mt-4 rounded-xl bg-red-50/60 p-3 text-xs text-red-800 font-mono">
-              Erreur serveur : {error.message}
+            <div className="mt-4 rounded-xl bg-red-50/70 border border-red-200/60 p-3 text-xs text-red-800 font-medium">
+              {error.message.includes("JSON") || error.message.includes("Unexpected token")
+                ? "Impossible de joindre le serveur de données. Veuillez vérifier votre connexion ou réessayer."
+                : error.message}
             </div>
           )}
           <div className="mt-6 flex flex-wrap items-center justify-center gap-3">

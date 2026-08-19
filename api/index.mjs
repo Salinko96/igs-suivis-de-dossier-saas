@@ -4595,32 +4595,80 @@ var appRouter = router({
       return listDossiers(filters);
     }),
     get: protectedProcedure.input(z2.object({ id: z2.union([z2.number(), z2.string()]) })).query(async ({ ctx, input }) => {
-      const dossier = await getDossier(input.id);
-      if (!dossier) {
-        console.error(`[tRPC] Dossier introuvable pour l'identifiant: "${input.id}"`);
-        throw new TRPCError3({ code: "NOT_FOUND", message: `Dossier introuvable pour l'identifiant "${input.id}"` });
+      try {
+        const rawId = String(input.id).trim();
+        if (!rawId) {
+          throw new TRPCError3({ code: "BAD_REQUEST", message: "Identifiant de dossier manquant ou invalide" });
+        }
+        const dossier = await getDossier(input.id);
+        if (!dossier) {
+          console.error(`[tRPC] Dossier introuvable pour l'identifiant: "${input.id}"`);
+          throw new TRPCError3({ code: "NOT_FOUND", message: `Dossier introuvable pour l'identifiant "${input.id}"` });
+        }
+        if (ctx.user?.role === "client" && ctx.user?.clientCompany && dossier.client !== ctx.user.clientCompany) {
+          throw new TRPCError3({ code: "FORBIDDEN", message: "Acc\xE8s refus\xE9 pour ce dossier" });
+        }
+        return dossier;
+      } catch (err) {
+        if (err instanceof TRPCError3) throw err;
+        console.error("[tRPC dossier.get Error]", err);
+        throw new TRPCError3({
+          code: "INTERNAL_SERVER_ERROR",
+          message: `Erreur interne lors de la r\xE9cup\xE9ration du dossier: ${err.message}`
+        });
       }
-      if (ctx.user?.role === "client" && ctx.user?.clientCompany && dossier.client !== ctx.user.clientCompany) {
-        throw new TRPCError3({ code: "FORBIDDEN", message: "Acc\xE8s refus\xE9 pour ce dossier" });
-      }
-      return dossier;
     }),
     create: internalProcedure.input(dossierPayload).mutation(async ({ ctx, input }) => {
-      invalidateDashboardCache();
-      return createDossier(input, ctx.user.id, ctx.user.name || "Op\xE9rateur");
+      try {
+        invalidateDashboardCache();
+        return await createDossier(input, ctx.user.id, ctx.user.name || "Op\xE9rateur");
+      } catch (err) {
+        if (err instanceof TRPCError3) throw err;
+        console.error("[tRPC dossier.create Error]", err);
+        throw new TRPCError3({
+          code: "INTERNAL_SERVER_ERROR",
+          message: `Erreur interne lors de la cr\xE9ation du dossier: ${err.message}`
+        });
+      }
     }),
-    update: internalProcedure.input(z2.object({ id: z2.number().int().positive(), data: dossierPayload })).mutation(async ({ ctx, input }) => {
-      invalidateDashboardCache();
-      return updateDossier(input.id, input.data, ctx.user.id, ctx.user.name || "Op\xE9rateur");
+    update: internalProcedure.input(z2.object({ id: z2.union([z2.number(), z2.string()]), data: dossierPayload })).mutation(async ({ ctx, input }) => {
+      try {
+        const numId = Number(input.id);
+        if (isNaN(numId) || numId <= 0) {
+          throw new TRPCError3({ code: "BAD_REQUEST", message: `Identifiant de dossier invalide: ${input.id}` });
+        }
+        invalidateDashboardCache();
+        return await updateDossier(numId, input.data, ctx.user.id, ctx.user.name || "Op\xE9rateur");
+      } catch (err) {
+        if (err instanceof TRPCError3) throw err;
+        console.error("[tRPC dossier.update Error]", err);
+        throw new TRPCError3({
+          code: "INTERNAL_SERVER_ERROR",
+          message: `Erreur lors de la mise \xE0 jour du dossier: ${err.message}`
+        });
+      }
     }),
     updateCustoms: declarantProcedure.input(
       z2.object({
-        id: z2.number().int().positive(),
+        id: z2.union([z2.number(), z2.string()]),
         data: dossierPayload.partial()
       })
     ).mutation(async ({ ctx, input }) => {
-      invalidateDashboardCache();
-      return updateDossier(input.id, input.data, ctx.user.id, ctx.user.name || "D\xE9clarant PAC");
+      try {
+        const numId = Number(input.id);
+        if (isNaN(numId) || numId <= 0) {
+          throw new TRPCError3({ code: "BAD_REQUEST", message: `Identifiant de dossier invalide: ${input.id}` });
+        }
+        invalidateDashboardCache();
+        return await updateDossier(numId, input.data, ctx.user.id, ctx.user.name || "D\xE9clarant PAC");
+      } catch (err) {
+        if (err instanceof TRPCError3) throw err;
+        console.error("[tRPC dossier.updateCustoms Error]", err);
+        throw new TRPCError3({
+          code: "INTERNAL_SERVER_ERROR",
+          message: `Erreur lors de la mise \xE0 jour des contr\xF4les douane: ${err.message}`
+        });
+      }
     }),
     remove: adminProcedure.input(z2.object({ id: z2.number().int().positive() })).mutation(async ({ input }) => {
       invalidateDashboardCache();
@@ -4862,6 +4910,175 @@ var appRouter = router({
   })
 });
 
+// server/restRoutes.ts
+function registerRestRoutes(app2) {
+  app2.get("/api/dossiers", async (req, res) => {
+    res.setHeader("Content-Type", "application/json");
+    try {
+      const search = typeof req.query.search === "string" ? req.query.search : void 0;
+      const status = req.query.status === "R\xE9gularis\xE9" || req.query.status === "\xC0 r\xE9gulariser" ? req.query.status : void 0;
+      const priority = req.query.priority === "Haute" || req.query.priority === "Normale" || req.query.priority === "Basse" ? req.query.priority : void 0;
+      const client = typeof req.query.client === "string" ? req.query.client : void 0;
+      const dossiers2 = await listDossiers({
+        search,
+        status,
+        priority,
+        client
+      });
+      return res.status(200).json({
+        success: true,
+        count: dossiers2.length,
+        data: dossiers2
+      });
+    } catch (err) {
+      console.error("[REST GET /api/dossiers Error]", err);
+      return res.status(500).json({
+        success: false,
+        error: "Erreur serveur interne lors de la r\xE9cup\xE9ration des dossiers",
+        details: err.message
+      });
+    }
+  });
+  app2.get("/api/dossiers/:id", async (req, res) => {
+    res.setHeader("Content-Type", "application/json");
+    try {
+      const rawId = req.params.id;
+      if (!rawId || rawId.trim() === "") {
+        return res.status(400).json({
+          success: false,
+          error: "Identifiant de dossier invalide ou manquant"
+        });
+      }
+      const dossier = await getDossier(rawId.trim());
+      if (!dossier) {
+        return res.status(404).json({
+          success: false,
+          error: `Dossier introuvable pour l'identifiant \xAB ${rawId} \xBB`,
+          id: rawId
+        });
+      }
+      return res.status(200).json({
+        success: true,
+        data: dossier
+      });
+    } catch (err) {
+      console.error(`[REST GET /api/dossiers/${req.params.id} Error]`, err);
+      return res.status(500).json({
+        success: false,
+        error: "Erreur serveur interne lors de la lecture du dossier",
+        details: err.message
+      });
+    }
+  });
+  app2.post("/api/dossiers", async (req, res) => {
+    res.setHeader("Content-Type", "application/json");
+    try {
+      const body = req.body;
+      if (!body || typeof body !== "object") {
+        return res.status(400).json({
+          success: false,
+          error: "Corps de requ\xEAte invalide ou manquant"
+        });
+      }
+      invalidateDashboardCache();
+      const created = await createDossier(body, 1, "API REST");
+      return res.status(201).json({
+        success: true,
+        message: `Dossier ${created.dossierNumber} cr\xE9\xE9 avec succ\xE8s`,
+        data: created
+      });
+    } catch (err) {
+      console.error("[REST POST /api/dossiers Error]", err);
+      return res.status(500).json({
+        success: false,
+        error: "Erreur serveur interne lors de la cr\xE9ation du dossier",
+        details: err.message
+      });
+    }
+  });
+  const updateHandler = async (req, res) => {
+    res.setHeader("Content-Type", "application/json");
+    try {
+      const rawId = req.params.id;
+      const numId = Number(rawId);
+      if (!rawId || isNaN(numId) || !Number.isInteger(numId) || numId <= 0) {
+        return res.status(400).json({
+          success: false,
+          error: "Identifiant de dossier invalide (doit \xEAtre un entier strictement positif)",
+          received: rawId
+        });
+      }
+      const body = req.body;
+      if (!body || typeof body !== "object") {
+        return res.status(400).json({
+          success: false,
+          error: "Corps de requ\xEAte invalide"
+        });
+      }
+      const existing = await getDossier(numId);
+      if (!existing) {
+        return res.status(404).json({
+          success: false,
+          error: `Dossier #${numId} introuvable pour la mise \xE0 jour`,
+          id: numId
+        });
+      }
+      invalidateDashboardCache();
+      const updated = await updateDossier(numId, body, 1, "API REST");
+      return res.status(200).json({
+        success: true,
+        message: `Dossier ${updated.dossierNumber} mis \xE0 jour avec succ\xE8s`,
+        data: updated
+      });
+    } catch (err) {
+      console.error(`[REST PUT/PATCH /api/dossiers/${req.params.id} Error]`, err);
+      return res.status(500).json({
+        success: false,
+        error: "Erreur serveur interne lors de la sauvegarde du dossier",
+        details: err.message
+      });
+    }
+  };
+  app2.put("/api/dossiers/:id", updateHandler);
+  app2.patch("/api/dossiers/:id", updateHandler);
+  app2.delete("/api/dossiers/:id", async (req, res) => {
+    res.setHeader("Content-Type", "application/json");
+    try {
+      const rawId = req.params.id;
+      const numId = Number(rawId);
+      if (!rawId || isNaN(numId) || !Number.isInteger(numId) || numId <= 0) {
+        return res.status(400).json({
+          success: false,
+          error: "Identifiant de dossier invalide",
+          received: rawId
+        });
+      }
+      const existing = await getDossier(numId);
+      if (!existing) {
+        return res.status(404).json({
+          success: false,
+          error: `Dossier #${numId} introuvable`,
+          id: numId
+        });
+      }
+      invalidateDashboardCache();
+      const deleted = await deleteDossier(numId);
+      return res.status(200).json({
+        success: true,
+        message: `Dossier ${existing.dossierNumber || numId} supprim\xE9 avec succ\xE8s`,
+        data: deleted
+      });
+    } catch (err) {
+      console.error(`[REST DELETE /api/dossiers/${req.params.id} Error]`, err);
+      return res.status(500).json({
+        success: false,
+        error: "Erreur serveur interne lors de la suppression du dossier",
+        details: err.message
+      });
+    }
+  });
+}
+
 // server/_core/context.ts
 async function createContext(opts) {
   let user = null;
@@ -4888,13 +5105,30 @@ function createApp() {
   app2.use(express.urlencoded({ limit: "50mb", extended: true }));
   registerStorageProxy(app2);
   registerOAuthRoutes(app2);
+  registerRestRoutes(app2);
   app2.use(
     "/api/trpc",
     createExpressMiddleware({
       router: appRouter,
-      createContext
+      createContext,
+      onError({ error, path, req }) {
+        console.error(`[tRPC Router Error on ${path}]:`, error);
+      }
     })
   );
+  app2.use((err, req, res, next) => {
+    console.error(`[Unhandled Server Error on ${req.method} ${req.url}]:`, err);
+    if (res.headersSent) {
+      return next(err);
+    }
+    res.setHeader("Content-Type", "application/json");
+    const status = typeof err.status === "number" ? err.status : typeof err.statusCode === "number" ? err.statusCode : 500;
+    return res.status(status).json({
+      success: false,
+      error: err.message || "Une erreur serveur interne est survenue.",
+      details: process.env.NODE_ENV === "development" ? err.stack : void 0
+    });
+  });
   return app2;
 }
 

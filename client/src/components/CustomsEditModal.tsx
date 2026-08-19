@@ -83,7 +83,11 @@ export function CustomsEditModal({
       onClose();
     },
     onError: (err) => {
-      toast.error(`Erreur lors de la mise à jour : ${err.message}`);
+      const msg =
+        err.message?.includes("JSON") || err.message?.includes("Unexpected token")
+          ? "Impossible de contacter le serveur. Veuillez réessayer."
+          : err.message || "Erreur lors de la mise à jour";
+      toast.error(msg);
     },
   });
 

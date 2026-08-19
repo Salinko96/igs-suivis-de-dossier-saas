@@ -71,11 +71,74 @@ const trpcClient = trpc.createClient({
         }
         return {};
       },
-      fetch(input, init) {
-        return globalThis.fetch(input, {
-          ...(init ?? {}),
-          credentials: "include",
-        });
+      async fetch(input, init) {
+        try {
+          const res = await globalThis.fetch(input, {
+            ...(init ?? {}),
+            credentials: "include",
+          });
+
+          // Vérifier si la réponse est du JSON valide
+          const contentType = res.headers.get("content-type") || "";
+          const isJson = contentType.includes("application/json");
+
+          if (!isJson) {
+            const rawText = await res.text();
+            console.warn(`[tRPC Client] Intercepted non-JSON response (${res.status}):`, rawText);
+
+            // Synthesize a valid tRPC JSON batch error structure
+            let userFriendlyMsg = "Une erreur serveur temporaire est survenue. Veuillez réessayer.";
+            if (rawText && rawText.length > 0 && rawText.length < 200 && !rawText.includes("<html") && !rawText.includes("<!DOCTYPE")) {
+              userFriendlyMsg = rawText.trim();
+            } else if (res.status === 504 || res.status === 502) {
+              userFriendlyMsg = "Le serveur Vercel n'a pas répondu à temps (Délai d'attente dépassé).";
+            } else if (res.status === 404) {
+              userFriendlyMsg = "Ressource ou endpoint API introuvable.";
+            }
+
+            const safePayload = [
+              {
+                error: {
+                  message: userFriendlyMsg,
+                  code: -32603,
+                  data: {
+                    code: "INTERNAL_SERVER_ERROR",
+                    httpStatus: res.status >= 400 ? res.status : 500,
+                  },
+                },
+              },
+            ];
+
+            return new Response(JSON.stringify(safePayload), {
+              status: res.status >= 400 ? res.status : 500,
+              headers: {
+                "Content-Type": "application/json",
+              },
+            });
+          }
+
+          return res;
+        } catch (fetchErr: any) {
+          console.error("[tRPC Client] Network Exception:", fetchErr);
+          const networkPayload = [
+            {
+              error: {
+                message: "Impossible de joindre le serveur. Vérifiez votre connexion Internet.",
+                code: -32603,
+                data: {
+                  code: "INTERNAL_SERVER_ERROR",
+                  httpStatus: 503,
+                },
+              },
+            },
+          ];
+          return new Response(JSON.stringify(networkPayload), {
+            status: 503,
+            headers: {
+              "Content-Type": "application/json",
+            },
+          });
+        }
       },
     }),
   ],
