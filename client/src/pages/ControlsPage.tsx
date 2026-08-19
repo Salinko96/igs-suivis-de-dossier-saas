@@ -24,28 +24,162 @@ import {
   RotateCcw,
   ShieldAlert,
   TimerReset,
+  X,
 } from "lucide-react";
-import { useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useLocation } from "wouter";
 
 const controls = [
-  { key: "missingClientNumber", title: "N° dossier client manquants", caption: "À compléter avec le client", icon: FileQuestion, tone: "text-[#bf5038] bg-[#fff0eb]" },
-  { key: "missingRelease", title: "Sorties non renseignées", caption: "Marchandises sans date de sortie PAC", icon: PackageOpen, tone: "text-[#a16b0a] bg-[#fff5df]" },
-  { key: "duplicateBlLta", title: "Doublons BL / LTA", caption: "Vérifier les connaissements en double", icon: ClipboardCheck, tone: "text-[#bf5038] bg-[#fff0eb]" },
-  { key: "duplicateClientNumber", title: "Doublons N° dossier client", caption: "Contrôler les références client", icon: CopyCheck, tone: "text-[#a16b0a] bg-[#fff5df]" },
-  { key: "missingDeclarations", title: "Déclarations manquantes", caption: "N° SYDONIA à renseigner", icon: ReceiptText, tone: "text-[#a16b0a] bg-[#fff5df]" },
-  { key: "missingBulletins", title: "Bulletins manquants", caption: "Bulletins de liquidation (BLD)", icon: FileWarning, tone: "text-[#bf5038] bg-[#fff0eb]" },
-  { key: "missingEta", title: "ETA manquantes", caption: "Planification d'arrivée non définie", icon: CalendarClock, tone: "text-[#a16b0a] bg-[#fff5df]" },
+  {
+    key: "missingClientNumber",
+    title: "N° dossier client manquants",
+    caption: "À compléter avec le client",
+    icon: FileQuestion,
+    tone: "text-[#bf5038] bg-[#fff0eb]",
+    issueSubstring: "N° client",
+  },
+  {
+    key: "missingRelease",
+    title: "Sorties non renseignées",
+    caption: "Marchandises sans date de sortie PAC",
+    icon: PackageOpen,
+    tone: "text-[#a16b0a] bg-[#fff5df]",
+    issueSubstring: "Sortie PAC non saisie",
+  },
+  {
+    key: "duplicateBlLta",
+    title: "Doublons BL / LTA",
+    caption: "Vérifier les connaissements en double",
+    icon: ClipboardCheck,
+    tone: "text-[#bf5038] bg-[#fff0eb]",
+    issueSubstring: "BL doublon",
+  },
+  {
+    key: "missingDeclarations",
+    title: "Déclarations manquantes",
+    caption: "N° SYDONIA à renseigner",
+    icon: ReceiptText,
+    tone: "text-[#a16b0a] bg-[#fff5df]",
+    issueSubstring: "SYDONIA manquant",
+  },
+  {
+    key: "missingBulletins",
+    title: "Bulletins manquants",
+    caption: "Bulletins de liquidation (BLD)",
+    icon: FileWarning,
+    tone: "text-[#bf5038] bg-[#fff0eb]",
+    issueSubstring: "BLD manquant",
+  },
+  {
+    key: "missingEta",
+    title: "ETA manquantes",
+    caption: "Planification d'arrivée non définie",
+    icon: CalendarClock,
+    tone: "text-[#a16b0a] bg-[#fff5df]",
+    issueSubstring: "ETA",
+  },
 ] as const;
+
+const KPI_FILTER_CONFIG: Record<string, { label: string; issueSubstring: string }> = {
+  missingClientNumber: {
+    label: "N° dossier client manquants",
+    issueSubstring: "N° client",
+  },
+  missingRelease: {
+    label: "Sorties non renseignées",
+    issueSubstring: "Sortie PAC non saisie",
+  },
+  duplicateBlLta: {
+    label: "Doublons BL / LTA",
+    issueSubstring: "BL doublon",
+  },
+  missingDeclarations: {
+    label: "Déclarations manquantes",
+    issueSubstring: "SYDONIA manquant",
+  },
+  missingBulletins: {
+    label: "Bulletins manquants",
+    issueSubstring: "BLD manquant",
+  },
+  missingEta: {
+    label: "ETA manquantes",
+    issueSubstring: "ETA",
+  },
+};
 
 function ControlsContent() {
   const [, setLocation] = useLocation();
   const utils = trpc.useUtils();
   const [selectedAlert, setSelectedAlert] = useState<string | null>(null);
+  const [activeKpiFilter, setActiveKpiFilter] = useState<string | null>(null);
   const [editingCustomsDossier, setEditingCustomsDossier] = useState<CustomsEditDossier | null>(null);
+
+  const tableSectionRef = useRef<HTMLElement | null>(null);
 
   const { data, isLoading, error, refetch } = trpc.dashboard.get.useQuery();
   const { data: dossiers = [], error: dossiersError, refetch: refetchDossiers } = trpc.dossier.list.useQuery();
+
+  // Détection des doublons BL / LTA
+  const duplicates = useMemo(() => {
+    const map = new Map<string, number>();
+    dossiers.forEach(dossier => {
+      if (dossier.blLtaNumber) {
+        map.set(dossier.blLtaNumber, (map.get(dossier.blLtaNumber) || 0) + 1);
+      }
+    });
+    return map;
+  }, [dossiers]);
+
+  // Extraction de tous les dossiers contenant des anomalies douanières / opérationnelles
+  const dossiersWithIssues = useMemo(() => {
+    return dossiers
+      .map(dossier => {
+        const issues: string[] = [
+          [!dossier.clientDossierNumber, "N° client"],
+          [!dossier.eta, "ETA"],
+          [!dossier.declarationNumber, "SYDONIA manquant"],
+          [!dossier.bulletinNumber, "BLD manquant"],
+          [!dossier.goodsReleaseDate, "Sortie PAC non saisie"],
+          [Boolean(dossier.blLtaNumber && (duplicates.get(dossier.blLtaNumber) || 0) > 1), "BL doublon"],
+        ]
+          .filter(([issue]) => Boolean(issue))
+          .map(([, label]) => String(label));
+
+        return {
+          ...dossier,
+          issues,
+        };
+      })
+      .filter(d => d.issues.length > 0);
+  }, [dossiers, duplicates]);
+
+  // Filtrage combiné par carte KPI et par alerte terrain
+  const filteredAnomalies = useMemo(() => {
+    let result = dossiersWithIssues;
+
+    if (activeKpiFilter && KPI_FILTER_CONFIG[activeKpiFilter]) {
+      const { issueSubstring } = KPI_FILTER_CONFIG[activeKpiFilter];
+      result = result.filter(d => d.issues.some(issue => issue.includes(issueSubstring)));
+    }
+
+    if (selectedAlert) {
+      result = result.filter(d => d.fieldAlert?.toLowerCase().includes(selectedAlert.toLowerCase()));
+    }
+
+    return result;
+  }, [dossiersWithIssues, activeKpiFilter, selectedAlert]);
+
+  // Gestion du clic interactif sur carte KPI avec scroll fluide
+  const handleKpiCardClick = (kpiKey: string) => {
+    if (activeKpiFilter === kpiKey) {
+      setActiveKpiFilter(null);
+    } else {
+      setActiveKpiFilter(kpiKey);
+      setTimeout(() => {
+        tableSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      }, 50);
+    }
+  };
 
   if (error || dossiersError) {
     console.error("[ControlsPage] Erreur de chargement des contrôles douaniers:", error || dossiersError);
@@ -83,33 +217,7 @@ function ControlsContent() {
       </div>
     );
 
-  const { quality, metrics, clients = [], fieldAlerts = [] } = (data as any) || {};
-  const duplicates = new Map<string, number>();
-  dossiers.forEach(dossier => {
-    if (dossier.blLtaNumber) duplicates.set(dossier.blLtaNumber, (duplicates.get(dossier.blLtaNumber) || 0) + 1);
-  });
-
-  const anomalies = dossiers
-    .filter(
-      dossier =>
-        !dossier.clientDossierNumber ||
-        !dossier.eta ||
-        !dossier.declarationNumber ||
-        !dossier.bulletinNumber ||
-        !dossier.finalDeclarationNumber ||
-        !dossier.ddiGucegNumber
-    );
-
-  const priorityActions = dossiers
-    .filter(d => d.calculatedStatus === "À régulariser")
-    .sort((a: any, b: any) => {
-      const order: Record<string, number> = { Haute: 3, Normale: 2, Basse: 1 };
-      return (order[b.calculatedPriority] || 0) - (order[a.calculatedPriority] || 0);
-    });
-
-  const filteredPriorityActions = selectedAlert
-    ? priorityActions.filter(d => d.fieldAlert?.toLowerCase().includes(selectedAlert.toLowerCase()))
-    : priorityActions;
+  const { quality = {}, metrics = {}, clients = [], fieldAlerts = [] } = (data as any) || {};
 
   return (
     <div className="mx-auto max-w-[1540px] space-y-6">
@@ -170,30 +278,46 @@ function ControlsContent() {
         </section>
       )}
 
-      {/* Quality Alerts Grid */}
+      {/* Quality Alerts Grid (Cartes KPI Cliquables & Interactives) */}
       <section>
         <div className="mb-4 flex items-end justify-between">
           <div>
             <p className="text-xs font-bold uppercase tracking-[0.14em] text-[#7f908a]">Qualité des dossiers</p>
             <h2 className="mt-1 font-[Georgia] text-2xl font-semibold text-[#173a31]">Points d’attention prioritaires</h2>
           </div>
-          <Badge className="border-0 bg-[#fff0eb] text-[#bd5038]">{quality.incomplete} dossiers incomplets</Badge>
+          <Badge className="border-0 bg-[#fff0eb] text-[#bd5038]">
+            {quality.incomplete || dossiersWithIssues.length} dossiers avec anomalies
+          </Badge>
         </div>
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           {controls.map(control => {
             const Icon = control.icon;
-            const value = quality[control.key];
+            const value = quality[control.key] ?? 0;
+            const isActive = activeKpiFilter === control.key;
             return (
-              <Card key={control.key} className="border-0 bg-white shadow-[0_10px_28px_rgba(23,54,46,0.06)]">
-                <CardContent className="flex items-center gap-4 p-5">
-                  <div className={`grid h-11 w-11 shrink-0 place-items-center rounded-xl ${control.tone}`}>
-                    <Icon size={20} />
+              <Card
+                key={control.key}
+                onClick={() => handleKpiCardClick(control.key)}
+                className={`border-0 bg-white shadow-[0_10px_28px_rgba(23,54,46,0.06)] cursor-pointer transition-all hover:ring-2 hover:ring-[#0b3b32]/40 active:scale-[0.99] select-none ${
+                  isActive ? "ring-2 ring-[#0b3b32] bg-[#f4f8f6]" : ""
+                }`}
+              >
+                <CardContent className="flex items-center justify-between p-5">
+                  <div className="flex items-center gap-4">
+                    <div className={`grid h-11 w-11 shrink-0 place-items-center rounded-xl ${control.tone}`}>
+                      <Icon size={20} />
+                    </div>
+                    <div>
+                      <p className="font-[Georgia] text-2xl font-semibold text-[#163b31]">{value}</p>
+                      <p className="mt-0.5 text-sm font-medium text-[#3e5a52]">{control.title}</p>
+                      <p className="mt-0.5 text-xs text-[#82918c]">{control.caption}</p>
+                    </div>
                   </div>
-                  <div>
-                    <p className="font-[Georgia] text-2xl font-semibold text-[#163b31]">{value}</p>
-                    <p className="mt-0.5 text-sm font-medium text-[#3e5a52]">{control.title}</p>
-                    <p className="mt-0.5 text-xs text-[#82918c]">{control.caption}</p>
-                  </div>
+                  {isActive && (
+                    <Badge className="bg-[#0b3b32] text-white text-[10px] font-semibold">
+                      Filtré
+                    </Badge>
+                  )}
                 </CardContent>
               </Card>
             );
@@ -284,18 +408,53 @@ function ControlsContent() {
       </section>
 
       {/* Actionable Anomalies Table with Instant Customs Regularization */}
-      <section>
-        <div className="mb-4 flex items-center justify-between">
+      <section ref={tableSectionRef} className="scroll-mt-6 space-y-4">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <p className="text-xs font-bold uppercase tracking-[0.14em] text-[#7f908a]">Actions prioritaires</p>
             <h2 className="mt-1 font-[Georgia] text-2xl font-semibold text-[#173a31]">
-              Dossiers à régulariser en priorité
+              Dossiers à régulariser en priorité ({filteredAnomalies.length})
             </h2>
           </div>
-          {selectedAlert && (
-            <Badge className="bg-[#e8f1ed] text-[#1e6150]">Filtre : {selectedAlert}</Badge>
-          )}
+          <div className="flex flex-wrap items-center gap-2">
+            {activeKpiFilter && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setActiveKpiFilter(null)}
+                className="h-8 text-xs font-semibold text-[#bd5038] border-[#f7d4cb] bg-[#fff6f4] hover:bg-[#ffebe6] gap-1.5 rounded-xl"
+              >
+                <RotateCcw size={13} /> Réinitialiser le filtre
+              </Button>
+            )}
+            {selectedAlert && (
+              <Badge className="bg-[#e8f1ed] text-[#1e6150]">Alerte : {selectedAlert}</Badge>
+            )}
+          </div>
         </div>
+
+        {/* Bandeau de Filtre Actif */}
+        {activeKpiFilter && KPI_FILTER_CONFIG[activeKpiFilter] && (
+          <div className="flex items-center justify-between rounded-2xl border border-emerald-200 bg-emerald-50/80 px-4 py-3 text-xs text-emerald-950 shadow-sm animate-in fade-in slide-in-from-top-1">
+            <div className="flex items-center gap-2.5">
+              <Badge className="bg-[#0b3b32] text-white font-semibold text-xs px-2.5 py-0.5">
+                Filtre actif : {KPI_FILTER_CONFIG[activeKpiFilter].label} ({filteredAnomalies.length})
+              </Badge>
+              <span className="text-xs text-[#33534a] font-medium hidden sm:inline">
+                Affichage des dossiers avec anomalie « {KPI_FILTER_CONFIG[activeKpiFilter].issueSubstring} »
+              </span>
+            </div>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setActiveKpiFilter(null)}
+              className="h-7 text-[11px] font-bold text-[#0b3b32] hover:bg-emerald-100/70 gap-1 px-2 rounded-lg"
+            >
+              <X size={13} /> Retirer le filtre
+            </Button>
+          </div>
+        )}
+
         {dossiersError ? (
           <Card className="border-0 bg-white">
             <CardContent className="p-5 text-sm text-[#ad4c38]">
@@ -321,24 +480,14 @@ function ControlsContent() {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-[#edf2ef]">
-                      {anomalies.length === 0 ? (
+                      {filteredAnomalies.length === 0 ? (
                         <tr>
                           <td colSpan={5} className="px-5 py-8 text-center text-xs text-muted-foreground">
-                            Aucun dossier nécessitant une action prioritaire.
+                            Aucun dossier ne correspond au filtre sélectionné.
                           </td>
                         </tr>
                       ) : (
-                        anomalies.map(dossier => {
-                          const issues: string[] = [
-                            [!dossier.clientDossierNumber, "N° client"],
-                            [!dossier.eta, "ETA"],
-                            [!dossier.declarationNumber, "SYDONIA manquant"],
-                            [!dossier.bulletinNumber, "BLD manquant"],
-                            [!dossier.goodsReleaseDate, "Sortie PAC non saisie"],
-                            [Boolean(dossier.blLtaNumber && (duplicates.get(dossier.blLtaNumber) || 0) > 1), "BL doublon"],
-                          ]
-                            .filter(([issue]) => Boolean(issue))
-                            .map(([, label]) => String(label));
+                        filteredAnomalies.map(dossier => {
                           return (
                             <tr
                               key={dossier.id}
@@ -363,7 +512,7 @@ function ControlsContent() {
                               </td>
                               <td className="px-5 py-3.5">
                                 <div className="flex flex-wrap gap-1">
-                                  {issues.map(issue => (
+                                  {dossier.issues.map(issue => (
                                     <Badge key={issue} className="border-0 bg-[#fff0eb] text-[#bd5038] text-[10px] font-medium">
                                       {issue}
                                     </Badge>
@@ -401,23 +550,12 @@ function ControlsContent() {
 
             {/* Mobile / Tablet Stacked Cards View */}
             <div className="block md:hidden space-y-3">
-              {anomalies.length === 0 ? (
+              {filteredAnomalies.length === 0 ? (
                 <Card className="border-0 bg-white p-6 text-center text-xs text-muted-foreground">
-                  Aucun dossier nécessitant une action prioritaire.
+                  Aucun dossier ne correspond au filtre sélectionné.
                 </Card>
               ) : (
-                anomalies.map(dossier => {
-                  const issues: string[] = [
-                    [!dossier.clientDossierNumber, "N° client"],
-                    [!dossier.eta, "ETA"],
-                    [!dossier.declarationNumber, "SYDONIA manquant"],
-                    [!dossier.bulletinNumber, "BLD manquant"],
-                    [!dossier.goodsReleaseDate, "Sortie PAC non saisie"],
-                    [Boolean(dossier.blLtaNumber && (duplicates.get(dossier.blLtaNumber) || 0) > 1), "BL doublon"],
-                  ]
-                    .filter(([issue]) => Boolean(issue))
-                    .map(([, label]) => String(label));
-
+                filteredAnomalies.map(dossier => {
                   return (
                     <Card
                       key={dossier.id}
@@ -450,10 +588,10 @@ function ControlsContent() {
 
                         <div>
                           <p className="text-[11px] font-semibold text-[#7f908a] uppercase tracking-wider mb-1.5">
-                            Anomalies détectées ({issues.length})
+                            Anomalies détectées ({dossier.issues.length})
                           </p>
                           <div className="flex flex-wrap gap-1.5">
-                            {issues.map(issue => (
+                            {dossier.issues.map(issue => (
                               <Badge
                                 key={issue}
                                 className="border-0 bg-[#fff0eb] text-[#bd5038] text-[11px] font-medium px-2 py-0.5"
@@ -509,4 +647,3 @@ export default function ControlsPage() {
     </DashboardLayout>
   );
 }
-
