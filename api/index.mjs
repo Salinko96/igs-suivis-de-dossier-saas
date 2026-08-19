@@ -2746,14 +2746,29 @@ var _memoryNotifications = [
     createdAt: /* @__PURE__ */ new Date()
   }
 ];
+async function withDbTimeout(queryPromise, timeoutMs = 2500) {
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error("DB_QUERY_TIMEOUT")), timeoutMs);
+  });
+  try {
+    const res = await Promise.race([queryPromise, timeout]);
+    clearTimeout(timer);
+    return res;
+  } catch (err) {
+    clearTimeout(timer);
+    throw err;
+  }
+}
 async function getDb() {
   if (!_db && process.env.DATABASE_URL) {
     try {
       const isServerless = !!process.env.VERCEL || !!process.env.AWS_LAMBDA_FUNCTION_NAME;
       _client = postgres(process.env.DATABASE_URL, {
-        max: isServerless ? 5 : 10,
-        idle_timeout: isServerless ? 10 : 20,
-        connect_timeout: 10,
+        max: isServerless ? 2 : 5,
+        idle_timeout: 5,
+        connect_timeout: 3,
+        // 3s fail-fast connection timeout
         prepare: false,
         // Requis pour la compatibilité Supabase Transaction Pooler (Supavisor port 6543)
         onnotice: () => {
@@ -2862,10 +2877,13 @@ async function listDossiers(filters = {}) {
         const term = `%${filters.search}%`;
         clauses.push(or(like(dossiers.dossierNumber, term), like(dossiers.clientDossierNumber, term), like(dossiers.client, term), like(dossiers.blLtaNumber, term), like(dossiers.cargoNature, term), like(dossiers.portalAccessCode, term)));
       }
-      const dbResults = await db.select().from(dossiers).where(clauses.length ? and(...clauses) : void 0).orderBy(desc(dossiers.updatedAt), asc(dossiers.dossierNumber));
+      const dbResults = await withDbTimeout(
+        db.select().from(dossiers).where(clauses.length ? and(...clauses) : void 0).orderBy(desc(dossiers.updatedAt), asc(dossiers.dossierNumber)),
+        2500
+      );
       if (dbResults.length > 0) return dbResults;
     } catch (e) {
-      console.warn("[DB] listDossiers query failed, using memory fallback");
+      console.warn("[DB] listDossiers query failed or timed out, using memory fallback");
     }
   }
   if (filters.currentUserCompany) {
@@ -3358,8 +3376,12 @@ async function listInvoices(dossierId) {
   const db = await getDb();
   if (db) {
     try {
-      return await db.select().from(invoices).where(dossierId ? eq(invoices.dossierId, dossierId) : void 0).orderBy(desc(invoices.createdAt));
+      return await withDbTimeout(
+        db.select().from(invoices).where(dossierId ? eq(invoices.dossierId, dossierId) : void 0).orderBy(desc(invoices.createdAt)),
+        2500
+      );
     } catch (e) {
+      console.warn("[DB] Error or timeout querying invoices from DB, using fallback");
     }
   }
   if (dossierId) list = list.filter((i) => i.dossierId === dossierId);

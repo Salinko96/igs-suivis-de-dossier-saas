@@ -15,7 +15,7 @@
   "functions": {
     "api/index.mjs": {
       "runtime": "@vercel/node@5.1.9",
-      "maxDuration": 15
+      "maxDuration": 30
     }
   },
   "env": {
