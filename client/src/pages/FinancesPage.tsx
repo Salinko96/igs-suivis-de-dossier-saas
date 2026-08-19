@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { trpc } from "@/lib/trpc";
+import { generateInvoicePdf } from "@/lib/pdfGenerator";
 import {
   AlertCircle,
   AlertTriangle,
@@ -817,10 +818,39 @@ export default function FinancesPage() {
                             <Button
                               size="sm"
                               variant="outline"
-                              onClick={() => printInvoiceReceipt(inv)}
-                              className="h-7 text-[11px] rounded-lg border-gray-200 text-emerald-900 hover:bg-emerald-50 gap-1 px-2.5"
+                              onClick={async () => {
+                                try {
+                                  toast.info("Génération de la facture officielle PDF...");
+                                  await generateInvoicePdf({
+                                    invoiceNumber: inv.invoiceNumber,
+                                    type: inv.invoiceType || "Definitive",
+                                    status: inv.status,
+                                    dossierNumber: `DOS-${String(inv.dossierId).padStart(4, "0")}`,
+                                    client: inv.client,
+                                    amountTtc: inv.amountTtc + (inv.disbursementsAmount || 0),
+                                    currency: inv.currency,
+                                    estimatedMargin: inv.estimatedMargin,
+                                    createdAt: inv.createdAt,
+                                    dueDate: inv.dueDate,
+                                    portalAccessCode: `IGS-${1000 + inv.dossierId}`,
+                                  });
+                                  toast.success(`Facture ${inv.invoiceNumber} téléchargée en PDF.`);
+                                } catch (e) {
+                                  toast.error("Erreur lors de la génération du PDF");
+                                }
+                              }}
+                              className="h-7 text-[11px] rounded-lg border-emerald-800/40 text-emerald-950 hover:bg-emerald-50 gap-1 px-2.5 font-semibold"
                             >
-                              <Download size={11} /> {isPaid ? "Quittance" : "Proforma"}
+                              <FileText size={11} className="text-emerald-700" /> PDF
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => printInvoiceReceipt(inv)}
+                              className="h-7 text-[11px] rounded-lg border-gray-200 text-gray-700 hover:bg-gray-100 gap-1 px-2"
+                              title="Imprimer ticket thermique ou standard"
+                            >
+                              <Printer size={11} />
                             </Button>
                           </div>
                         </td>

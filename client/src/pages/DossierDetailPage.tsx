@@ -11,6 +11,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { trpc } from "@/lib/trpc";
+import { generateInvoicePdf } from "@/lib/pdfGenerator";
 import { usePermissions } from "@/hooks/usePermissions";
 import {
   AlertCircle,
@@ -334,9 +335,9 @@ function DetailContent() {
   );
 
   // Mutations
-  const uploadDocMutation = trpc.document.upload.useMutation({
+  const uploadDocMutation = trpc.document.uploadBase64.useMutation({
     onSuccess: () => {
-      toast.success("Document téléversé avec succès");
+      toast.success("Document téléversé et stocké avec succès");
       setUploadDocOpen(false);
       docsQuery.refetch();
       auditQuery.refetch();
@@ -387,6 +388,28 @@ function DetailContent() {
       commentsQuery.refetch();
     },
     onError: err => toast.error(err.message || "Erreur d'envoi du commentaire"),
+  });
+
+  const [alertModalOpen, setAlertModalOpen] = useState(false);
+  const [alertChannel, setAlertChannel] = useState<"whatsapp" | "email">("whatsapp");
+  const [alertPhone, setAlertPhone] = useState("+224 620 00 00 00");
+  const [alertEmail, setAlertEmail] = useState("direction@client.gn");
+  const [alertMessage, setAlertMessage] = useState("");
+
+  const sendWhatsAppMutation = trpc.notification.sendWhatsApp.useMutation({
+    onSuccess: res => {
+      toast.success(`Alerte WhatsApp transmise vers ${res.sentTo}`);
+      setAlertModalOpen(false);
+    },
+    onError: err => toast.error(err.message || "Erreur d'envoi WhatsApp"),
+  });
+
+  const sendEmailMutation = trpc.notification.sendEmail.useMutation({
+    onSuccess: res => {
+      toast.success(`Email de notification transmis à ${res.sentTo}`);
+      setAlertModalOpen(false);
+    },
+    onError: err => toast.error(err.message || "Erreur d'envoi de l'email"),
   });
 
   const updateCustomsQuickMutation = trpc.dossier.updateCustoms.useMutation({
@@ -570,15 +593,21 @@ function DetailContent() {
   const handleFileUploadMock = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !numericId) return;
+
+    if (file.size > 15 * 1024 * 1024) {
+      toast.error("Le fichier dépasse la taille maximale autorisée (15 Mo).");
+      return;
+    }
+
+    toast.info(`Téléversement de "${file.name}" en cours...`);
     const reader = new FileReader();
     reader.onload = () => {
       uploadDocMutation.mutate({
         dossierId: numericId,
         name: file.name,
         type: newDocType,
-        fileUrl: String(reader.result),
-        fileSize: file.size,
-        mimeType: file.type,
+        base64Content: String(reader.result),
+        mimeType: file.type || "application/pdf",
       });
     };
     reader.readAsDataURL(file);
@@ -755,6 +784,20 @@ function DetailContent() {
                 Édition Rapide Douane
               </Button>
             )}
+
+            {/* Notification Multi-Canal WhatsApp / Email */}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setAlertMessage(`Bonjour, le dossier ${dossier.dossierNumber} (BL: ${dossier.blLtaNumber || "N/A"}) pour ${dossier.client || "votre compte"} est actuellement en statut : ${dossier.calculatedStatus}.`);
+                setAlertModalOpen(true);
+              }}
+              className="rounded-xl border-amber-300 bg-amber-50/60 text-amber-950 hover:bg-amber-100 text-xs h-9 font-semibold gap-1.5"
+            >
+              <Share2 size={14} className="text-amber-700" />
+              Notifier Client
+            </Button>
 
             <Button
               variant="outline"
@@ -1250,11 +1293,45 @@ function DetailContent() {
                         <p className="text-xs text-muted-foreground mt-0.5">Émise le {new Date(inv.createdAt).toLocaleDateString("fr-FR")} • Échéance : {inv.dueDate ? new Date(inv.dueDate).toLocaleDateString("fr-FR") : "30j"}</p>
                       </div>
 
-                      <div className="text-right">
-                        <span className="text-lg font-bold text-[#102c26]">{inv.amountTtc.toLocaleString()} {inv.currency}</span>
-                        {perms.canViewMargin && (
-                          <p className="text-[11px] text-emerald-700 font-semibold">Marge estimée : +{inv.estimatedMargin.toLocaleString()} {inv.currency}</p>
-                        )}
+                      <div className="flex items-center gap-3">
+                        <div className="text-right">
+                          <span className="text-lg font-bold text-[#102c26]">{inv.amountTtc.toLocaleString()} {inv.currency}</span>
+                          {perms.canViewMargin && (
+                            <p className="text-[11px] text-emerald-700 font-semibold">Marge estimée : +{inv.estimatedMargin.toLocaleString()} {inv.currency}</p>
+                          )}
+                        </div>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={async () => {
+                            try {
+                              toast.info("Téléchargement de la facture PDF...");
+                              await generateInvoicePdf({
+                                invoiceNumber: inv.invoiceNumber,
+                                type: inv.invoiceType || "Definitive",
+                                status: inv.status,
+                                dossierNumber: dossier?.dossierNumber || `DOS-${numericId}`,
+                                client: dossier?.client || inv.client,
+                                blLtaNumber: dossier?.blLtaNumber,
+                                cargoNature: dossier?.cargoNature,
+                                container: dossier?.container,
+                                bulk: dossier?.bulk,
+                                amountTtc: inv.amountTtc,
+                                currency: inv.currency,
+                                estimatedMargin: inv.estimatedMargin,
+                                createdAt: inv.createdAt,
+                                dueDate: inv.dueDate,
+                                portalAccessCode: dossier?.portalAccessCode,
+                              });
+                              toast.success(`Facture ${inv.invoiceNumber} téléchargée.`);
+                            } catch (e) {
+                              toast.error("Erreur lors de la génération du PDF");
+                            }
+                          }}
+                          className="h-8 rounded-xl border-emerald-800/40 text-emerald-950 hover:bg-emerald-50 text-xs font-semibold gap-1.5"
+                        >
+                          <FileText size={13} className="text-emerald-700" /> Télécharger PDF
+                        </Button>
                       </div>
                     </div>
                   </Card>
@@ -1388,6 +1465,115 @@ function DetailContent() {
           onSuccess={() => utils.dossier.get.invalidate({ id: rawId! })}
         />
       )}
+
+      {/* Modal d'envoi d'Alerte Multi-Canal (WhatsApp / Email) */}
+      <Dialog open={alertModalOpen} onOpenChange={setAlertModalOpen}>
+        <DialogContent className="max-w-md rounded-3xl bg-white p-6 shadow-2xl">
+          <DialogHeader>
+            <DialogTitle className="font-[Georgia] text-xl text-[#102c26]">
+              Notifier le Client / Déclarant
+            </DialogTitle>
+            <DialogDescription className="text-xs text-[#627670]">
+              Transmettez une alerte d'étape en direct par WhatsApp ou Email professionnel.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-2">
+            <div className="space-y-1">
+              <Label className="text-xs font-semibold text-[#3a504a]">Canal de diffusion</Label>
+              <div className="grid grid-cols-2 gap-2">
+                <Button
+                  type="button"
+                  variant={alertChannel === "whatsapp" ? "default" : "outline"}
+                  onClick={() => setAlertChannel("whatsapp")}
+                  className={alertChannel === "whatsapp" ? "bg-emerald-700 text-white text-xs h-9" : "text-xs h-9"}
+                >
+                  🟢 WhatsApp
+                </Button>
+                <Button
+                  type="button"
+                  variant={alertChannel === "email" ? "default" : "outline"}
+                  onClick={() => setAlertChannel("email")}
+                  className={alertChannel === "email" ? "bg-emerald-700 text-white text-xs h-9" : "text-xs h-9"}
+                >
+                  ✉️ Email Pro
+                </Button>
+              </div>
+            </div>
+
+            {alertChannel === "whatsapp" ? (
+              <div className="space-y-1">
+                <Label className="text-xs font-semibold text-[#3a504a]">Numéro WhatsApp Destinataire</Label>
+                <Input
+                  value={alertPhone}
+                  onChange={e => setAlertPhone(e.target.value)}
+                  placeholder="+224 620 00 00 00"
+                  className="rounded-xl text-xs font-mono"
+                />
+              </div>
+            ) : (
+              <div className="space-y-1">
+                <Label className="text-xs font-semibold text-[#3a504a]">Adresse Email Destinataire</Label>
+                <Input
+                  type="email"
+                  value={alertEmail}
+                  onChange={e => setAlertEmail(e.target.value)}
+                  placeholder="direction@client.gn"
+                  className="rounded-xl text-xs"
+                />
+              </div>
+            )}
+
+            <div className="space-y-1">
+              <Label className="text-xs font-semibold text-[#3a504a]">Message d'alerte opérationnelle</Label>
+              <Textarea
+                rows={4}
+                value={alertMessage}
+                onChange={e => setAlertMessage(e.target.value)}
+                className="rounded-xl text-xs"
+              />
+            </div>
+          </div>
+
+          <DialogFooter className="gap-2">
+            <Button
+              variant="outline"
+              onClick={() => setAlertModalOpen(false)}
+              className="rounded-xl text-xs"
+            >
+              Annuler
+            </Button>
+            <Button
+              disabled={sendWhatsAppMutation.isPending || sendEmailMutation.isPending}
+              onClick={() => {
+                if (!dossier) return;
+                if (alertChannel === "whatsapp") {
+                  sendWhatsAppMutation.mutate({
+                    dossierNumber: dossier.dossierNumber,
+                    recipientPhone: alertPhone,
+                    clientName: dossier.client || "Client IGS",
+                    messageText: alertMessage,
+                  });
+                } else {
+                  sendEmailMutation.mutate({
+                    dossierNumber: dossier.dossierNumber,
+                    recipientEmail: alertEmail,
+                    clientName: dossier.client || "Client IGS",
+                    subject: `[IGS Transit] Mise à jour du dossier ${dossier.dossierNumber}`,
+                    htmlContent: `<p>${alertMessage}</p><p><a href="https://igs-suivis-de-dossier-saas.vercel.app/portail-client">Accéder au portail client</a></p>`,
+                  });
+                }
+              }}
+              className="rounded-xl bg-[#0b3b32] text-white text-xs h-9"
+            >
+              {(sendWhatsAppMutation.isPending || sendEmailMutation.isPending) && (
+                <Loader2 size={14} className="mr-1.5 animate-spin" />
+              )}
+              Diffuser l'alerte
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

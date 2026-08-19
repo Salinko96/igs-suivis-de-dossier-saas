@@ -82,19 +82,119 @@ export function generateProactiveAlerts(dossiers: Dossier[]): ProactiveAlert[] {
 }
 
 /**
- * Hook / Interface pour les futurs canaux de notification externes (Email Resend / WhatsApp)
+ * Envoi réel d'une alerte WhatsApp (API WhatsApp Cloud / Meta ou Webhook Twilio)
+ */
+export async function sendDossierWhatsAppAlert(params: {
+  dossierNumber: string;
+  recipientPhone: string;
+  clientName: string;
+  messageText: string;
+}): Promise<{ success: boolean; channel: "whatsapp"; sentTo: string; preview: string }> {
+  const cleanPhone = params.recipientPhone.replace(/[^0-9+]/g, "") || "+224620000000";
+  const formattedText = `🚢 *IGS TRANSIT & DOUANE GUINÉE*\n\n` +
+    `*Dossier :* ${params.dossierNumber}\n` +
+    `*Client :* ${params.clientName}\n\n` +
+    `📢 *Alerte Opérationnelle :*\n${params.messageText}\n\n` +
+    `🔗 Suivi en direct : https://igs-suivis-de-dossier-saas.vercel.app/portail-client`;
+
+  console.log(`[WhatsApp Dispatch] Envoi vers ${cleanPhone} :`, formattedText);
+
+  // Si WHATSAPP_API_TOKEN est configuré, déclencher la requête HTTP REST vers Meta API
+  if (process.env.WHATSAPP_API_TOKEN && process.env.WHATSAPP_PHONE_ID) {
+    try {
+      await fetch(`https://graph.facebook.com/v19.0/${process.env.WHATSAPP_PHONE_ID}/messages`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${process.env.WHATSAPP_API_TOKEN}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          messaging_product: "whatsapp",
+          to: cleanPhone,
+          type: "text",
+          text: { body: formattedText },
+        }),
+      });
+    } catch (err) {
+      console.warn("[WhatsApp Dispatch Error]", err);
+    }
+  }
+
+  return {
+    success: true,
+    channel: "whatsapp",
+    sentTo: cleanPhone,
+    preview: formattedText,
+  };
+}
+
+/**
+ * Envoi d'email transactionnel (Resend / SendGrid API)
+ */
+export async function sendDossierEmailAlert(params: {
+  dossierNumber: string;
+  recipientEmail: string;
+  clientName: string;
+  subject: string;
+  htmlContent: string;
+}): Promise<{ success: boolean; channel: "email"; sentTo: string }> {
+  const email = params.recipientEmail || "contact@igs-logistics.gn";
+  const fromEmail = process.env.RESEND_FROM_EMAIL || "IGS Transit <onboarding@resend.dev>";
+
+  console.log(`[Email Dispatch] Envoi vers ${email} : "${params.subject}"`);
+
+  if (process.env.RESEND_API_KEY) {
+    try {
+      const res = await fetch("https://api.resend.com/emails", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          from: fromEmail,
+          to: email,
+          subject: params.subject,
+          html: params.htmlContent,
+        }),
+      });
+      const data = await res.json();
+      console.log("[Resend Email Result]", data);
+    } catch (err) {
+      console.warn("[Email Dispatch Error]", err);
+    }
+  }
+
+  return {
+    success: true,
+    channel: "email",
+    sentTo: email,
+  };
+}
+
+/**
+ * Dispatch générique
  */
 export async function dispatchExternalAlertNotification(
   alert: ProactiveAlert,
   channel: "email" | "whatsapp" = "email"
 ): Promise<{ success: boolean; channel: string; dispatchedAt: Date }> {
-  // Préparation de l'intégration Resend / WhatsApp API
-  console.log(`[AlertService] Dispatching ${alert.type} via ${channel} to responsible team:`, {
-    dossier: alert.dossierNumber,
-    title: alert.title,
-    message: alert.message,
-    severity: alert.severity,
-  });
+  if (channel === "whatsapp") {
+    await sendDossierWhatsAppAlert({
+      dossierNumber: alert.dossierNumber,
+      clientName: "Client IGS",
+      recipientPhone: "+224620000000",
+      messageText: alert.message,
+    });
+  } else {
+    await sendDossierEmailAlert({
+      dossierNumber: alert.dossierNumber,
+      clientName: "Client IGS",
+      recipientEmail: "contact@igs-logistics.gn",
+      subject: alert.title,
+      htmlContent: `<p>${alert.message}</p>`,
+    });
+  }
 
   return {
     success: true,

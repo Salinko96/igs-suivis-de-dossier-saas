@@ -3,6 +3,9 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Sidebar, SidebarContent, SidebarFooter, SidebarHeader, SidebarInset, SidebarMenu, SidebarMenuButton, SidebarMenuItem, SidebarProvider, SidebarTrigger, useSidebar } from "@/components/ui/sidebar";
 import { trpc } from "@/lib/trpc";
@@ -15,7 +18,9 @@ import {
   ClipboardCheck, 
   FolderKanban, 
   Globe, 
+  KeyRound,
   LayoutDashboard, 
+  Lock,
   LogOut, 
   PanelLeft, 
   Plus, 
@@ -236,6 +241,23 @@ function LayoutContent({ children, setSidebarWidth }: { children: React.ReactNod
     });
   }, [notifications, alertFilter]);
 
+  const [loginModalOpen, setLoginModalOpen] = useState(false);
+  const [loginEmail, setLoginEmail] = useState("admin@igs-logistics.gn");
+  const [loginPassword, setLoginPassword] = useState("IgsTransit2026!");
+
+  const loginWithPasswordMutation = trpc.auth.loginWithPassword.useMutation({
+    onSuccess: loggedUser => {
+      toast.success(`Authentification réussie : ${loggedUser.name}`);
+      setLoginModalOpen(false);
+      const targetPerms = resolvePermissions(loggedUser.role as Role);
+      setLocation(targetPerms.defaultRoute);
+      window.location.reload();
+    },
+    onError: err => {
+      toast.error(err.message || "Identifiants invalides");
+    },
+  });
+
   const switchRole = async (role: "admin" | "declarant" | "comptable" | "manager" | "client") => {
     let name = "Ibrahima Gold Service (Admin)";
     if (role === "declarant") name = "Mamadou Diallo (Déclarant PAC)";
@@ -380,6 +402,11 @@ function LayoutContent({ children, setSidebarWidth }: { children: React.ReactNod
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => switchRole("client")} className="text-xs cursor-pointer">
                   🏢 Client (Guinean Birimian Gold)
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={() => setLoginModalOpen(true)} className="text-xs cursor-pointer text-emerald-950 font-semibold">
+                  <Lock className="mr-2 h-3.5 w-3.5 text-emerald-700" />
+                  Connexion Mot de passe
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={logout} className="cursor-pointer text-destructive focus:text-destructive text-xs">
@@ -538,6 +565,113 @@ function LayoutContent({ children, setSidebarWidth }: { children: React.ReactNod
 
         <main className="relative z-10 min-h-[calc(100vh-3.5rem)] p-4 sm:p-6 lg:p-8">{children}</main>
       </SidebarInset>
+
+      {/* Modal Authentification Sécurisée par Mot de Passe */}
+      <Dialog open={loginModalOpen} onOpenChange={setLoginModalOpen}>
+        <DialogContent className="max-w-md rounded-3xl bg-white p-6 shadow-2xl">
+          <DialogHeader>
+            <DialogTitle className="font-[Georgia] text-xl text-[#102c26] flex items-center gap-2">
+              <Lock className="h-5 w-5 text-emerald-800" />
+              Connexion Sécurisée IGS
+            </DialogTitle>
+            <DialogDescription className="text-xs text-[#627670]">
+              Entrez vos identifiants professionnels IGS pour accéder à votre espace de gestion logistique.
+            </DialogDescription>
+          </DialogHeader>
+
+          <form
+            onSubmit={e => {
+              e.preventDefault();
+              loginWithPasswordMutation.mutate({
+                email: loginEmail,
+                password: loginPassword,
+              });
+            }}
+            className="space-y-4 py-2"
+          >
+            <div className="space-y-1">
+              <Label className="text-xs font-semibold text-[#3a504a]">Adresse Email professionnelle</Label>
+              <Input
+                type="email"
+                value={loginEmail}
+                onChange={e => setLoginEmail(e.target.value)}
+                placeholder="admin@igs-logistics.gn"
+                className="rounded-xl text-xs"
+                required
+              />
+            </div>
+
+            <div className="space-y-1">
+              <Label className="text-xs font-semibold text-[#3a504a]">Mot de passe sécurisé</Label>
+              <Input
+                type="password"
+                value={loginPassword}
+                onChange={e => setLoginPassword(e.target.value)}
+                placeholder="••••••••••••"
+                className="rounded-xl text-xs"
+                required
+              />
+            </div>
+
+            {/* Comptes Démo Rapides */}
+            <div className="rounded-2xl border border-emerald-900/10 bg-emerald-50/50 p-3 space-y-1.5">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-900 block">
+                Identifiants rapides en 1-clic :
+              </span>
+              <div className="grid grid-cols-3 gap-1.5 text-[11px]">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setLoginEmail("admin@igs-logistics.gn");
+                    setLoginPassword("IgsTransit2026!");
+                  }}
+                  className="rounded-lg bg-white border border-emerald-200 py-1 px-2 text-emerald-950 font-medium hover:bg-emerald-100/50"
+                >
+                  Admin
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setLoginEmail("declarant@igs-logistics.gn");
+                    setLoginPassword("IgsTransit2026!");
+                  }}
+                  className="rounded-lg bg-white border border-emerald-200 py-1 px-2 text-emerald-950 font-medium hover:bg-emerald-100/50"
+                >
+                  Déclarant PAC
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setLoginEmail("comptable@igs-logistics.gn");
+                    setLoginPassword("IgsTransit2026!");
+                  }}
+                  className="rounded-lg bg-white border border-emerald-200 py-1 px-2 text-emerald-950 font-medium hover:bg-emerald-100/50"
+                >
+                  Comptable
+                </button>
+              </div>
+            </div>
+
+            <DialogFooter className="gap-2 pt-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setLoginModalOpen(false)}
+                className="rounded-xl text-xs"
+              >
+                Annuler
+              </Button>
+              <Button
+                type="submit"
+                disabled={loginWithPasswordMutation.isPending}
+                className="rounded-xl bg-[#0b3b32] text-white text-xs h-9 px-4 font-semibold"
+              >
+                {loginWithPasswordMutation.isPending ? "Connexion..." : "Se connecter"}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
     </>
   );
 }
