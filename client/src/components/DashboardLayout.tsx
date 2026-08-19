@@ -296,7 +296,6 @@ function LayoutContent({ children, setSidebarWidth }: { children: React.ReactNod
   const handlePrefetch = (path: string) => {
     try {
       if (path === "/") {
-        import("../pages/Home");
         utils.dashboard.get.prefetch();
       }
       if (path === "/dossiers") {

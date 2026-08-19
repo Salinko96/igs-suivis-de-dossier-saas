@@ -6,7 +6,8 @@ import ErrorBoundary from "./components/ErrorBoundary";
 import { ProtectedRoute } from "./components/ProtectedRoute";
 import { ThemeProvider } from "./contexts/ThemeContext";
 
-const Home = lazy(() => import("./pages/Home"));
+import Home from "./pages/Home";
+
 const DossiersPage = lazy(() => import("./pages/DossiersPage"));
 const DossierDetailPage = lazy(() => import("./pages/DossierDetailPage"));
 const FinancesPage = lazy(() => import("./pages/FinancesPage"));
