@@ -696,22 +696,28 @@ export async function updateDossier(id: number, input: Partial<EditableDossier>,
   const state = calculateDossierState({ ...current, ...input });
   const now = new Date();
 
-  // Détection des changements majeurs pour l'audit
+  // 1. Détection des changements majeurs en mémoire (0.01ms)
+  const historyEntries: InsertDossierStatusHistory[] = [];
   for (const [key, val] of Object.entries(input)) {
     const oldVal = (current as any)[key];
     if (oldVal !== val && val !== undefined) {
-      await addDossierHistory({
+      const entry: DossierStatusHistory = {
+        id: _memoryHistory.length + historyEntries.length + 1,
         dossierId: id,
         changedById: userId ?? 1,
         authorName: authorName ?? "Utilisateur",
         fieldChanged: key,
         previousValue: oldVal ? String(oldVal) : "Vide",
         newValue: val ? String(val) : "Vide",
-        comment: `Mise à jour statut ${key}`,
-      });
+        comment: `Mise à jour ${key}`,
+        createdAt: now,
+      };
+      _memoryHistory.unshift(entry);
+      historyEntries.push(entry);
     }
   }
 
+  // 2. Mise à jour instantanée du cache mémoire
   const updated: Dossier = {
     ...current,
     ...input,
@@ -723,11 +729,20 @@ export async function updateDossier(id: number, input: Partial<EditableDossier>,
   const memIdx = _memoryDossiers.findIndex(d => d.id === id);
   if (memIdx >= 0) _memoryDossiers[memIdx] = updated;
 
+  // 3. Persistance DB parallèle et non-bloquante avec timeout
   const db = await getDb();
   if (db) {
     try {
-      await db.update(dossiers).set({ ...input, ...state, updatedById: userId, updatedAt: now }).where(eq(dossiers.id, id));
-    } catch (e) {}
+      await withDbTimeout(
+        Promise.all([
+          db.update(dossiers).set({ ...input, ...state, updatedById: userId, updatedAt: now }).where(eq(dossiers.id, id)),
+          historyEntries.length > 0 ? db.insert(dossierStatusHistory).values(historyEntries) : Promise.resolve(),
+        ]),
+        2000
+      );
+    } catch (e) {
+      console.warn("[DB] updateDossier DB sync error or timeout, saved in memory:", e);
+    }
   }
   return updated;
 }

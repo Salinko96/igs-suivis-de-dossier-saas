@@ -3043,18 +3043,23 @@ async function updateDossier(id, input, userId, authorName) {
   if (!current) throw new Error("Dossier introuvable");
   const state = calculateDossierState({ ...current, ...input });
   const now = /* @__PURE__ */ new Date();
+  const historyEntries = [];
   for (const [key, val] of Object.entries(input)) {
     const oldVal = current[key];
     if (oldVal !== val && val !== void 0) {
-      await addDossierHistory({
+      const entry = {
+        id: _memoryHistory.length + historyEntries.length + 1,
         dossierId: id,
         changedById: userId ?? 1,
         authorName: authorName ?? "Utilisateur",
         fieldChanged: key,
         previousValue: oldVal ? String(oldVal) : "Vide",
         newValue: val ? String(val) : "Vide",
-        comment: `Mise \xE0 jour statut ${key}`
-      });
+        comment: `Mise \xE0 jour ${key}`,
+        createdAt: now
+      };
+      _memoryHistory.unshift(entry);
+      historyEntries.push(entry);
     }
   }
   const updated = {
@@ -3069,8 +3074,15 @@ async function updateDossier(id, input, userId, authorName) {
   const db = await getDb();
   if (db) {
     try {
-      await db.update(dossiers).set({ ...input, ...state, updatedById: userId, updatedAt: now }).where(eq(dossiers.id, id));
+      await withDbTimeout(
+        Promise.all([
+          db.update(dossiers).set({ ...input, ...state, updatedById: userId, updatedAt: now }).where(eq(dossiers.id, id)),
+          historyEntries.length > 0 ? db.insert(dossierStatusHistory).values(historyEntries) : Promise.resolve()
+        ]),
+        2e3
+      );
     } catch (e) {
+      console.warn("[DB] updateDossier DB sync error or timeout, saved in memory:", e);
     }
   }
   return updated;
