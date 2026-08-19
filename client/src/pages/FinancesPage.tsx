@@ -35,8 +35,8 @@ import { toast } from "sonner";
 export default function FinancesPage() {
   const utils = trpc.useUtils();
   const summaryQuery = trpc.finance.summary.useQuery();
-  const invoicesQuery = trpc.finance.listInvoices.useQuery();
-  const dossiersQuery = trpc.dossier.list.useQuery();
+  const invoicesQuery = trpc.finance.listInvoices.useQuery({});
+  const dossiersQuery = trpc.dossier.list.useQuery({});
 
   // Multi-Currency Switcher State
   const [displayCurrency, setDisplayCurrency] = useState<"GNF" | "USD">("GNF");

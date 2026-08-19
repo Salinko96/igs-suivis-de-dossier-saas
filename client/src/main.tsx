@@ -99,11 +99,13 @@ const trpcClient = trpc.createClient({
             const safePayload = [
               {
                 error: {
-                  message: userFriendlyMsg,
-                  code: -32603,
-                  data: {
-                    code: "INTERNAL_SERVER_ERROR",
-                    httpStatus: res.status >= 400 ? res.status : 500,
+                  json: {
+                    message: userFriendlyMsg,
+                    code: -32603,
+                    data: {
+                      code: "INTERNAL_SERVER_ERROR",
+                      httpStatus: res.status >= 400 ? res.status : 500,
+                    },
                   },
                 },
               },
@@ -123,11 +125,13 @@ const trpcClient = trpc.createClient({
           const networkPayload = [
             {
               error: {
-                message: "Impossible de joindre le serveur. Vérifiez votre connexion Internet.",
-                code: -32603,
-                data: {
-                  code: "INTERNAL_SERVER_ERROR",
-                  httpStatus: 503,
+                json: {
+                  message: "Impossible de joindre le serveur. Vérifiez votre connexion Internet.",
+                  code: -32603,
+                  data: {
+                    code: "INTERNAL_SERVER_ERROR",
+                    httpStatus: 503,
+                  },
                 },
               },
             },

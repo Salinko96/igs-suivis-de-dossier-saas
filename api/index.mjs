@@ -4579,13 +4579,13 @@ var appRouter = router({
   }),
   // 2. RÉFÉRENTIELS LOGISTIQUES & DOUANIERS
   reference: router({
-    list: protectedProcedure.input(z2.object({ category: z2.string().optional() }).optional()).query(async ({ input }) => getReferenceItems(input?.category)),
+    list: protectedProcedure.input(z2.object({ category: z2.string().optional() }).nullish()).query(async ({ input }) => getReferenceItems(input?.category)),
     create: adminProcedure.input(z2.object({ category: z2.string(), label: z2.string(), sortOrder: z2.number().optional() })).mutation(async ({ input }) => createReferenceItem(input))
   }),
   // 3. DOSSIERS & VUES PAR RÔLE
   dossier: router({
-    list: protectedProcedure.input(filtersSchema).query(async ({ ctx, input }) => {
-      const filters = { ...input };
+    list: protectedProcedure.input(filtersSchema.nullish()).query(async ({ ctx, input }) => {
+      const filters = { ...input || {} };
       if (ctx.user?.role === "client" && ctx.user?.clientCompany) {
         filters.currentUserCompany = ctx.user.clientCompany;
       }
@@ -4753,7 +4753,7 @@ var appRouter = router({
   }),
   // 7. MODULE FINANCIER & FACTURATION
   finance: router({
-    listInvoices: comptableProcedure.input(z2.object({ dossierId: z2.number().optional() }).optional()).query(async ({ input }) => listInvoices(input?.dossierId)),
+    listInvoices: comptableProcedure.input(z2.object({ dossierId: z2.number().optional() }).nullish()).query(async ({ input }) => listInvoices(input?.dossierId)),
     createInvoice: comptableProcedure.input(
       z2.object({
         dossierId: z2.number().int().positive(),
@@ -4850,8 +4850,8 @@ var appRouter = router({
         dossierId: z2.number().optional(),
         assignedTo: z2.string().optional(),
         status: z2.enum(["A_faire", "En_cours", "Termine", "Bloque"]).optional()
-      }).optional()
-    ).query(async ({ input }) => listTasks(input)),
+      }).nullish()
+    ).query(async ({ input }) => listTasks(input || void 0)),
     create: internalProcedure.input(
       z2.object({
         dossierId: z2.number().int().positive(),

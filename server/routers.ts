@@ -280,7 +280,7 @@ export const appRouter = router({
   // 2. RÉFÉRENTIELS LOGISTIQUES & DOUANIERS
   reference: router({
     list: protectedProcedure
-      .input(z.object({ category: z.string().optional() }).optional())
+      .input(z.object({ category: z.string().optional() }).nullish())
       .query(async ({ input }) => db.getReferenceItems(input?.category)),
     create: adminProcedure
       .input(z.object({ category: z.string(), label: z.string(), sortOrder: z.number().optional() }))
@@ -290,9 +290,9 @@ export const appRouter = router({
   // 3. DOSSIERS & VUES PAR RÔLE
   dossier: router({
     list: protectedProcedure
-      .input(filtersSchema)
+      .input(filtersSchema.nullish())
       .query(async ({ ctx, input }) => {
-        const filters = { ...input };
+        const filters = { ...(input || {}) };
         // Si l'utilisateur est un client externe, forcer le filtre sur sa société
         if (ctx.user?.role === "client" && ctx.user?.clientCompany) {
           filters.currentUserCompany = ctx.user.clientCompany;
@@ -492,7 +492,7 @@ export const appRouter = router({
   // 7. MODULE FINANCIER & FACTURATION
   finance: router({
     listInvoices: comptableProcedure
-      .input(z.object({ dossierId: z.number().optional() }).optional())
+      .input(z.object({ dossierId: z.number().optional() }).nullish())
       .query(async ({ input }) => db.listInvoices(input?.dossierId)),
     createInvoice: comptableProcedure
       .input(
@@ -602,9 +602,9 @@ export const appRouter = router({
           dossierId: z.number().optional(),
           assignedTo: z.string().optional(),
           status: z.enum(["A_faire", "En_cours", "Termine", "Bloque"]).optional(),
-        }).optional()
+        }).nullish()
       )
-      .query(async ({ input }) => db.listTasks(input)),
+      .query(async ({ input }) => db.listTasks(input || undefined)),
     create: internalProcedure
       .input(
         z.object({
