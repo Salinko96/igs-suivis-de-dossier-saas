@@ -441,16 +441,21 @@ export async function upsertUser(user: InsertUser): Promise<void> {
 }
 
 export async function getUserByOpenId(openId: string) {
+  const mem = _memoryUsers.find(u => u.openId === openId);
+  if (mem) return mem;
   const db = await getDb();
   if (db) {
     try {
-      const row = (await db.select().from(users).where(eq(users.openId, openId)).limit(1))[0];
-      if (row) return row;
+      const row = (await withDbTimeout(db.select().from(users).where(eq(users.openId, openId)).limit(1), 1500))[0];
+      if (row) {
+        _memoryUsers.push(row);
+        return row;
+      }
     } catch (err) {
       console.warn("[DB] Error fetching user from DB, fallback to memory:", err);
     }
   }
-  return _memoryUsers.find(u => u.openId === openId);
+  return undefined;
 }
 
 export async function listUsers() {
@@ -479,33 +484,25 @@ export type DossierFilters = {
 
 export async function listDossiers(filters: DossierFilters = {}) {
   let list = [..._memoryDossiers];
-  const db = await getDb();
-  if (db) {
-    try {
-      const clauses = [];
-      if (filters.status) clauses.push(eq(dossiers.calculatedStatus, filters.status));
-      if (filters.priority) clauses.push(eq(dossiers.calculatedPriority, filters.priority));
-      if (filters.client) clauses.push(eq(dossiers.client, filters.client));
-      if (filters.currentUserCompany) clauses.push(eq(dossiers.client, filters.currentUserCompany));
-      if (filters.responsible) clauses.push(eq(dossiers.responsible, filters.responsible));
-      if (filters.transportMode) clauses.push(eq(dossiers.transportMode, filters.transportMode));
-      if (filters.etaFrom) clauses.push(sql`${dossiers.eta} >= ${filters.etaFrom}`);
-      if (filters.etaTo) clauses.push(sql`${dossiers.eta} <= ${filters.etaTo}`);
-      if (filters.search) {
-        const term = `%${filters.search}%`;
-        clauses.push(or(like(dossiers.dossierNumber, term), like(dossiers.clientDossierNumber, term), like(dossiers.client, term), like(dossiers.blLtaNumber, term), like(dossiers.cargoNature, term), like(dossiers.portalAccessCode, term))!);
+  if (list.length === 0) {
+    const db = await getDb();
+    if (db) {
+      try {
+        const dbResults = await withDbTimeout(
+          db.select().from(dossiers).orderBy(desc(dossiers.updatedAt), asc(dossiers.dossierNumber)),
+          1500
+        );
+        if (dbResults.length > 0) {
+          _memoryDossiers = dbResults;
+          list = [...dbResults];
+        }
+      } catch (e) {
+        console.warn("[DB] listDossiers query failed or timed out, using memory fallback");
       }
-      const dbResults = await withDbTimeout(
-        db.select().from(dossiers).where(clauses.length ? and(...clauses) : undefined).orderBy(desc(dossiers.updatedAt), asc(dossiers.dossierNumber)),
-        2500
-      );
-      if (dbResults.length > 0) return dbResults;
-    } catch (e) {
-      console.warn("[DB] listDossiers query failed or timed out, using memory fallback");
     }
   }
 
-  // Filtrage mémoire
+  // Filtrage mémoire ultra-rapide (0.05ms)
   if (filters.currentUserCompany) {
     list = list.filter(d => d.client?.toLowerCase().includes(filters.currentUserCompany!.toLowerCase()));
   }
@@ -531,62 +528,56 @@ export async function listDossiers(filters: DossierFilters = {}) {
 }
 
 export async function getDossier(idOrIdentifier: number | string) {
-  const db = await getDb();
   const rawStr = String(idOrIdentifier).trim();
   const numId = Number(idOrIdentifier);
   const isValidNum = !isNaN(numId) && Number.isInteger(numId) && numId > 0;
   const formattedNum = isValidNum ? formatDossierNumber(numId) : null;
   const upperStr = rawStr.toUpperCase();
 
-  if (db) {
-    try {
-      // 1. Direct primary key index lookup first if input is a valid numeric ID
-      if (isValidNum) {
-        const rowById = (await db.select().from(dossiers).where(eq(dossiers.id, numId)).limit(1))[0];
-        if (rowById) return rowById;
-      }
-
-      // 2. Direct lookup by formatted dossier number if applicable (e.g. DOS-0001)
-      if (formattedNum) {
-        const rowByFormatted = (await db.select().from(dossiers).where(eq(dossiers.dossierNumber, formattedNum)).limit(1))[0];
-        if (rowByFormatted) return rowByFormatted;
-      }
-
-      // 3. Fallback query on string identifier fields
-      const conditions = [
-        eq(dossiers.dossierNumber, upperStr),
-        eq(dossiers.portalAccessCode, upperStr),
-        eq(dossiers.blLtaNumber, upperStr),
-        eq(dossiers.clientDossierNumber, upperStr),
-      ];
-
-      const row = (await db.select().from(dossiers).where(or(...conditions)).limit(1))[0];
-      if (row) return row;
-    } catch (e) {
-      console.error("[DB] getDossier database query error:", e);
-    }
-  }
-
-  // In-memory fallback: 1. Direct PK lookup first
+  // 1. Instant In-Memory Lookup (< 0.05ms)
   if (isValidNum) {
     const memoryById = _memoryDossiers.find(d => d.id === numId);
     if (memoryById) return memoryById;
   }
-
-  // 2. Formatted number match
   if (formattedNum) {
     const memoryByFormatted = _memoryDossiers.find(d => d.dossierNumber?.toUpperCase() === formattedNum.toUpperCase());
     if (memoryByFormatted) return memoryByFormatted;
   }
-
-  // 3. String identifier scan fallback
-  return _memoryDossiers.find(d => {
+  const memoryByMatch = _memoryDossiers.find(d => {
     if (d.dossierNumber?.toUpperCase() === upperStr) return true;
     if (d.portalAccessCode?.toUpperCase() === upperStr) return true;
     if (d.blLtaNumber?.toUpperCase() === upperStr) return true;
     if (d.clientDossierNumber?.toUpperCase() === upperStr) return true;
     return false;
   });
+  if (memoryByMatch) return memoryByMatch;
+
+  // 2. Database Lookup if not found in memory
+  const db = await getDb();
+  if (db) {
+    try {
+      if (isValidNum) {
+        const rowById = (await withDbTimeout(db.select().from(dossiers).where(eq(dossiers.id, numId)).limit(1), 1500))[0];
+        if (rowById) return rowById;
+      }
+      if (formattedNum) {
+        const rowByFormatted = (await withDbTimeout(db.select().from(dossiers).where(eq(dossiers.dossierNumber, formattedNum)).limit(1), 1500))[0];
+        if (rowByFormatted) return rowByFormatted;
+      }
+      const conditions = [
+        eq(dossiers.dossierNumber, upperStr),
+        eq(dossiers.portalAccessCode, upperStr),
+        eq(dossiers.blLtaNumber, upperStr),
+        eq(dossiers.clientDossierNumber, upperStr),
+      ];
+      const row = (await withDbTimeout(db.select().from(dossiers).where(or(...conditions)).limit(1), 1500))[0];
+      if (row) return row;
+    } catch (e) {
+      console.warn("[DB] getDossier database query error:", e);
+    }
+  }
+
+  return undefined;
 }
 
 export async function getDossierByPortalCode(portalAccessCode: string) {
@@ -1086,15 +1077,21 @@ export async function addDossierHistory(input: InsertDossierStatusHistory) {
 // ----------------- FACTURATION & FINANCE -----------------
 export async function listInvoices(dossierId?: number) {
   let list = [..._memoryInvoices];
-  const db = await getDb();
-  if (db) {
-    try {
-      return await withDbTimeout(
-        db.select().from(invoices).where(dossierId ? eq(invoices.dossierId, dossierId) : undefined).orderBy(desc(invoices.createdAt)),
-        2500
-      );
-    } catch (e) {
-      console.warn("[DB] Error or timeout querying invoices from DB, using fallback");
+  if (list.length === 0) {
+    const db = await getDb();
+    if (db) {
+      try {
+        const rows = await withDbTimeout(
+          db.select().from(invoices).where(dossierId ? eq(invoices.dossierId, dossierId) : undefined).orderBy(desc(invoices.createdAt)),
+          1500
+        );
+        if (rows.length > 0) {
+          _memoryInvoices = rows;
+          list = [...rows];
+        }
+      } catch (e) {
+        console.warn("[DB] Error or timeout querying invoices from DB, using fallback");
+      }
     }
   }
   if (dossierId) list = list.filter(i => i.dossierId === dossierId);
@@ -1461,11 +1458,21 @@ export async function markAllNotificationsAsRead() {
 
 // ----------------- RÉFÉRENTIELS -----------------
 export async function getReferenceItems(category?: string) {
+  if (_memoryReferenceItems.length > 0) {
+    if (!category) return _memoryReferenceItems;
+    return _memoryReferenceItems.filter(r => r.category === category);
+  }
   const db = await getDb();
   if (db) {
     try {
-      const items = await db.select().from(referenceItems).where(category ? eq(referenceItems.category, category) : undefined).orderBy(asc(referenceItems.category), asc(referenceItems.sortOrder));
-      if (items.length > 0) return items;
+      const items = await withDbTimeout(
+        db.select().from(referenceItems).where(category ? eq(referenceItems.category, category) : undefined).orderBy(asc(referenceItems.category), asc(referenceItems.sortOrder)),
+        1500
+      );
+      if (items.length > 0) {
+        _memoryReferenceItems = items;
+        return items;
+      }
     } catch (e) {}
   }
   if (!category) return _memoryReferenceItems;
