@@ -146,11 +146,10 @@ export default function PlanningPage() {
     });
   };
 
-  const isAnyLoading = dossiersQuery.isLoading || tasksQuery.isLoading;
-  const isAnyError = dossiersQuery.isError || tasksQuery.isError;
-  const firstError = dossiersQuery.error || tasksQuery.error;
+  const isMainLoading = dossiersQuery.isLoading && !dossiersQuery.data;
+  const isMainError = dossiersQuery.isError && !dossiersQuery.data;
 
-  if (isAnyLoading) {
+  if (isMainLoading) {
     return (
       <DashboardLayout>
         <div className="space-y-6 pb-12">
@@ -165,20 +164,23 @@ export default function PlanningPage() {
               <Skeleton className="h-9 w-24 rounded-xl" />
             </div>
           </div>
-          <div className="grid gap-6 lg:grid-cols-3">
-            <div className="space-y-4 lg:col-span-2">
-              <Skeleton className="h-48 rounded-2xl" />
-              <Skeleton className="h-48 rounded-2xl" />
+          <div className="grid gap-6 lg:grid-cols-12">
+            <div className="lg:col-span-7 space-y-4">
+              <Skeleton className="h-32 rounded-2xl" />
+              <Skeleton className="h-32 rounded-2xl" />
+              <Skeleton className="h-32 rounded-2xl" />
             </div>
-            <Skeleton className="h-96 rounded-2xl" />
+            <div className="lg:col-span-5 space-y-4">
+              <Skeleton className="h-96 rounded-2xl" />
+            </div>
           </div>
         </div>
       </DashboardLayout>
     );
   }
 
-  if (isAnyError) {
-    console.error("[PlanningPage] Erreur de chargement du planning:", firstError);
+  if (isMainError) {
+    console.error("[PlanningPage] Erreur de chargement des arrivées maritimes:", dossiersQuery.error);
     return (
       <DashboardLayout>
         <div className="mx-auto max-w-xl py-12 text-center">
@@ -187,14 +189,14 @@ export default function PlanningPage() {
               <AlertCircle className="h-7 w-7" />
             </div>
             <h2 className="mt-4 font-[Georgia] text-xl font-bold text-[#1b2f29]">
-              Impossible de charger le planning
+              Impossible de charger le planning des arrivées
             </h2>
             <p className="mt-2 text-xs text-[#667772]">
-              Une erreur est survenue lors de la récupération des arrivées de navires et des tâches terrain.
+              Une erreur est survenue lors de la récupération des dossiers de transit maritime et des ETA.
             </p>
-            {firstError?.message && (
+            {dossiersQuery.error?.message && (
               <p className="mt-3 font-mono text-[11px] text-red-700 bg-red-50 p-2 rounded-xl">
-                {firstError.message}
+                {dossiersQuery.error.message}
               </p>
             )}
             <div className="mt-6 flex justify-center gap-3">
@@ -204,7 +206,7 @@ export default function PlanningPage() {
                   dossiersQuery.refetch();
                   tasksQuery.refetch();
                 }}
-                className="rounded-xl border-[#dfe8e4] text-[#2b4c42] hover:bg-[#edf5f1] text-xs"
+                className="rounded-xl border-[#dfe8e4] text-[#2b4c42] hover:bg-[#edf5f1] text-xs font-semibold"
               >
                 <RotateCcw size={14} className="mr-1.5" /> Réessayer
               </Button>
@@ -515,7 +517,25 @@ export default function PlanningPage() {
 
             {/* Liste Interactive des Tâches */}
             <div className="space-y-2.5">
-              {filteredTasks.length === 0 ? (
+              {tasksQuery.isLoading ? (
+                <div className="space-y-2">
+                  <Skeleton className="h-20 rounded-2xl" />
+                  <Skeleton className="h-20 rounded-2xl" />
+                  <Skeleton className="h-20 rounded-2xl" />
+                </div>
+              ) : tasksQuery.isError ? (
+                <Card className="p-4 text-center border-red-200 bg-red-50/50">
+                  <p className="text-xs text-red-700">Impossible de charger les tâches</p>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => tasksQuery.refetch()}
+                    className="mt-1 text-xs text-red-800 hover:bg-red-100"
+                  >
+                    <RotateCcw size={12} className="mr-1" /> Réessayer
+                  </Button>
+                </Card>
+              ) : filteredTasks.length === 0 ? (
                 <Card className="p-6 text-center border-dashed bg-white">
                   <CheckCircle2 className="mx-auto h-7 w-7 text-emerald-600/40" />
                   <p className="mt-2 text-xs font-medium text-muted-foreground">Aucune tâche ne correspond à ces filtres.</p>

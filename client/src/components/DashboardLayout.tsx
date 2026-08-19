@@ -176,12 +176,30 @@ function LayoutContent({ children, setSidebarWidth }: { children: React.ReactNod
   const visibleMenuItems = allMenuItems.filter(item => !item.roles || item.roles.includes(userRole));
   const active = visibleMenuItems.find(item => item.path === location || (item.path !== "/" && location.startsWith(item.path)));
 
+  const [alertFilter, setAlertFilter] = useState<"all" | "surestaries" | "eta" | "douane">("all");
   const notificationsQuery = trpc.notification.list.useQuery(undefined, { refetchInterval: 30000 });
   const notifications = notificationsQuery.data || [];
   const unreadCount = notifications.filter(n => n.isRead === 0).length;
+  
   const markReadMutation = trpc.notification.markAsRead.useMutation({
     onSuccess: () => notificationsQuery.refetch(),
   });
+
+  const markAllReadMutation = trpc.notification.markAllAsRead.useMutation({
+    onSuccess: () => {
+      toast.success("Toutes les alertes ont été marquées comme lues.");
+      notificationsQuery.refetch();
+    },
+  });
+
+  const filteredNotifications = useMemo(() => {
+    return notifications.filter(n => {
+      if (alertFilter === "surestaries") return n.type === "SURESTARIES_RISQUE";
+      if (alertFilter === "eta") return n.type === "ETA_DEPASSEE";
+      if (alertFilter === "douane") return n.type === "DDI_MANQUANTE" || n.type === "BULLETIN_MANQUANT";
+      return true;
+    });
+  }, [notifications, alertFilter]);
 
   const switchRole = async (role: "admin" | "declarant" | "comptable" | "manager" | "client") => {
     let name = "Ibrahima Gold Service (Admin)";
@@ -351,29 +369,98 @@ function LayoutContent({ children, setSidebarWidth }: { children: React.ReactNod
                   )}
                 </Button>
               </PopoverTrigger>
-              <PopoverContent align="end" className="w-80 p-0 shadow-lg border-emerald-950/10">
+              <PopoverContent align="end" className="w-88 sm:w-96 p-0 shadow-2xl border-emerald-950/15 rounded-2xl bg-white overflow-hidden">
                 <div className="flex items-center justify-between border-b px-4 py-3 bg-[#f8faf9]">
-                  <span className="font-semibold text-xs text-[#102c26]">Alertes Proactives ({unreadCount})</span>
-                  <Badge variant="outline" className="text-[10px]">Guinée & PAC</Badge>
+                  <div className="flex items-center gap-2">
+                    <span className="font-bold text-xs text-[#102c26]">Alertes Proactives</span>
+                    {unreadCount > 0 && (
+                      <Badge className="bg-rose-600 text-white text-[10px] px-1.5 py-0 font-bold">
+                        {unreadCount} non lue{unreadCount > 1 ? "s" : ""}
+                      </Badge>
+                    )}
+                  </div>
+                  {unreadCount > 0 && (
+                    <button
+                      onClick={() => markAllReadMutation.mutate()}
+                      className="text-[11px] font-semibold text-[#18493d] hover:underline"
+                    >
+                      Tout marquer lu
+                    </button>
+                  )}
                 </div>
-                <div className="max-h-72 overflow-y-auto divide-y">
-                  {notifications.length === 0 ? (
-                    <div className="p-4 text-center text-xs text-muted-foreground">Aucune alerte pour le moment.</div>
+
+                {/* Filtres par Catégorie */}
+                <div className="flex items-center gap-1 px-3 py-2 bg-gray-50/75 border-b text-[11px]">
+                  <button
+                    onClick={() => setAlertFilter("all")}
+                    className={`rounded-lg px-2 py-0.5 font-medium transition ${alertFilter === "all" ? "bg-[#0b3b32] text-white" : "text-gray-600 hover:bg-gray-200"}`}
+                  >
+                    Toutes ({notifications.length})
+                  </button>
+                  <button
+                    onClick={() => setAlertFilter("surestaries")}
+                    className={`rounded-lg px-2 py-0.5 font-medium transition ${alertFilter === "surestaries" ? "bg-[#0b3b32] text-white" : "text-gray-600 hover:bg-gray-200"}`}
+                  >
+                    🚨 Surestaries ({notifications.filter(n => n.type === "SURESTARIES_RISQUE").length})
+                  </button>
+                  <button
+                    onClick={() => setAlertFilter("eta")}
+                    className={`rounded-lg px-2 py-0.5 font-medium transition ${alertFilter === "eta" ? "bg-[#0b3b32] text-white" : "text-gray-600 hover:bg-gray-200"}`}
+                  >
+                    ⏱️ ETA ({notifications.filter(n => n.type === "ETA_DEPASSEE").length})
+                  </button>
+                  <button
+                    onClick={() => setAlertFilter("douane")}
+                    className={`rounded-lg px-2 py-0.5 font-medium transition ${alertFilter === "douane" ? "bg-[#0b3b32] text-white" : "text-gray-600 hover:bg-gray-200"}`}
+                  >
+                    📄 Douane ({notifications.filter(n => n.type === "DDI_MANQUANTE" || n.type === "BULLETIN_MANQUANT").length})
+                  </button>
+                </div>
+
+                {/* Liste des alertes avec 1-click drilldown */}
+                <div className="max-h-80 overflow-y-auto divide-y">
+                  {filteredNotifications.length === 0 ? (
+                    <div className="p-6 text-center text-xs text-muted-foreground">Aucune alerte dans cette catégorie.</div>
                   ) : (
-                    notifications.map(n => (
-                      <div key={n.id} className={`p-3 text-xs transition ${n.isRead ? "bg-white text-muted-foreground" : "bg-emerald-50/40 text-emerald-950 font-medium"}`}>
-                        <div className="flex items-start justify-between gap-1">
-                          <span className="font-semibold">{n.title}</span>
+                    filteredNotifications.map(n => (
+                      <div
+                        key={n.id}
+                        onClick={() => {
+                          if (n.dossierId) {
+                            setLocation(`/dossiers/${n.dossierId}`);
+                          }
+                          if (!n.isRead) markReadMutation.mutate({ id: n.id });
+                        }}
+                        className={`p-3 text-xs transition cursor-pointer hover:bg-emerald-50/60 ${
+                          n.isRead ? "bg-white text-muted-foreground opacity-80" : "bg-emerald-50/30 text-emerald-950 font-medium"
+                        }`}
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="flex items-center gap-1.5">
+                            <span className="font-bold text-xs text-[#102c26]">{n.title}</span>
+                            {n.type === "SURESTARIES_RISQUE" && (
+                              <Badge className="bg-rose-100 text-rose-800 text-[9px] px-1 py-0 border-rose-300">
+                                Urgent PAC
+                              </Badge>
+                            )}
+                          </div>
                           {!n.isRead && (
                             <button
-                              onClick={() => markReadMutation.mutate({ id: n.id })}
-                              className="text-[10px] text-emerald-700 hover:underline shrink-0"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                markReadMutation.mutate({ id: n.id });
+                              }}
+                              className="text-[10px] text-emerald-700 hover:underline shrink-0 font-semibold"
                             >
                               Marquer lu
                             </button>
                           )}
                         </div>
-                        <p className="mt-1 text-[11px] leading-4">{n.message}</p>
+                        <p className="mt-1 text-[11px] leading-4 text-emerald-900/90">{n.message}</p>
+                        <div className="mt-1.5 flex items-center justify-between text-[10px] text-muted-foreground">
+                          <span>Dossier #{n.dossierNumber || n.dossierId}</span>
+                          <span className="text-emerald-700 font-semibold hover:underline">Ouvrir fiche ➔</span>
+                        </div>
                       </div>
                     ))
                   )}

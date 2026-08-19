@@ -13,6 +13,7 @@ import {
   Notification, notifications, InsertNotification
 } from "../drizzle/schema";
 import { calculateDossierState, formatDossierNumber } from "./dossierRules";
+import { generateProactiveAlerts } from "./alertsService";
 import { initialImportData } from "./initialImportData";
 import { ENV } from "./_core/env";
 
@@ -1354,23 +1355,41 @@ export async function addComment(input: InsertDossierComment) {
 }
 
 // ----------------- NOTIFICATIONS PROACTIVES -----------------
-export async function listNotifications(limit = 20) {
-  const db = await getDb();
-  if (db) {
-    try {
-      return await db.select().from(notifications).orderBy(desc(notifications.createdAt)).limit(limit);
-    } catch (e) {}
-  }
-  return _memoryNotifications.slice(0, limit).sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+const _readNotificationIds = new Set<number>();
+
+export async function listNotifications(limit = 40) {
+  const dossiers = await listDossiers();
+  const alerts = generateProactiveAlerts(dossiers);
+
+  return alerts.slice(0, limit).map(a => ({
+    ...a,
+    isRead: _readNotificationIds.has(a.id) ? 1 : 0,
+  }));
 }
 
 export async function markNotificationAsRead(id: number) {
+  _readNotificationIds.add(id);
   const idx = _memoryNotifications.findIndex(n => n.id === id);
   if (idx >= 0) _memoryNotifications[idx].isRead = 1;
   const db = await getDb();
   if (db) {
     try {
       await db.update(notifications).set({ isRead: 1 }).where(eq(notifications.id, id));
+    } catch (e) {}
+  }
+  return { success: true };
+}
+
+export async function markAllNotificationsAsRead() {
+  const dossiers = await listDossiers();
+  const alerts = generateProactiveAlerts(dossiers);
+  for (const a of alerts) {
+    _readNotificationIds.add(a.id);
+  }
+  const db = await getDb();
+  if (db) {
+    try {
+      await db.update(notifications).set({ isRead: 1 });
     } catch (e) {}
   }
   return { success: true };

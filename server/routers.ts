@@ -478,10 +478,12 @@ export const appRouter = router({
 
   // 10. NOTIFICATIONS PROACTIVES
   notification: router({
-    list: protectedProcedure.query(async () => db.listNotifications(20)),
+    list: protectedProcedure.query(async () => db.listNotifications(40)),
     markAsRead: protectedProcedure
       .input(z.object({ id: z.number().int().positive() }))
       .mutation(async ({ input }) => db.markNotificationAsRead(input.id)),
+    markAllAsRead: protectedProcedure
+      .mutation(async () => db.markAllNotificationsAsRead()),
   }),
 
   // TABLEAU DE BORD OPÉRATIONNEL

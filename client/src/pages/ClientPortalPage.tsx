@@ -127,7 +127,63 @@ export default function ClientPortalPage() {
                 </div>
               </div>
 
-              {/* Étapes Clés en Graphique */}
+              {/* Indicateur de Progression Visuelle (Timeline 5 Étapes) */}
+              <div className="py-6 border-b">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="font-[Georgia] text-sm font-bold text-emerald-950">Progression Globale du Transit & Dédouanement</h3>
+                  <Badge className="bg-[#0b3b32] text-white text-xs">
+                    {dossier.goodsReleaseDate ? "100% — Marchandise Livrée" : dossier.declarationNumber ? "75% — En cours de dédouanement" : dossier.eta && new Date(dossier.eta) < new Date() ? "40% — Au quai PAC" : "20% — En acheminement"}
+                  </Badge>
+                </div>
+
+                {(() => {
+                  const now = new Date();
+                  const etaDate = dossier.eta ? new Date(dossier.eta) : null;
+                  const isArrived = Boolean(etaDate && etaDate < now) || Boolean(dossier.goodsReleaseDate);
+                  const isCustomsCleared = Boolean(dossier.declarationNumber && dossier.bulletinNumber);
+                  const isBaeGranted = dossier.baeStatus === "Accordé" || dossier.badStatus === "Obtenu";
+                  const isDelivered = Boolean(dossier.goodsReleaseDate);
+
+                  const steps = [
+                    { id: 1, title: "1. En transit", desc: `${dossier.originPort || "POL"} ➔ Conakry`, done: true, current: !isArrived },
+                    { id: 2, title: "2. Arrivée PAC", desc: dossier.eta ? `ETA: ${new Date(dossier.eta).toLocaleDateString("fr-FR")}` : "Planification", done: isArrived, current: isArrived && !isCustomsCleared },
+                    { id: 3, title: "3. SYDONIA & DDI", desc: dossier.declarationNumber || "Enregistrement douane", done: isCustomsCleared, current: isCustomsCleared && !isBaeGranted },
+                    { id: 4, title: "4. BAE & Quittance", desc: dossier.baeStatus === "Accordé" ? "Bon à enlever accordé" : "Visite & liquidation", done: isBaeGranted, current: isBaeGranted && !isDelivered },
+                    { id: 5, title: "5. Sortie & Livraison", desc: dossier.goodsReleaseDate ? `Sortie: ${new Date(dossier.goodsReleaseDate).toLocaleDateString("fr-FR")}` : "Enlèvement quai PAC", done: isDelivered, current: isDelivered },
+                  ];
+
+                  return (
+                    <div className="relative">
+                      <div className="grid grid-cols-1 sm:grid-cols-5 gap-2">
+                        {steps.map(step => (
+                          <div
+                            key={step.id}
+                            className={`p-3 rounded-2xl border transition ${
+                              step.done
+                                ? "bg-emerald-50 border-emerald-300 text-emerald-950"
+                                : step.current
+                                ? "bg-amber-50 border-amber-300 text-amber-950 ring-2 ring-amber-400/20"
+                                : "bg-gray-50/60 border-gray-200 text-gray-400"
+                            }`}
+                          >
+                            <div className="flex items-center gap-1.5 font-bold text-xs">
+                              {step.done ? (
+                                <CheckCircle2 size={15} className="text-emerald-700 shrink-0" />
+                              ) : (
+                                <Clock size={15} className={step.current ? "text-amber-700 shrink-0" : "text-gray-400 shrink-0"} />
+                              )}
+                              <span>{step.title}</span>
+                            </div>
+                            <p className="text-[11px] mt-1 text-muted-foreground truncate">{step.desc}</p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })()}
+              </div>
+
+              {/* Étapes Clés et Convertisseur GNF/USD */}
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 py-6 border-b">
                 <div className="p-3 rounded-2xl bg-gray-50 border border-gray-100 text-center">
                   <Ship className="mx-auto h-5 w-5 text-emerald-800" />
@@ -149,8 +205,8 @@ export default function ClientPortalPage() {
 
                 <div className="p-3 rounded-2xl bg-gray-50 border border-gray-100 text-center">
                   <ShieldCheck className="mx-auto h-5 w-5 text-emerald-800" />
-                  <span className="text-[10px] text-muted-foreground uppercase font-semibold block mt-1">Sortie Marchandise</span>
-                  <strong className="text-xs text-emerald-950">{dossier.goodsReleaseDate ? new Date(dossier.goodsReleaseDate).toLocaleDateString("fr-FR") : "En cours"}</strong>
+                  <span className="text-[10px] text-muted-foreground uppercase font-semibold block mt-1">Taux Référence</span>
+                  <strong className="text-xs text-emerald-950">1 USD = 8 650 GNF</strong>
                 </div>
               </div>
 

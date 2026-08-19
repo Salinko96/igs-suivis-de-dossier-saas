@@ -15,6 +15,7 @@ import {
   AlertCircle,
   AlertTriangle,
   ArrowLeft,
+  Bookmark,
   Calendar,
   Check,
   CheckCircle2,
@@ -98,8 +99,9 @@ function Field({
   form,
   setForm,
   required = false,
-  type = "text",
   invalid = false,
+  errorMessage,
+  type = "text",
   placeholder,
   disabled = false,
 }: {
@@ -108,8 +110,9 @@ function Field({
   form: FormState;
   setForm: React.Dispatch<React.SetStateAction<FormState>>;
   required?: boolean;
-  type?: string;
   invalid?: boolean;
+  errorMessage?: string;
+  type?: string;
   placeholder?: string;
   disabled?: boolean;
 }) {
@@ -129,12 +132,12 @@ function Field({
         aria-describedby={invalid ? `${field}-error` : undefined}
         onChange={event => setForm(current => ({ ...current, [field]: event.target.value }))}
         className={`h-10 rounded-xl bg-white text-sm focus-visible:ring-[#2f826d]/30 ${
-          invalid ? "border-[#cf5c46]" : "border-[#dfe9e4]"
+          invalid ? "border-[#cf5c46] ring-1 ring-[#cf5c46]/20 bg-rose-50/20" : "border-[#dfe9e4]"
         } ${disabled ? "bg-gray-50 text-gray-500 cursor-not-allowed" : ""}`}
       />
       {invalid && (
         <p id={`${field}-error`} role="alert" className="text-[11px] font-medium text-[#ba4a36]">
-          Ce champ est requis.
+          {errorMessage || "Ce champ est requis."}
         </p>
       )}
     </div>
@@ -150,6 +153,7 @@ function ReferenceSelectOrInput({
   references,
   required = false,
   invalid = false,
+  errorMessage,
   placeholder,
   disabled = false,
 }: {
@@ -161,6 +165,7 @@ function ReferenceSelectOrInput({
   references: Array<{ id: number; category: string; label: string }>;
   required?: boolean;
   invalid?: boolean;
+  errorMessage?: string;
   placeholder?: string;
   disabled?: boolean;
 }) {
@@ -184,7 +189,7 @@ function ReferenceSelectOrInput({
           aria-describedby={invalid ? `${field}-error` : undefined}
           onChange={event => setForm(current => ({ ...current, [field]: event.target.value }))}
           className={`h-10 w-full rounded-xl border bg-white px-3 text-sm text-[#365048] outline-none transition focus:ring-2 focus:ring-[#2f826d]/30 ${
-            invalid ? "border-[#cf5c46]" : "border-[#dfe9e4]"
+            invalid ? "border-[#cf5c46] ring-1 ring-[#cf5c46]/20 bg-rose-50/20" : "border-[#dfe9e4]"
           } ${disabled ? "bg-gray-50 text-gray-500 cursor-not-allowed" : ""}`}
         />
         <datalist id={datalistId}>
@@ -195,7 +200,7 @@ function ReferenceSelectOrInput({
       </div>
       {invalid && (
         <p id={`${field}-error`} role="alert" className="text-[11px] font-medium text-[#ba4a36]">
-          Ce champ est requis.
+          {errorMessage || "Ce champ est requis."}
         </p>
       )}
     </div>
@@ -211,6 +216,7 @@ function ReferenceSelect({
   references,
   required = false,
   invalid = false,
+  errorMessage,
   disabled = false,
 }: {
   label: string;
@@ -221,6 +227,7 @@ function ReferenceSelect({
   references: Array<{ id: number; category: string; label: string }>;
   required?: boolean;
   invalid?: boolean;
+  errorMessage?: string;
   disabled?: boolean;
 }) {
   const choices = references.filter(item => item.category === category);
@@ -238,7 +245,7 @@ function ReferenceSelect({
         aria-describedby={invalid ? `${field}-error` : undefined}
         onChange={event => setForm(current => ({ ...current, [field]: event.target.value }))}
         className={`h-10 w-full rounded-xl border bg-white px-3 text-sm text-[#365048] outline-none transition focus:ring-2 focus:ring-[#2f826d]/30 ${
-          invalid ? "border-[#cf5c46]" : "border-[#dfe9e4]"
+          invalid ? "border-[#cf5c46] ring-1 ring-[#cf5c46]/20 bg-rose-50/20" : "border-[#dfe9e4]"
         } ${disabled ? "bg-gray-50 text-gray-500 cursor-not-allowed" : ""}`}
       >
         <option value="">Sélectionner…</option>
@@ -250,7 +257,7 @@ function ReferenceSelect({
       </select>
       {invalid && (
         <p id={`${field}-error`} role="alert" className="text-[11px] font-medium text-[#ba4a36]">
-          Ce champ est requis.
+          {errorMessage || "Ce champ est requis."}
         </p>
       )}
     </div>
@@ -449,63 +456,82 @@ function DetailContent() {
     onError: err => toast.error(`Erreur de suppression : ${err.message}`),
   });
 
-  const handleSubmit = (event: React.FormEvent) => {
-    event.preventDefault();
-    setShowValidation(true);
-    const requiredKeys = [
-      "clientDossierNumber",
-      "client",
-      "blLtaNumber",
-      "cargoNature",
-      "transportMode",
-      "eta",
-      "originPort",
-      "destinationPort",
-      "goodsReleaseDate",
-      "declarationNumber",
-      "bulletinNumber",
-    ];
-    const isMissingRequired = requiredKeys.some(key => !form[key]);
-    const hasPackaging = Boolean(form.container || form.bulk);
+  const buildPayload = () => ({
+    clientDossierNumber: toText(form.clientDossierNumber),
+    client: toText(form.client),
+    blLtaNumber: toText(form.blLtaNumber),
+    cargoNature: toText(form.cargoNature),
+    transportMode: toText(form.transportMode) || "Maritime",
+    eta: toDate(form.eta),
+    originPort: toText(form.originPort),
+    destinationPort: toText(form.destinationPort),
+    container: toText(form.container),
+    bulk: toText(form.bulk),
+    goodsReleaseDate: toDate(form.goodsReleaseDate),
+    declarationNumber: toText(form.declarationNumber),
+    bulletinNumber: toText(form.bulletinNumber),
+    finalDeclarationNumber: toText(form.finalDeclarationNumber),
+    ddiGucegNumber: toText(form.ddiGucegNumber),
+    badStatus: toText(form.badStatus),
+    baeStatus: toText(form.baeStatus),
+    documentStatus: toText(form.documentStatus),
+    customsStatus: toText(form.customsStatus),
+    portStatus: toText(form.portStatus),
+    financialStatus: toText(form.financialStatus),
+    fieldOperation: toText(form.fieldOperation),
+    responsible: toText(form.responsible),
+    nextAction: toText(form.nextAction),
+    fieldAlert: toText(form.fieldAlert),
+    deliveryLocation: toText(form.deliveryLocation),
+    declarant: toText(form.declarant),
+    service: toText(form.service),
+    regime: toText(form.regime),
+    notes: toText(form.notes),
+  });
 
-    if (isMissingRequired || !hasPackaging) {
-      toast.error("Veuillez renseigner tous les champs obligatoires (*) marqués en rouge.");
+  const handleSaveDraft = (event?: React.MouseEvent) => {
+    if (event) event.preventDefault();
+    if (!form.client?.trim() && !form.clientDossierNumber?.trim() && !form.blLtaNumber?.trim()) {
+      setShowValidation(true);
+      toast.error("Veuillez renseigner au minimum la référence client, le client ou le N° de connaissement pour enregistrer un brouillon.");
       return;
     }
 
-    const payload = {
-      clientDossierNumber: toText(form.clientDossierNumber),
-      client: toText(form.client),
-      blLtaNumber: toText(form.blLtaNumber),
-      cargoNature: toText(form.cargoNature),
-      transportMode: toText(form.transportMode),
-      eta: toDate(form.eta),
-      originPort: toText(form.originPort),
-      destinationPort: toText(form.destinationPort),
-      container: toText(form.container),
-      bulk: toText(form.bulk),
-      goodsReleaseDate: toDate(form.goodsReleaseDate),
-      declarationNumber: toText(form.declarationNumber),
-      bulletinNumber: toText(form.bulletinNumber),
-      finalDeclarationNumber: toText(form.finalDeclarationNumber),
-      ddiGucegNumber: toText(form.ddiGucegNumber),
-      badStatus: toText(form.badStatus),
-      baeStatus: toText(form.baeStatus),
-      documentStatus: toText(form.documentStatus),
-      customsStatus: toText(form.customsStatus),
-      portStatus: toText(form.portStatus),
-      financialStatus: toText(form.financialStatus),
-      fieldOperation: toText(form.fieldOperation),
-      responsible: toText(form.responsible),
-      nextAction: toText(form.nextAction),
-      fieldAlert: toText(form.fieldAlert),
-      deliveryLocation: toText(form.deliveryLocation),
-      declarant: toText(form.declarant),
-      service: toText(form.service),
-      regime: toText(form.regime),
-      notes: toText(form.notes),
-    };
+    const payload = buildPayload();
+    if (isNew) {
+      createMutation.mutate(payload);
+    } else if (numericId) {
+      updateMutation.mutate({ id: numericId, data: payload });
+    }
+  };
 
+  const handleSubmit = (event: React.FormEvent) => {
+    event.preventDefault();
+    setShowValidation(true);
+
+    const mode = form.transportMode || "Maritime";
+    const missing: string[] = [];
+
+    if (!form.clientDossierNumber?.trim()) missing.push("N° dossier client");
+    if (!form.client?.trim()) missing.push("Client / Destinataire");
+    if (!form.blLtaNumber?.trim()) missing.push(mode === "Aérien" ? "N° LTA" : mode === "Routier" ? "N° Lettre de voiture" : "N° BL Connaissement");
+    if (!form.cargoNature?.trim()) missing.push("Nature de marchandise");
+    if (!form.eta) missing.push("Date ETA");
+    if (!form.originPort?.trim()) missing.push(mode === "Aérien" ? "Aéroport d'origine" : mode === "Routier" ? "Poste frontière départ" : "Port d'origine (POL)");
+    if (!form.destinationPort?.trim()) missing.push(mode === "Aérien" ? "Aéroport destination" : mode === "Routier" ? "Poste frontière entrée" : "Port de destination (POD)");
+    
+    if (mode === "Maritime" && !form.container?.trim() && !form.bulk?.trim()) {
+      missing.push("Conteneurs (TC) ou Vrac");
+    }
+
+    if (missing.length > 0) {
+      toast.error(`Champs obligatoires manquants (${missing.length}) : ${missing.slice(0, 3).join(", ")}${missing.length > 3 ? "..." : ""}`, {
+        description: "Remplissez les champs marqués en rouge, ou cliquez sur « Sauvegarder en brouillon » pour finaliser plus tard.",
+      });
+      return;
+    }
+
+    const payload = buildPayload();
     if (isNew) {
       createMutation.mutate(payload);
     } else if (numericId) {
@@ -748,30 +774,91 @@ function DetailContent() {
             {/* Section Fret & Port */}
             <Card className="border-0 bg-white shadow-[0_10px_28px_rgba(23,54,46,0.06)]">
               <CardContent className="p-5 sm:p-6">
-                <div className="mb-5 flex items-center gap-3">
-                  <div className="grid h-9 w-9 place-items-center rounded-xl bg-[#e7f1ed] text-[#1d7764]">
-                    <FileCheck2 size={18} />
+                <div className="mb-5 flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="grid h-9 w-9 place-items-center rounded-xl bg-[#e7f1ed] text-[#1d7764]">
+                      <FileCheck2 size={18} />
+                    </div>
+                    <div>
+                      <h2 className="font-[Georgia] text-xl font-semibold text-[#173b32]">
+                        {form.transportMode === "Aérien" ? "Fret Aérien & Marchandises" : form.transportMode === "Routier" ? "Transit Routier Inter-États & Fret" : "Transit Maritime & Marchandises"}
+                      </h2>
+                      <p className="text-xs text-[#81918b]">Données d’identification du fret et titres de transport douaniers.</p>
+                    </div>
                   </div>
-                  <div>
-                    <h2 className="font-[Georgia] text-xl font-semibold text-[#173b32]">Transit maritime & Marchandises</h2>
-                    <p className="text-xs text-[#81918b]">Données d’identification du fret (Port Autonome de Conakry, Kamsar, POL/POD).</p>
-                  </div>
+                  <Badge variant="outline" className="text-xs border-emerald-800 text-emerald-950 font-semibold">
+                    Transport : {form.transportMode || "Maritime"}
+                  </Badge>
                 </div>
 
                 <div className="grid gap-x-4 gap-y-4 md:grid-cols-2 lg:grid-cols-3">
-                  <Field label="N° dossier client" field="clientDossierNumber" form={form} setForm={setForm} required invalid={showValidation && !form.clientDossierNumber} placeholder="ex: CKYSI26000340" />
-                  <ReferenceSelectOrInput label="Client / Destinataire" field="client" category="client" form={form} setForm={setForm} references={references} required invalid={showValidation && !form.client} placeholder="ex: Guinean Birimian Gold" />
-                  <Field label="N° BL / LTA" field="blLtaNumber" form={form} setForm={setForm} required invalid={showValidation && !form.blLtaNumber} placeholder="ex: HLCUNG12604AUQG1" />
-                  <Field label="Nature de marchandise" field="cargoNature" form={form} setForm={setForm} required invalid={showValidation && !form.cargoNature} placeholder="ex: Cyanure, Tubes d'acier" />
-                  <ReferenceSelect label="Mode transport" field="transportMode" category="mode_transport" form={form} setForm={setForm} references={references} required invalid={showValidation && !form.transportMode} />
-                  <Field label="Date ETA" field="eta" form={form} setForm={setForm} required type="date" invalid={showValidation && !form.eta} />
-                  <ReferenceSelectOrInput label="Port d’origine (POL)" field="originPort" category="port_origine" form={form} setForm={setForm} references={references} required invalid={showValidation && !form.originPort} placeholder="ex: Ningbo-China" />
-                  <ReferenceSelectOrInput label="Port de destination (POD)" field="destinationPort" category="port_destination" form={form} setForm={setForm} references={references} required invalid={showValidation && !form.destinationPort} placeholder="ex: Port Autonome de Conakry" />
-                  <Field label="Conteneur(s)" field="container" form={form} setForm={setForm} placeholder="ex: 04TC20', 02TC40'" invalid={showValidation && !form.container && !form.bulk} />
-                  <Field label="Vrac / Colis (PKG)" field="bulk" form={form} setForm={setForm} placeholder="ex: 56 PKG, 120 Tonnes" invalid={showValidation && !form.container && !form.bulk} />
-                  <Field label="Date sortie marchandises" field="goodsReleaseDate" form={form} setForm={setForm} required type="date" invalid={showValidation && !form.goodsReleaseDate} />
-                  <Field label="N° déclaration (Sydonia)" field="declarationNumber" form={form} setForm={setForm} required invalid={showValidation && !form.declarationNumber} placeholder="ex: S 142- 27/07/2026" />
-                  <Field label="N° bulletin (BLD)" field="bulletinNumber" form={form} setForm={setForm} required invalid={showValidation && !form.bulletinNumber} placeholder="ex: L 1774 Du 28/07/2026" />
+                  <ReferenceSelect label="Mode de transport *" field="transportMode" category="mode_transport" form={form} setForm={setForm} references={references} required invalid={showValidation && !form.transportMode} errorMessage="Mode de transport obligatoire" />
+                  <Field label="N° dossier client *" field="clientDossierNumber" form={form} setForm={setForm} required invalid={showValidation && !form.clientDossierNumber} errorMessage="N° dossier client requis (ex: CKYSI26000340)" placeholder="ex: CKYSI26000340" />
+                  <ReferenceSelectOrInput label="Client / Destinataire *" field="client" category="client" form={form} setForm={setForm} references={references} required invalid={showValidation && !form.client} errorMessage="Client / destinataire obligatoire" placeholder="ex: Guinean Birimian Gold" />
+                  
+                  <Field
+                    label={form.transportMode === "Aérien" ? "N° LTA (Lettre de Transport Aérien) *" : form.transportMode === "Routier" ? "N° Lettre de voiture (CMR / TRIE) *" : "N° BL (Connaissement maritime) *"}
+                    field="blLtaNumber"
+                    form={form}
+                    setForm={setForm}
+                    required
+                    invalid={showValidation && !form.blLtaNumber}
+                    errorMessage={form.transportMode === "Aérien" ? "N° LTA requis (ex: AF-057-98765432)" : form.transportMode === "Routier" ? "N° CMR requis (ex: CMR-GN-2026)" : "N° BL Connaissement requis"}
+                    placeholder={form.transportMode === "Aérien" ? "ex: AF-057-98765432" : form.transportMode === "Routier" ? "ex: CMR-GN-2026-4401" : "ex: HLCUNG12604AUQG1"}
+                  />
+                  <Field label="Nature de marchandise *" field="cargoNature" form={form} setForm={setForm} required invalid={showValidation && !form.cargoNature} errorMessage="Précisez la nature de la marchandise" placeholder="ex: Cyanure, Tubes d'acier, Équipement minier" />
+                  <Field label="Date ETA / Arrivée prévue *" field="eta" form={form} setForm={setForm} required type="date" invalid={showValidation && !form.eta} errorMessage="Date ETA d'arrivée requise" />
+
+                  <ReferenceSelectOrInput
+                    label={form.transportMode === "Aérien" ? "Aéroport d’origine *" : form.transportMode === "Routier" ? "Poste frontière de départ *" : "Port d’origine (POL) *"}
+                    field="originPort"
+                    category="port_origine"
+                    form={form}
+                    setForm={setForm}
+                    references={references}
+                    required
+                    invalid={showValidation && !form.originPort}
+                    errorMessage="Origine de transport requise"
+                    placeholder={form.transportMode === "Aérien" ? "ex: Paris CDG, Istanbul IST" : form.transportMode === "Routier" ? "ex: Bamako, Dakar" : "ex: Ningbo-China, Anvers"}
+                  />
+                  <ReferenceSelectOrInput
+                    label={form.transportMode === "Aérien" ? "Aéroport de destination *" : form.transportMode === "Routier" ? "Poste frontière d'entrée *" : "Port de destination (POD) *"}
+                    field="destinationPort"
+                    category="port_destination"
+                    form={form}
+                    setForm={setForm}
+                    references={references}
+                    required
+                    invalid={showValidation && !form.destinationPort}
+                    errorMessage="Destination requise"
+                    placeholder={form.transportMode === "Aérien" ? "ex: Conakry Gbessia CKY" : form.transportMode === "Routier" ? "ex: Kourémalé, Pamelap" : "ex: Port Autonome de Conakry"}
+                  />
+
+                  {form.transportMode !== "Aérien" && (
+                    <Field
+                      label="Conteneur(s) (TC)"
+                      field="container"
+                      form={form}
+                      setForm={setForm}
+                      placeholder="ex: 04TC20', 02TC40'"
+                      invalid={showValidation && (form.transportMode || "Maritime") === "Maritime" && !form.container && !form.bulk}
+                      errorMessage="Indiquez au moins les conteneurs ou le volume vrac"
+                    />
+                  )}
+
+                  <Field
+                    label={form.transportMode === "Aérien" ? "Colis / Poids brut (PKG / Kg)" : form.transportMode === "Routier" ? "Tonnage / Immatriculation camions" : "Vrac / Colis (PKG)"}
+                    field="bulk"
+                    form={form}
+                    setForm={setForm}
+                    placeholder={form.transportMode === "Aérien" ? "ex: 12 Colis, 450 Kg" : form.transportMode === "Routier" ? "ex: 35 Tonnes, RC-1234-A" : "ex: 56 PKG, 120 Tonnes"}
+                    invalid={showValidation && (form.transportMode || "Maritime") === "Maritime" && !form.container && !form.bulk}
+                    errorMessage="Indiquez au moins les conteneurs ou le volume vrac"
+                  />
+
+                  <Field label="Date sortie marchandises (PAC / Entrepôt)" field="goodsReleaseDate" form={form} setForm={setForm} type="date" placeholder="Laisser vide si marchandise encore au quai" />
+                  <Field label="N° déclaration douane (Sydonia)" field="declarationNumber" form={form} setForm={setForm} placeholder="ex: S 142- 27/07/2026" />
+                  <Field label="N° bulletin de liquidation (BLD)" field="bulletinNumber" form={form} setForm={setForm} placeholder="ex: L 1774 Du 28/07/2026" />
                   <Field label="N° déclaration définitive" field="finalDeclarationNumber" form={form} setForm={setForm} placeholder="ex: C 1398-2026" />
                 </div>
               </CardContent>
@@ -799,20 +886,34 @@ function DetailContent() {
               </CardContent>
             </Card>
 
-            {/* Boutons d'action */}
-            <div className="flex items-center justify-between pt-2">
+            {/* Boutons d'action : Brouillon vs Validation Complète */}
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-2">
               {!isNew && perms.canDeleteDossier && (
-                <Button type="button" variant="ghost" onClick={() => removeMutation.mutate({ id: numericId })} className="text-rose-600 hover:bg-rose-50 rounded-xl">
+                <Button type="button" variant="ghost" onClick={() => removeMutation.mutate({ id: numericId })} className="text-rose-600 hover:bg-rose-50 rounded-xl text-xs">
                   <Trash2 size={16} className="mr-1.5" /> Supprimer ce dossier
                 </Button>
               )}
-              <div className="ml-auto flex items-center gap-3">
-                <Button type="button" variant="outline" onClick={() => setLocation("/dossiers")} className="rounded-xl border-[#dfe8e4]">
+              <div className="ml-auto flex flex-wrap items-center gap-2.5">
+                <Button type="button" variant="outline" onClick={() => setLocation("/dossiers")} className="rounded-xl border-[#dfe8e4] text-xs">
                   Annuler
                 </Button>
-                <Button type="submit" disabled={createMutation.isPending || updateMutation.isPending} className="rounded-xl bg-[#0b3b32] text-white hover:bg-[#164d41] px-6">
-                  {(createMutation.isPending || updateMutation.isPending) && <Loader2 size={16} className="mr-2 animate-spin" />}
-                  <Save size={16} className="mr-2" /> {isNew ? "Créer le dossier" : "Enregistrer les modifications"}
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={handleSaveDraft}
+                  disabled={createMutation.isPending || updateMutation.isPending}
+                  className="rounded-xl border-emerald-800 text-emerald-950 hover:bg-emerald-50 text-xs font-semibold"
+                >
+                  <Bookmark size={15} className="mr-1.5 text-emerald-700" />
+                  Sauvegarder en brouillon
+                </Button>
+                <Button
+                  type="submit"
+                  disabled={createMutation.isPending || updateMutation.isPending}
+                  className="rounded-xl bg-[#0b3b32] text-white hover:bg-[#164d41] px-5 text-xs font-semibold shadow-sm"
+                >
+                  {(createMutation.isPending || updateMutation.isPending) && <Loader2 size={15} className="mr-2 animate-spin" />}
+                  <Save size={15} className="mr-2" /> {isNew ? "Valider & Créer le dossier" : "Enregistrer les modifications"}
                 </Button>
               </div>
             </div>
