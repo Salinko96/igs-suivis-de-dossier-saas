@@ -295,17 +295,31 @@ function LayoutContent({ children, setSidebarWidth }: { children: React.ReactNod
 
   const handlePrefetch = (path: string) => {
     try {
-      if (path === "/") utils.dashboard.get.prefetch();
-      if (path === "/dossiers") utils.dossier.list.prefetch({});
+      if (path === "/") {
+        import("../pages/Home");
+        utils.dashboard.get.prefetch();
+      }
+      if (path === "/dossiers") {
+        import("../pages/DossiersPage");
+        utils.dossier.list.prefetch({});
+      }
       if (path === "/planning") {
+        import("../pages/PlanningPage");
         utils.dossier.list.prefetch({});
         utils.task.list.prefetch();
       }
       if (path === "/finances") {
+        import("../pages/FinancesPage");
         utils.dossier.list.prefetch({});
         utils.invoice.list.prefetch();
       }
-      if (path === "/controles") utils.dossier.list.prefetch({});
+      if (path === "/controles") {
+        import("../pages/ControlsPage");
+        utils.dossier.list.prefetch({});
+      }
+      if (path === "/portail-client") {
+        import("../pages/ClientPortalPage");
+      }
     } catch {
       // Ignorer si déjà en cache
     }

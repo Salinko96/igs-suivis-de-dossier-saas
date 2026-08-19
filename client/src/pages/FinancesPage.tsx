@@ -8,7 +8,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { trpc } from "@/lib/trpc";
-import { generateInvoicePdf } from "@/lib/pdfGenerator";
 import {
   AlertCircle,
   AlertTriangle,
@@ -821,6 +820,7 @@ export default function FinancesPage() {
                               onClick={async () => {
                                 try {
                                   toast.info("Génération de la facture officielle PDF...");
+                                  const { generateInvoicePdf } = await import("@/lib/pdfGenerator");
                                   await generateInvoicePdf({
                                     invoiceNumber: inv.invoiceNumber,
                                     type: inv.invoiceType || "Definitive",

@@ -11,7 +11,6 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { trpc } from "@/lib/trpc";
-import { generateInvoicePdf } from "@/lib/pdfGenerator";
 import { usePermissions } from "@/hooks/usePermissions";
 import {
   AlertCircle,
@@ -1306,6 +1305,7 @@ function DetailContent() {
                           onClick={async () => {
                             try {
                               toast.info("Téléchargement de la facture PDF...");
+                              const { generateInvoicePdf } = await import("@/lib/pdfGenerator");
                               await generateInvoicePdf({
                                 invoiceNumber: inv.invoiceNumber,
                                 type: inv.invoiceType || "Definitive",

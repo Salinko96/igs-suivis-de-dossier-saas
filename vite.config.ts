@@ -167,11 +167,22 @@ export default defineConfig({
     emptyOutDir: true,
     rollupOptions: {
       output: {
-        manualChunks: {
-          vendor: ["react", "react-dom"],
-          ui: ["@radix-ui/react-dialog", "@radix-ui/react-dropdown-menu", "@radix-ui/react-select", "@radix-ui/react-tabs", "@radix-ui/react-tooltip", "framer-motion", "lucide-react"],
-          charts: ["recharts"],
-          trpc: ["@trpc/client", "@trpc/react-query", "@tanstack/react-query"],
+        manualChunks(id) {
+          if (id.includes("node_modules/jspdf") || id.includes("node_modules/jspdf-autotable") || id.includes("node_modules/qrcode") || id.includes("node_modules/html2canvas") || id.includes("node_modules/dompurify")) {
+            return "pdf-engine";
+          }
+          if (id.includes("node_modules/xlsx")) {
+            return "excel-engine";
+          }
+          if (id.includes("node_modules/recharts")) {
+            return "charts";
+          }
+          if (id.includes("node_modules/@radix-ui") || id.includes("node_modules/framer-motion") || id.includes("node_modules/lucide-react")) {
+            return "ui";
+          }
+          if (id.includes("node_modules/@trpc") || id.includes("node_modules/@tanstack/react-query")) {
+            return "trpc";
+          }
         },
       },
     },
