@@ -51,7 +51,7 @@ import {
   Users,
   UserX,
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
 type UserRole = "admin" | "declarant" | "comptable" | "client" | "manager" | "user";
@@ -87,6 +87,31 @@ export default function UsersPage() {
   const [searchTerm, setSearchTerm] = useState("");
   const [roleFilter, setRoleFilter] = useState<string>("all");
   const [statusFilter, setStatusFilter] = useState<string>("all");
+
+  // KPI Click & Scroll State
+  const tableRef = useRef<HTMLDivElement>(null);
+  const [highlightedKpi, setHighlightedKpi] = useState<string | null>(null);
+  const highlightTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  const applyKpiFilter = (role: string, status: string, kpiKey: string, toastMessage?: string) => {
+    setRoleFilter(role);
+    setStatusFilter(status);
+    setSearchTerm("");
+
+    if (highlightTimeoutRef.current) clearTimeout(highlightTimeoutRef.current);
+    setHighlightedKpi(kpiKey);
+    highlightTimeoutRef.current = setTimeout(() => {
+      setHighlightedKpi(null);
+    }, 2000);
+
+    setTimeout(() => {
+      tableRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 50);
+
+    if (toastMessage) {
+      toast.info(toastMessage);
+    }
+  };
 
   // Modal State (Create / Edit)
   const [modalOpen, setModalOpen] = useState(false);
@@ -327,15 +352,31 @@ export default function UsersPage() {
           </div>
         </div>
 
-        {/* 4 Metric KPI Cards */}
+        {/* 4 Metric KPI Cards Interactifs & Connectés */}
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {/* KPI 1: Effectif Total */}
-          <Card className="border border-emerald-900/15 bg-gradient-to-br from-white to-emerald-50/40 p-4 shadow-sm">
+          <Card
+            role="button"
+            tabIndex={0}
+            aria-label="Afficher l'effectif total des collaborateurs"
+            onClick={() => applyKpiFilter("all", "all", "total", "Filtre actif : Effectif Total (Tous les collaborateurs)")}
+            onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && applyKpiFilter("all", "all", "total")}
+            className={`border border-emerald-900/15 bg-gradient-to-br from-white to-emerald-50/40 p-4 shadow-sm cursor-pointer transition-all duration-200 hover:-translate-y-1 hover:shadow-md hover:ring-2 hover:ring-[#0b3b32]/50 select-none group focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0b3b32] ${
+              highlightedKpi === "total"
+                ? "ring-2 ring-[#0b3b32] shadow-lg scale-[1.02] bg-emerald-50/80"
+                : (roleFilter === "all" && statusFilter === "all" && !searchTerm ? "border-emerald-800/40 shadow-sm" : "")
+            }`}
+          >
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-[11px] font-semibold uppercase tracking-wider text-emerald-900/70">
-                  Effectif Total
-                </p>
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-[11px] font-semibold uppercase tracking-wider text-emerald-900/70">
+                    Effectif Total
+                  </p>
+                  <span className="text-[9px] font-bold text-emerald-800 opacity-0 group-hover:opacity-100 transition-opacity">
+                    Tous ↓
+                  </span>
+                </div>
                 <div className="mt-1.5 flex items-baseline gap-2">
                   <span className="text-2xl font-bold tracking-tight text-[#0b3b32]">
                     {stats.totalEmployees}
@@ -343,28 +384,68 @@ export default function UsersPage() {
                   <span className="text-xs font-medium text-emerald-700">Collaborateurs</span>
                 </div>
                 <div className="mt-2 flex items-center gap-2 text-[11px] text-muted-foreground">
-                  <span className="flex items-center gap-1 text-emerald-700 font-medium">
+                  <button
+                    type="button"
+                    title="Filtrer uniquement les collaborateurs actifs"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      applyKpiFilter("all", "active", "active", "Filtre actif : Collaborateurs Actifs");
+                    }}
+                    className={`flex items-center gap-1 font-semibold px-1.5 py-0.5 rounded transition ${
+                      statusFilter === "active" || highlightedKpi === "active"
+                        ? "bg-emerald-200/80 text-emerald-950 ring-1 ring-emerald-600"
+                        : "text-emerald-700 hover:bg-emerald-100 hover:text-emerald-950"
+                    }`}
+                  >
                     <CheckCircle2 className="h-3 w-3 text-emerald-600" /> {stats.totalActive} actifs
-                  </span>
+                  </button>
                   <span>•</span>
-                  <span className="flex items-center gap-1 text-rose-700 font-medium">
+                  <button
+                    type="button"
+                    title="Filtrer uniquement les collaborateurs inactifs ou suspendus"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      applyKpiFilter("all", "inactive", "inactive", "Filtre actif : Collaborateurs Suspendus / Inactifs");
+                    }}
+                    className={`flex items-center gap-1 font-semibold px-1.5 py-0.5 rounded transition ${
+                      statusFilter === "inactive" || highlightedKpi === "inactive"
+                        ? "bg-rose-200/80 text-rose-950 ring-1 ring-rose-600"
+                        : "text-rose-700 hover:bg-rose-100 hover:text-rose-950"
+                    }`}
+                  >
                     <UserX className="h-3 w-3 text-rose-500" /> {stats.totalInactive} inactifs
-                  </span>
+                  </button>
                 </div>
               </div>
-              <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-[#0b3b32] text-white shadow-sm">
+              <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-[#0b3b32] text-white shadow-sm group-hover:scale-105 transition-transform">
                 <Users className="h-5 w-5" />
               </div>
             </div>
           </Card>
 
           {/* KPI 2: Déclarants Quai PAC */}
-          <Card className="border border-emerald-900/15 bg-gradient-to-br from-white to-teal-50/40 p-4 shadow-sm">
+          <Card
+            role="button"
+            tabIndex={0}
+            aria-label="Filtrer les déclarants au Quai PAC"
+            onClick={() => applyKpiFilter("declarant", "all", "declarant", "Filtre actif : Déclarants Quai PAC")}
+            onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && applyKpiFilter("declarant", "all", "declarant")}
+            className={`border border-emerald-900/15 bg-gradient-to-br from-white to-teal-50/40 p-4 shadow-sm cursor-pointer transition-all duration-200 hover:-translate-y-1 hover:shadow-md hover:ring-2 hover:ring-teal-700/50 select-none group focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-700 ${
+              highlightedKpi === "declarant" || roleFilter === "declarant"
+                ? "ring-2 ring-teal-700 shadow-lg scale-[1.02] bg-teal-50/80"
+                : ""
+            }`}
+          >
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-[11px] font-semibold uppercase tracking-wider text-teal-900/70">
-                  Déclarants Quai PAC
-                </p>
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-[11px] font-semibold uppercase tracking-wider text-teal-900/70">
+                    Déclarants Quai PAC
+                  </p>
+                  <span className="text-[9px] font-bold text-teal-800 opacity-0 group-hover:opacity-100 transition-opacity">
+                    Filtrer ↓
+                  </span>
+                </div>
                 <div className="mt-1.5 flex items-baseline gap-2">
                   <span className="text-2xl font-bold tracking-tight text-teal-950">
                     {stats.activeDeclarantsAtPort}
@@ -375,19 +456,35 @@ export default function UsersPage() {
                   Port Autonome Conakry, Kamsar & Boffa
                 </p>
               </div>
-              <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-teal-800 text-white shadow-sm">
+              <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-teal-800 text-white shadow-sm group-hover:scale-105 transition-transform">
                 <Anchor className="h-5 w-5" />
               </div>
             </div>
           </Card>
 
           {/* KPI 3: Comptables & Finances */}
-          <Card className="border border-amber-900/15 bg-gradient-to-br from-white to-amber-50/40 p-4 shadow-sm">
+          <Card
+            role="button"
+            tabIndex={0}
+            aria-label="Filtrer les comptables et gestionnaires finances"
+            onClick={() => applyKpiFilter("comptable", "all", "comptable", "Filtre actif : Comptables & Finance")}
+            onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && applyKpiFilter("comptable", "all", "comptable")}
+            className={`border border-amber-900/15 bg-gradient-to-br from-white to-amber-50/40 p-4 shadow-sm cursor-pointer transition-all duration-200 hover:-translate-y-1 hover:shadow-md hover:ring-2 hover:ring-amber-700/50 select-none group focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-700 ${
+              highlightedKpi === "comptable" || roleFilter === "comptable"
+                ? "ring-2 ring-amber-700 shadow-lg scale-[1.02] bg-amber-50/80"
+                : ""
+            }`}
+          >
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-[11px] font-semibold uppercase tracking-wider text-amber-900/70">
-                  Comptables & Finance
-                </p>
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-[11px] font-semibold uppercase tracking-wider text-amber-900/70">
+                    Comptables & Finance
+                  </p>
+                  <span className="text-[9px] font-bold text-amber-800 opacity-0 group-hover:opacity-100 transition-opacity">
+                    Filtrer ↓
+                  </span>
+                </div>
                 <div className="mt-1.5 flex items-baseline gap-2">
                   <span className="text-2xl font-bold tracking-tight text-amber-950">
                     {stats.activeComptables}
@@ -398,19 +495,35 @@ export default function UsersPage() {
                   Facturation GNF/USD & Débours PAC
                 </p>
               </div>
-              <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-amber-700 text-white shadow-sm">
+              <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-amber-700 text-white shadow-sm group-hover:scale-105 transition-transform">
                 <CircleDollarSign className="h-5 w-5" />
               </div>
             </div>
           </Card>
 
           {/* KPI 4: Portails Clients Connectés */}
-          <Card className="border border-sky-900/15 bg-gradient-to-br from-white to-sky-50/40 p-4 shadow-sm">
+          <Card
+            role="button"
+            tabIndex={0}
+            aria-label="Filtrer les comptes portails clients connectés"
+            onClick={() => applyKpiFilter("client", "all", "client", "Filtre actif : Portails Clients")}
+            onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && applyKpiFilter("client", "all", "client")}
+            className={`border border-sky-900/15 bg-gradient-to-br from-white to-sky-50/40 p-4 shadow-sm cursor-pointer transition-all duration-200 hover:-translate-y-1 hover:shadow-md hover:ring-2 hover:ring-sky-700/50 select-none group focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-700 ${
+              highlightedKpi === "client" || roleFilter === "client"
+                ? "ring-2 ring-sky-700 shadow-lg scale-[1.02] bg-sky-50/80"
+                : ""
+            }`}
+          >
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-[11px] font-semibold uppercase tracking-wider text-sky-900/70">
-                  Portails Clients
-                </p>
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-[11px] font-semibold uppercase tracking-wider text-sky-900/70">
+                    Portails Clients
+                  </p>
+                  <span className="text-[9px] font-bold text-sky-800 opacity-0 group-hover:opacity-100 transition-opacity">
+                    Filtrer ↓
+                  </span>
+                </div>
                 <div className="mt-1.5 flex items-baseline gap-2">
                   <span className="text-2xl font-bold tracking-tight text-sky-950">
                     {stats.connectedClients}
@@ -421,7 +534,7 @@ export default function UsersPage() {
                   Comptes d'accès suivi cargaisons
                 </p>
               </div>
-              <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-sky-800 text-white shadow-sm">
+              <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-sky-800 text-white shadow-sm group-hover:scale-105 transition-transform">
                 <Building2 className="h-5 w-5" />
               </div>
             </div>
@@ -429,7 +542,7 @@ export default function UsersPage() {
         </div>
 
         {/* Filter Controls & Search */}
-        <Card className="border border-emerald-900/15 bg-white p-4 shadow-sm">
+        <Card ref={tableRef} className="border border-emerald-900/15 bg-white p-4 shadow-sm scroll-mt-6">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             {/* Search Input */}
             <div className="relative flex-1">
@@ -493,10 +606,17 @@ export default function UsersPage() {
             </div>
           </div>
 
-          <div className="mt-3 flex items-center justify-between border-t border-emerald-950/10 pt-2.5 text-xs text-muted-foreground">
-            <span>
-              Affichage de <strong className="text-emerald-950">{filteredUsers.length}</strong> collaborateur{filteredUsers.length > 1 ? "s" : ""} sur {allUsers.length}
-            </span>
+          <div className="mt-3 flex flex-wrap items-center justify-between border-t border-emerald-950/10 pt-2.5 text-xs text-muted-foreground gap-2">
+            <div className="flex items-center gap-2">
+              <span>
+                Affichage de <strong className="text-emerald-950">{filteredUsers.length}</strong> collaborateur{filteredUsers.length > 1 ? "s" : ""} sur {allUsers.length}
+              </span>
+              {(roleFilter !== "all" || statusFilter !== "all" || searchTerm) && (
+                <Badge variant="outline" className="bg-emerald-50 text-emerald-900 border-emerald-300 text-[10px] font-medium py-0.5">
+                  Filtre actif : {roleFilter !== "all" ? getRoleBadgeInfo(roleFilter as UserRole).label : ""}{roleFilter !== "all" && statusFilter !== "all" ? " • " : ""}{statusFilter === "active" ? "Actifs" : statusFilter === "inactive" ? "Inactifs / Suspendus" : ""}
+                </Badge>
+              )}
+            </div>
             <span className="text-[11px] text-emerald-800 font-medium">
               Synchronisation instantanée RBAC & Révocation JWT
             </span>
