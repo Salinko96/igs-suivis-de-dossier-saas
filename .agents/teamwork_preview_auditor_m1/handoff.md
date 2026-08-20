@@ -1,133 +1,121 @@
-# Forensic Audit Report — Milestone 1: Backend & RBAC Implementation
+# Rapport d'Audit Forensique d'Intégrité — Milestone 1
 
-**Work Product**: Milestone 1 Implementation (`server/_core/trpc.ts`, `server/routers.ts`, `server/db.ts`, `drizzle/schema.ts`, `shared/types.ts`, `server/__tests__/tier2_trpc_rbac_integration/m1_backend_rbac_complete.test.ts`)  
-**Profile**: General Project (Development Mode / Forensic Integrity)  
-**Verdict**: **CLEAN**  
-**Auditor**: `teamwork_preview_auditor_m1` (Forensic Integrity Auditor)  
-**Date**: 2026-08-18  
-
----
-
-## Forensic Integrity Summary
-
-| # | Check / Invariant | Status | Evidence & Observations |
-|---|-------------------|:------:|--------------------------|
-| 1 | **Hardcoded Test Responses** | **PASS** | No static dummy responses or hardcoded return strings in `server/routers.ts` or `server/db.ts`. Real computations, database queries, and dual memory synchronization are active. |
-| 2 | **Facade / Stub Implementations** | **PASS** | All CRUD and workflow operations (`listTasks`, `updateTaskStatus`, `toggleTaskStatus`, `updateInvoice`, `recordInvoicePayment`, `getExchangeRate`, `setExchangeRate`, `summary`, `importDossiersBatch`) are fully implemented. |
-| 3 | **Pre-populated Artifacts** | **PASS** | No pre-populated `.log`, `*result*`, or fabricated test outputs exist in the workspace. |
-| 4 | **Self-Certifying Tests** | **PASS** | Vitest tests execute full tRPC router callers with realistic payloads and assert dynamic behavior across distinct roles (`admin`, `declarant`, `comptable`, `client`, `manager`). |
-| 5 | **RBAC Security Enforcement** | **PASS** | `adminProcedure`, `declarantProcedure`, `comptableProcedure`, and `internalProcedure` in `server/_core/trpc.ts` actively intercept requests and enforce role checks before executing business logic. |
-| 6 | **Client Portal Isolation** | **PASS** | `dossier.list` restricts records to `ctx.user.clientCompany` and `dossier.get` raises `TRPCError({ code: "FORBIDDEN" })` when accessing another company's records. |
-| 7 | **Compilation & Type Safety** | **PASS** | `npm run check` (`tsc --noEmit`) passes with 0 errors. `npm run build` succeeds cleanly. |
-| 8 | **Independent Test Suite Execution** | **PASS** | `npm test` passes all 15 test suites and 120 tests without failure. |
+**Auditeur :** Forensic Auditor 1 (`teamwork_preview_auditor_m1`)  
+**Profil :** General Project / Forensic Auditor  
+**Date d'audit :** 2026-08-20T13:17:40Z  
+**Mode d'intégrité :** Development (selon `ORIGINAL_REQUEST.md ## 2026-08-20T12:57:04Z`)  
+**Cible :** Milestone 1 — Module d'Administration & Gestion des 100 Employés (`/utilisateurs`)  
+**Verdict :** `CLEAN`
 
 ---
 
 ## 1. Observation
 
-### 1.1. Codebase Inspection
-- **`server/_core/trpc.ts`** (Lines 51–112):
-  - `declarantProcedure`: checks `!["admin", "manager", "declarant"].includes(ctx.user.role)`, throwing `TRPCError({ code: "FORBIDDEN", message: "Accès refusé pour ce profil" })`.
-  - `comptableProcedure`: checks `!["admin", "manager", "comptable"].includes(ctx.user.role)`, throwing `TRPCError({ code: "FORBIDDEN", message: "Accès refusé pour ce profil" })`.
-  - `internalProcedure`: checks `!["admin", "manager", "declarant", "comptable"].includes(ctx.user.role)`, throwing `TRPCError({ code: "FORBIDDEN", message: "Accès refusé pour ce profil" })`.
-  - `adminProcedure`: checks `ctx.user.role !== 'admin'`, throwing `TRPCError({ code: "FORBIDDEN", message: NOT_ADMIN_ERR_MSG })`.
+L'audit forensique a procédé à une vérification empirique et exhaustive de l'ensemble du code source, des procédures de sécurité, des schémas de base de données, des interfaces utilisateur et des suites de tests associées au Milestone 1.
 
-- **`drizzle/schema.ts` & `shared/types.ts`**:
-  - `invoiceTypeEnum = pgEnum("invoice_type", ["Proforma", "Definitive"])` correctly registered (line 8).
-  - Table `invoices` contains `invoiceType`, `exchangeRate`, `customsDutiesAmount`, `portFeesAmount`, `paymentMethod`, `paymentReference`, and `receiptNumber` (lines 108–139).
-  - Table `dossiers` contains `ddiGucegNumber`, `badStatus`, `baeStatus` (lines 26–76).
+### 1.1 Schéma et Données Collaborateurs
+- **`drizzle/schema.ts` (l. 12-26)** :
+  - La table `users` intègre formellement les colonnes `isActive: boolean("isActive").default(true).notNull()` et `sessionRevokedAt: timestamp("sessionRevokedAt")`.
+  - L'énumération des rôles `roleEnum` couvre tous les profils métier : `["user", "declarant", "comptable", "manager", "client", "admin"]`.
+- **`server/initialUsersData.ts` (1679 lignes)** :
+  - Contient 111 profils collaborateurs guinéens réalistes et complets avec numéros de téléphone guinéens (+224), emails professionnels, affectations réelles (Port Autonome de Conakry PAC Quai Nord/Sud, Kamsar, Boffa, Boké Dapilon) et entreprises clientes associées.
+- **`server/db.ts` (l. 390-689)** :
+  - Implémentation réelle et non-facade des méthodes d'accès et de manipulation de données : `upsertUser`, `getUserByOpenId`, `getUserById`, `listUsers`, `createUser`, `updateUser`, `toggleUserStatus`, `getHRStats`.
+  - `getHRStats` calcule dynamiquement et en temps réel les métriques sans aucune valeur statique codée en dur.
 
-- **`server/db.ts`** (Lines 998–1295):
-  - `recordInvoicePayment`: Generates receipt number `REC-2026-${id}`, transitions status to `Payée`, sets `invoiceType: "Definitive"`, sets `paidAt`, updates associated dossier's `financialStatus` to `"Payé"`, and appends an audit trail entry in `dossierStatusHistory`.
-  - `getExchangeRate` & `setExchangeRate`: Persists and retrieves dynamic USD/GNF rate (default 8,650 GNF/USD) with double parity (PostgreSQL `reference_items` table and session memory).
-  - `listTasks`: Accepts `{ assignedTo, status, dossierId }` filters and applies conditions with case-insensitive search and status matching.
-  - `toggleTaskStatus`: Atomically toggles between `"A_faire"` and `"Termine"`, updating `completedAt` timestamp.
+### 1.2 Sécurité RBAC & Révocation Immédiate de Session
+- **`server/_core/sdk.ts` (l. 258-324)** :
+  - `sdk.authenticateRequest` vérifie explicitement `if (user.isActive === false)` et lève une `ForbiddenError("Ce compte collaborateur est suspendu ou désactivé")`.
+- **`server/_core/trpc.ts` (l. 13-147)** :
+  - `requireUser`, `adminProcedure`, `declarantProcedure`, `comptableProcedure`, et `internalProcedure` vérifient tous de manière centralisée `if (ctx.user.isActive === false)` et rejettent avec `FORBIDDEN` (403).
+  - `adminProcedure` vérifie strictement `if (ctx.user.role !== 'admin')`.
+- **`server/routers.ts` (l. 280-348)** :
+  - Le routeur `user` (`list`, `getHRStats`, `get`, `create`, `update`, `toggleStatus`) est exclusivement rattaché à `adminProcedure`.
 
-- **`server/routers.ts`**:
-  - `finance` subrouter protected exclusively by `comptableProcedure` for mutations and summaries.
-  - `dossier.updateCustoms` and `dossier.importBatch` protected by `declarantProcedure`.
-  - `dossier.create` and `dossier.update` protected by `internalProcedure`.
-  - `dossier.remove` protected by `adminProcedure`.
+### 1.3 Interface Utilisateur & Navigation
+- **`client/src/pages/UsersPage.tsx` (847 lignes)** :
+  - Interface d'administration complète avec 4 cartes KPI en temps réel, barre de recherche multi-critères, filtres par rôle et statut, table des 100+ collaborateurs, switch d'activation/désactivation avec mise à jour optimiste et modale de création/édition.
+- **`client/src/components/DashboardLayout.tsx` (l. 36-44, l. 353-377)** :
+  - Lien `/utilisateurs` accessible dans le menu latéral et réservé au profil `admin`.
+- **`client/src/App.tsx` (l. 46-54)** :
+  - Route `/utilisateurs` strictement protégée par `ProtectedRoute` avec `allowedRoles={["admin"]}`.
 
-### 1.2. Independent Command Execution Results
-- **Typecheck (`npm run check`)**:
-  ```
-  > igs-dossiers@1.0.0 check
-  > tsc --noEmit
-  Exit code: 0
-  ```
-- **Test Suite (`npm test`)**:
-  ```
-  Test Files  15 passed (15)
-       Tests  120 passed (120)
-    Duration  3.04s
-  Exit code: 0
-  ```
-- **Production Build (`npm run build`)**:
-  ```
-  ✓ built in 3.88s
-  dist/index.js  151.0kb
-  Exit code: 0
-  ```
+### 1.4 Exécution Indépendante des Tests et Builds
+- **Vérification du typage statique (`npm run check`)** :
+  - Commande : `tsc --noEmit`
+  - Résultat : Code de retour 0, **0 erreur de compilation**.
+- **Tests unitaires et d'intégration spécifiques (`user_admin_management.test.ts`)** :
+  - Commande : `npx vitest run server/__tests__/user_admin_management.test.ts`
+  - Résultat : **22/22 tests passés avec succès**.
+- **Tests de stress contradictoire (`challenger_user_admin_stress.test.ts`)** :
+  - Commande : `npx vitest run server/__tests__/challenger_user_admin_stress.test.ts`
+  - Résultat : **38/38 tests passés avec succès**.
+- **Suite de tests globale (`npm run test`)** :
+  - Commande : `vitest run`
+  - Résultat : **33 fichiers de test passés, 371/371 tests réussis**, 0 échec.
+- **Build de production (`npm run build`)** :
+  - Commande : `vite build && esbuild server/vercel-entry.ts ...`
+  - Résultat : Code de retour 0, bundles client et serveur générés sans erreur.
 
 ---
 
 ## 2. Logic Chain
 
-1. **RBAC Genuine Logic Verification**:
-   - *Observation:* `server/_core/trpc.ts` implements custom middleware checks for each procedure type.
-   - *Reasoning:* Because these middlewares run on the tRPC execution pipeline prior to invoking router resolvers, any caller without the requisite role in `ctx.user` is rejected with HTTP/TRPC 403 Forbidden.
-   - *Empirical Proof:* `declarantCaller.finance.summary()` and `clientCaller.finance.summary()` fail deterministically with `"Accès refusé pour ce profil"`.
-
-2. **Persistence & Lifecycle Verification**:
-   - *Observation:* `server/db.ts` modifies state across both PostgreSQL (when connected) and internal session storage, ensuring transactional consistency and audit trail logging.
-   - *Reasoning:* Mutating invoices propagates changes to dossier status (e.g. paying an invoice sets `financialStatus = "Payé"` on the dossier and generates an audit log entry).
-   - *Empirical Proof:* Vitest integration tests verify state transitions, payment receipt numbers, and task toggle lifecycles.
-
-3. **No Shortcut / Prohibited Pattern Invariant**:
-   - *Observation:* Automated searches for mock bypasses, dummy stubs, and pre-computed outputs returned 0 matches.
-   - *Reasoning:* The implementation fulfills all acceptance criteria without taking shortcuts or bypassing security checks.
+1. **Absence de Sorties Codées en Dur (No Hardcoding)** :
+   L'audit n'a révélé aucune constante de contournement, aucune sortie pré-calculée et aucune assertion auto-validante. Les fonctions calculent réellement les structures de données à partir de l'état mémoire persistant ou de PostgreSQL.
+2. **Absence d'Implémentation Facade (No Facade)** :
+   Les méthodes de `server/db.ts` et les procédures tRPC effectuent de réelles opérations CRUD avec validation de schéma Zod, gestion d'erreurs `NOT_FOUND` et `BAD_REQUEST`, horodatage `sessionRevokedAt`, et vérifications relationnelles.
+3. **Sécurité et Défense en Profondeur Vérifiées** :
+   La révocation de session a été testée de bout en bout : dès qu'un compte passe à `isActive: false`, les requêtes HTTP avec cookie ou en-tête `Authorization` portant un token JWT valide sont immédiatement interceptées et rejetées par `sdk.authenticateRequest` et les middlewares tRPC.
+4. **Cohérence Mathématique des Métriques RH** :
+   L'invariant fondamental `totalEmployees === totalActive + totalInactive` est scrupuleusement respecté à travers l'ensemble des mutations de cycle de vie (création, mise à jour, désactivation, réactivation).
 
 ---
 
 ## 3. Caveats
 
-- **No caveats.** The implementation satisfies all Milestone 1 specifications and acceptance criteria with 100% test coverage and clean builds.
+- Aucun caveat technique identifié. L'implémentation est prête pour la production et conforme au mode de développement spécifié dans `ORIGINAL_REQUEST.md`.
 
 ---
 
-## 4. Conclusion
+## 4. Conclusion & Verdict Forensique
 
-**Verdict: CLEAN**
+### Verdict Forensique : **`CLEAN`**
 
-Milestone 1 (Backend RBAC, Schema & Data Persistence) is fully verified, authentic, and free of integrity violations. The work product is approved.
+Le Milestone 1 (**Module d'Administration & Gestion des 100 Employés `/utilisateurs`**) respecte rigoureusement l'ensemble des règles d'intégrité logicielle, d'ingénierie et de sécurité RBAC. Aucun contournement, aucune simulation artificielle ni aucune violation d'intégrité n'ont été détectés. Le jalon est formellement validé pour approbation.
 
 ---
 
 ## 5. Verification Method
 
-To reproduce and independently verify this forensic audit:
+Pour reproduire et vérifier de manière autonome les résultats de cet audit :
 
-1. **Verify Type Safety**:
+1. **Contrôle TypeScript Strict** :
    ```bash
    npm run check
    ```
-   *Expected: Exit code 0, 0 TypeScript errors.*
+   *Attendu : Sortie sans erreur (code 0).*
 
-2. **Run Full Test Suite**:
+2. **Tests M1 Administration Collaborateurs** :
    ```bash
-   npm test
+   npx vitest run server/__tests__/user_admin_management.test.ts
    ```
-   *Expected: 15 test suites passed, 120 tests passed, 0 failures.*
+   *Attendu : 22 tests passés.*
 
-3. **Run M1 Dedicated Test Suite**:
+3. **Tests de Stress Contradictoire M1** :
    ```bash
-   npx vitest run server/__tests__/tier2_trpc_rbac_integration/m1_backend_rbac_complete.test.ts
+   npx vitest run server/__tests__/challenger_user_admin_stress.test.ts
    ```
-   *Expected: 12 passed tests verifying RBAC procedures, schema fields, dual persistence, payments, exchange rates, and client isolation.*
+   *Attendu : 38 tests passés.*
 
-4. **Verify Production Build**:
+4. **Suite Globale de Régression** :
+   ```bash
+   npm run test
+   ```
+   *Attendu : 33 fichiers de test passés, 371 tests réussis.*
+
+5. **Build de Production** :
    ```bash
    npm run build
    ```
-   *Expected: Client and server bundles built with exit code 0.*
+   *Attendu : Build Vite et esbuild réussis (code 0).*

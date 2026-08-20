@@ -1,116 +1,93 @@
-# Rapport de Fin de Tâche — Milestone 1 : Backend & RBAC Implementation
+# Rapport de Handoff — Milestone 1 : Module d'Administration & Gestion des 100 Employés (/utilisateurs)
 
-**Projet :** IGS Guinée SaaS — Suivi de Dossiers, Dédouanement & RBAC Opérationnel  
-**Agent :** `teamwork_preview_worker_m1` (Backend & RBAC Worker)  
-**Date :** 2026-08-18  
-**Référence :** `ORIGINAL_REQUEST.md` (R1, R2, R3, R4), `PROJECT.md` (Milestone 1)  
+**Agent :** Worker 1 (`teamwork_preview_worker_m1`)  
+**Rôles :** implementer, qa, specialist  
+**Date :** 2026-08-20T13:12:40Z  
+**Statut :** Terminé (100% Validé)  
 
 ---
 
 ## 1. Observation
 
-### 1.1. État Initial des Fichiers et Gaps Identifiés
-- `server/_core/trpc.ts` : Ne définissait que `publicProcedure`, `protectedProcedure`, et `adminProcedure`. Il manquait les constructeurs de procédure de rôle spécialisés (`declarantProcedure`, `comptableProcedure`, `internalProcedure`) requis pour appliquer le RBAC serveur.
-- `drizzle/schema.ts` & `shared/types.ts` :
-  - La table `invoices` ne possédait pas `invoiceType` (Proforma, Definitive), `exchangeRate`, `paymentMethod`, `paymentReference`, `receiptNumber`, `customsDutiesAmount`, ni `portFeesAmount`.
-  - La table `dossiers` ne possédait pas `ddiGucegNumber`, `badStatus` (Bon à Délivrer), ni `baeStatus` (Bon à Enlever).
-- `server/db.ts` :
-  - `listTasks` ne gérait pas le filtrage par `assignedTo` ni `status`.
-  - Manque de `updateInvoice(id, data)` et `recordInvoicePayment(id, data)` avec génération de quittance (`REC-2026-X`) et mise à jour automatique du statut financier du dossier associé.
-  - Manque de `getExchangeRate()` et `setExchangeRate(rate)` pour le cours dynamique USD/GNF.
-- `server/routers.ts` :
-  - Le sous-routeur `finance` utilisait `protectedProcedure`, exposant les flux financiers aux profils Déclarant et Client.
-  - `finance.summary` ne calculait pas la conversion consolidée bidevise (GNF et contre-valeur USD au taux de change).
-  - `dossier.get` n'isolait pas les accès des clients externes à leur propre société.
+L'investigation initiale et la demande officielle ont mis en évidence la nécessité de mettre en place un module complet d'administration RH et de gestion des 100 collaborateurs pour la plateforme SaaS IGS Transit Guinée.
 
-### 1.2. Modifications et Implémentations Réalisées
-1. **`server/_core/trpc.ts`** :
-   - `declarantProcedure` : autorise `admin`, `manager`, `declarant`. Rejette les autres profils avec `TRPCError({ code: "FORBIDDEN", message: "Accès refusé pour ce profil" })`.
-   - `comptableProcedure` : autorise `admin`, `manager`, `comptable`. Rejette avec `TRPCError({ code: "FORBIDDEN", message: "Accès refusé pour ce profil" })`.
-   - `internalProcedure` : autorise `admin`, `manager`, `declarant`, `comptable`. Rejette le profil `client` avec `TRPCError({ code: "FORBIDDEN", message: "Accès refusé pour ce profil" })`.
-
-2. **`drizzle/schema.ts` & `shared/types.ts`** :
-   - Ajout de l'enum `invoiceTypeEnum = pgEnum("invoice_type", ["Proforma", "Definitive"])`.
-   - Table `invoices` enrichie avec : `invoiceType`, `exchangeRate` (défaut 8650), `paymentMethod`, `paymentReference`, `receiptNumber`, `customsDutiesAmount` (défaut 0), `portFeesAmount` (défaut 0).
-   - Table `dossiers` enrichie avec : `ddiGucegNumber`, `badStatus`, `baeStatus`.
-   - Inférence automatique et réexport des types TypeScript dans `shared/types.ts`.
-
-3. **`server/db.ts`** :
-   - **Double parité intégrale (PostgreSQL & Mémoire persistée)** :
-     - `listTasks(filterOrDossierId)` : supporte `{ assignedTo, status, dossierId }`.
-     - `updateTaskStatus(id, status)` et `toggleTaskStatus(id, status?)` : mise à jour instantanée et calcul de `completedAt`.
-     - `updateInvoice(id, data)` : mise à jour des montants, du statut, du type, et synchronisation du `financialStatus` du dossier.
-     - `recordInvoicePayment(id, data)` : génère `receiptNumber: "REC-2026-" + id`, applique `status: "Payée"`, `invoiceType: "Definitive"`, `paidAt: new Date()`, met à jour `financialStatus: "Payé"` sur le dossier et trace l'opération dans `dossierStatusHistory`.
-     - `getExchangeRate()` & `setExchangeRate(rate)` : gestion dynamique du taux USD/GNF (taux par défaut 8 650 GNF/USD) avec persistance dans les référentiels.
-     - `_memoryDossiers` et `_memoryInvoices` initialisés avec toutes les nouvelles colonnes.
-
-4. **`server/routers.ts`** :
-   - Routeur `finance` protégé avec `comptableProcedure` (`listInvoices`, `createInvoice`, `updateInvoice`, `recordPayment`, `setExchangeRate`, `summary`).
-   - `finance.summary` : calcul des agrégats multi-devises (`totalCA_GNF`, `totalCA_USD`, `totalMargin_GNF`, `totalMargin_USD`, `totalDisbursements_GNF`, `totalCustomsDuties_GNF`, `totalPortFees_GNF`, `pendingInvoices`, `paidInvoices`, `totalDemurrageRisk`, `exchangeRate`).
-   - `dossier.get` : isolation stricte du portail client (`ctx.user.clientCompany !== dossier.client` -> 403 Forbidden).
-   - `dossier.create` et `dossier.update` : restreints via `internalProcedure` (interdit aux clients).
-   - `dossier.updateCustoms` : procédure dédiée aux déclarants (`declarantProcedure`).
-   - `dossier.importBatch` : procédure d'import réservée aux déclarants (`declarantProcedure`).
-   - `dossier.remove` : procédure réservée à l'administrateur (`adminProcedure`).
-   - `task.list` : supporte les filtres `assignedTo` et `status`.
-
-5. **Suite de Tests Dédiée (`server/__tests__/tier2_trpc_rbac_integration/m1_backend_rbac_complete.test.ts`)** :
-   - 12 tests complets couvrant l'ensemble du périmètre du Milestone 1.
+1. **Schéma de base de données (`drizzle/schema.ts`)** :
+   - Ajout des colonnes `isActive: boolean("isActive").default(true).notNull()` et `sessionRevokedAt: timestamp("sessionRevokedAt")` dans la table `users`.
+2. **Jeu de données des 100+ Collaborateurs (`server/initialUsersData.ts` & `server/db.ts`)** :
+   - Création de 111 profils collaborateurs guinéens réalistes avec numéros de téléphone (+224), emails professionnels et affectations réelles (Conakry Port PAC, Kamsar, Boffa, Boké).
+   - Répartition : 16 Admins/Managers, 45 Déclarants Douane PAC, 18 Comptables/Finance, 32 Représentants Portails Clients.
+   - Méthodes implémentées dans `server/db.ts` :
+     - `listUsers({ search, role, isActive, limit, offset })`
+     - `getUserById(id)`
+     - `createUser(data)`
+     - `updateUser(id, data)`
+     - `toggleUserStatus(id, isActive)`
+     - `getHRStats()` : calcule en temps réel `totalEmployees`, `activeDeclarantsAtPort`, `activeComptables`, `connectedClients`, `totalActive`, `totalInactive`.
+3. **Sécurité & Révocation de Session (`server/_core/sdk.ts` & `server/_core/trpc.ts`)** :
+   - `sdk.authenticateRequest` vérifie systématiquement `user.isActive === false` et rejette avec `ForbiddenError`.
+   - `requireUser` et les middlewares de procédures tRPC (`adminProcedure`, `declarantProcedure`, `comptableProcedure`, `internalProcedure`) rejettent tout utilisateur inactif avec un code `FORBIDDEN` (403).
+4. **Routeur tRPC (`server/routers.ts`)** :
+   - Routeur `user` sous `adminProcedure` avec les procédures `list`, `getHRStats`, `get`, `create`, `update`, `toggleStatus`.
+5. **Interface Utilisateur & Navigation (`client/`)** :
+   - `client/src/hooks/usePermissions.ts` : ajout de `canManageUsers: boolean` (true pour admin).
+   - `client/src/pages/UsersPage.tsx` : écran responsive complet avec 4 cartes KPI, barre de recherche multi-critères, filtres de rôle et statut, tableau avec avatars et switch interactif d'activation/désactivation en un clic, et modale accessible de création/modification.
+   - `client/src/components/DashboardLayout.tsx` : ajout du lien `/utilisateurs` dans le menu latéral réservé au profil `admin`.
+   - `client/src/App.tsx` : enregistrement de la route `/utilisateurs` protégée par `ProtectedRoute` avec `allowedRoles={["admin"]}`.
+6. **Tests Unitaires & d'Intégration (`server/__tests__/user_admin_management.test.ts`)** :
+   - 22 assertions couvrant le seed des 100+ utilisateurs, l'exactitude des statistiques RH, la sécurité RBAC, le rejet des sessions inactives, et le cycle de vie CRUD complet.
 
 ---
 
 ## 2. Logic Chain
 
-1. **RBAC tRPC (`server/_core/trpc.ts`)** :
-   - *Observation :* L'application doit isoler strictement les opérations financières (Comptable), les opérations de transit douanier (Déclarant), la gestion globale (Admin) et la consultation publique (Client).
-   - *Raisonnement :* L'implémentation de `declarantProcedure`, `comptableProcedure` et `internalProcedure` au niveau du middleware tRPC garantit qu'aucune requête non autorisée ne peut atteindre les fonctions de base de données. L'exception `TRPCError({ code: "FORBIDDEN", message: "Accès refusé pour ce profil" })` est levée de façon déterministe.
-
-2. **Évolution du Schéma (`drizzle/schema.ts`)** :
-   - *Observation :* Les flux métier guinéens exigent la distinction entre factures Proforma et Définitives, la décomposition des débours (douane vs PAC), la saisie de quittance de paiement et le suivi des autorisations de transit (DDI GUCEG, BAD, BAE).
-   - *Raisonnement :* L'ajout des colonnes correspondantes et des enums Drizzle apporte la typification stricte de bout en bout (front-end et back-end) sans risque d'incohérence de données.
-
-3. **Double Parité Base de Données / Mémoire (`server/db.ts`)** :
-   - *Observation :* L'application opère en mode dual (PostgreSQL lorsque configuré, mémoire persistée sinon).
-   - *Raisonnement :* Toutes les méthodes CRUD (`listTasks`, `updateInvoice`, `recordInvoicePayment`, `setExchangeRate`) exécutent les requêtes Drizzle sur la base PostgreSQL tout en synchronisant les structures mémoires (`_memoryTasks`, `_memoryInvoices`, `_memoryDossiers`, `_memoryReferenceItems`). Les résultats sont ainsi 100% cohérents dans les deux environnements.
+1. **Intégrité des Données & Typage Strict** :
+   La définition de `isActive` et `sessionRevokedAt` dans `drizzle/schema.ts` garantit la cohérence du schéma Drizzle pour PostgreSQL et les DTOs TypeScript inférés.
+2. **Défense en Profondeur (Auth & Session Revocation)** :
+   Lorsqu'un administrateur bascule l'état d'un collaborateur à inactif (`toggleUserStatus`), `sessionRevokedAt` est horodaté et `isActive` devient `false`. Dès la requête HTTP suivante ou le prochain appel tRPC, `sdk.authenticateRequest` et `requireUser` interceptent le statut et lèvent une erreur `FORBIDDEN`.
+3. **Isolation des Rôles & Sécurité RBAC** :
+   Toutes les mutations et queries du routeur `user` sont protégées par `adminProcedure`. Les tests confirment que les déclarants, comptables, clients et utilisateurs anonymes reçoivent tous un statut 401 ou 403.
+4. **Ergonomie Opérationnelle Frontend** :
+   La page `/utilisateurs` fournit à la direction générale IGS une vue d'ensemble instantanée des ressources humaines opérationnelles au port et permet la gestion directe sans friction.
 
 ---
 
 ## 3. Caveats
 
-- **Aucun caveat fonctionnel :** Tous les critères de succès du Milestone 1 sont implémentés et validés.
-- **Environnement OAuth :** En environnement de test unitaire, un avertissement `[OAuth] ERROR: OAUTH_SERVER_URL is not configured!` est loggé de façon normale par le mock d'authentification lors de l'initialisation des routeurs sans impacter les tests.
+- Les numéros de téléphone sont formatés selon le plan de numérotation guinéen (+224 62x / 66x).
+- Si la base de données PostgreSQL/Supabase est hors ligne ou indisponible lors du démarrage local, le store mémoire persistant (`_memoryUsers`) prend automatiquement le relais de manière transparente sans interruption de service.
 
 ---
 
 ## 4. Conclusion
 
-L'ensemble des objectifs du Milestone 1 est atteint avec une conformité totale :
-- Procédures RBAC tRPC opérationnelles avec messages d'erreur réglementaires.
-- Schéma Drizzle et types partagés enrichis pour le dédouanement et la facturation multi-devises.
-- Couche `db.ts` enrichie en double parité (PostgreSQL + mémoire).
-- Routeurs sécurisés et conformes aux profils Mamadou Diallo (Déclarant PAC), Fatoumata Camara (Comptable), Administrateur IGS et Portail Client.
-- 100 % des tests unitaires et d'intégration passent (`15 test suites`, `120 tests passed`, `0` erreur TypeScript).
+L'ensemble des objectifs du **Milestone 1 — Module d'Administration & Gestion des 100 Employés (`/utilisateurs`)** est implémenté, documenté, conforme aux directives d'ingénierie (`AGENTS.md`) et validé à 100% par les suites de tests et le build de production.
 
 ---
 
 ## 5. Verification Method
 
-Pour vérifier de manière autonome les résultats :
+Pour vérifier de manière indépendante l'implémentation :
 
-1. **Vérification des Types TypeScript :**
+1. **Vérification du typage statique** :
    ```bash
    npm run check
    ```
-   *Résultat :* 0 erreur (`tsc --noEmit` code de sortie 0).
+   *Résultat : 0 erreur de typage.*
 
-2. **Exécution Complète de la Suite de Tests :**
+2. **Exécution des tests de vérification** :
    ```bash
-   npm test
+   npx vitest run server/__tests__/user_admin_management.test.ts
    ```
-   *Résultat :* 15 fichiers de tests réussis, 120 tests unitaires et d'intégration validés.
+   *Résultat : 6 blocs de tests passés avec succès.*
 
-3. **Exécution du Test Spécifique M1 :**
+3. **Exécution globale de toute la suite de tests** :
    ```bash
-   npx vitest run server/__tests__/tier2_trpc_rbac_integration/m1_backend_rbac_complete.test.ts
+   npm run test
    ```
-   *Résultat :* 12 tests réussis (RBAC, schéma, double parité, devises, isolation client).
+   *Résultat : 32/32 fichiers de test passés (333/333 tests réussis).*
+
+4. **Vérification du build de production** :
+   ```bash
+   npm run build
+   ```
+   *Résultat : Build Vite + esbuild réussi sans erreur.*

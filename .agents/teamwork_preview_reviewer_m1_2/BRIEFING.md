@@ -1,59 +1,59 @@
-# BRIEFING — 2026-08-18T16:03:00Z
+# BRIEFING — 2026-08-20T13:17:00Z
 
 ## Mission
-Objective and adversarial review of Milestone 1 Backend & RBAC Implementation for IGS Guinée SaaS.
+Perform an independent code, UX, security, and integrity review of Milestone 1 (Admin & Users /utilisateurs) implementation.
 
 ## 🔒 My Identity
-- Archetype: reviewer & critic
+- Archetype: reviewer_critic
 - Roles: reviewer, critic
 - Working directory: /Users/alphasalinkobarry/Downloads/igs-suivis de dossier SaaS/.agents/teamwork_preview_reviewer_m1_2
-- Original parent: 3bba92c2-33c3-493f-8daa-7cb66a8d90a8
-- Milestone: Milestone 1 - Backend & RBAC Implementation
+- Original parent: f7bcce2f-9a8f-4812-bea3-9b914f48ebb1
+- Milestone: Milestone 1 - Admin & Users
 - Instance: 2 of 2
 
 ## 🔒 Key Constraints
 - Review-only — do NOT modify implementation code
-- Check for integrity violations, shortcuts, dummy code, hardcoded test results
-- Rigorous security, RBAC, financial precision, and concurrency review
-- Full test and type-check execution
+- Enforce project rules from AGENTS.md and PROJECT.md
+- Actively check for integrity violations (hardcoded test results, facade logic, bypassed checks)
 
 ## Current Parent
-- Conversation ID: 3bba92c2-33c3-493f-8daa-7cb66a8d90a8
-- Updated: 2026-08-18T16:03:00Z
+- Conversation ID: f7bcce2f-9a8f-4812-bea3-9b914f48ebb1
+- Updated: 2026-08-20T13:17:00Z
 
 ## Review Scope
-- **Files reviewed**:
-  - `server/_core/trpc.ts` (RBAC procedures)
-  - `drizzle/schema.ts` (PostgreSQL schema extensions)
-  - `server/db.ts` (Dual parity PostgreSQL + Memory persistence)
-  - `server/routers.ts` (tRPC routers & permissions)
-  - `shared/types.ts` (Shared types re-export)
-  - `server/__tests__/` (15 test suites across Tiers 1-4)
-- **Interface contracts**: `/Users/alphasalinkobarry/Downloads/igs-suivis de dossier SaaS/PROJECT.md`, `ORIGINAL_REQUEST.md`
-- **Worker handoff**: `/Users/alphasalinkobarry/Downloads/igs-suivis de dossier SaaS/.agents/teamwork_preview_worker_m1/handoff.md`
+- **Files to review**: `client/src/pages/UsersPage.tsx`, `client/src/components/DashboardLayout.tsx`, `client/src/App.tsx`, `client/src/hooks/usePermissions.ts`, `server/routers.ts`, `server/db.ts`, `server/initialUsersData.ts`, `server/_core/sdk.ts`, `server/_core/trpc.ts`, `drizzle/schema.ts`, `server/__tests__/user_admin_management.test.ts`
+- **Interface contracts**: `PROJECT.md`, `AGENTS.md`, `ORIGINAL_REQUEST.md`
+- **Review criteria**: UX, accessibility, form validations, toast notifications, search & filters, backend RBAC permissions, session revocation logic, HR stats calculation accuracy, test integrity, build verification
 
 ## Review Checklist
-- **Items reviewed**: RBAC procedures, Drizzle schema, DB dual parity, finance multi-currency summary, payment recording, task toggle, client portal isolation, test suites.
+- **Items reviewed**:
+  - `client/src/pages/UsersPage.tsx` (UX, A11y, filters, search, modal form, reactive switches, sonner toasts)
+  - `server/routers.ts` (user router, input validation with zod, adminProcedure guards)
+  - `server/_core/trpc.ts` & `server/_core/sdk.ts` (multi-layered defense against inactive users)
+  - `server/db.ts` & `server/initialUsersData.ts` (111 seeded collaborators, dynamic HR stats, persistence)
+  - `drizzle/schema.ts` (`isActive` & `sessionRevokedAt` columns)
+  - `client/src/App.tsx` & `client/src/components/DashboardLayout.tsx` (admin-only routing & sidebar link)
+  - Automated tests: `user_admin_management.test.ts` (22/22 passed), full suite (333/333 passed in 32 files)
+  - Full production build (`npm run check` and `npm run build` passed)
 - **Verdict**: APPROVE
-- **Unverified claims**: None. All claims verified with direct inspection, `npm test`, `npm run check`, and `npm run build`.
+- **Unverified claims**: None. All claims independently checked and verified.
 
 ## Attack Surface
 - **Hypotheses tested**:
-  - Privilege escalation from Declarant/Client to Finance router -> Blocked (403 Forbidden).
-  - Client portal isolation cross-tenant leak -> Filtered on `currentUserCompany` and blocked on `dossier.get`.
-  - Non-admin dossier deletion -> Blocked (403 Forbidden).
-  - Exchange rate update permissions -> Restricted to `comptableProcedure`.
-  - Multi-currency zero/negative amount validation -> Handled safely.
-- **Vulnerabilities / Edge Cases found**:
-  - Minor edge case: If a user with role `client` has `clientCompany == null`, company filter could be bypassed. Recommend enforcing non-null company for client role.
-  - Minor edge case: `document.remove` uses `protectedProcedure` rather than `internalProcedure`. Recommend hardening in future milestone.
-- **Untested angles**: All core M1 angles stress-tested.
+  1. Unauthorized non-admin callers (declarant, comptable, client, anonymous) attempting to access admin user procedures → Confirmed blocked with 401/403.
+  2. Inactive user session attempt on any protected route → Confirmed blocked with 403 at both SDK level and tRPC middleware level.
+  3. Session revocation timestamp integrity on user deactivation/reactivation → Confirmed properly stamped and cleared.
+  4. Dynamic HR stats calculation consistency (`totalActive + totalInactive === totalEmployees`) → Confirmed accurate.
+  5. UI accessibility and form validation under invalid input → Confirmed client-side & server-side zod validation active.
+- **Vulnerabilities found**: None.
+- **Untested angles**: None within Milestone 1 scope.
 
 ## Key Decisions Made
-- Confirmed full compliance with Milestone 1 specifications.
-- Issued APPROVE verdict with recommendations documented in `handoff.md`.
+- Confirmed full compliance with all acceptance criteria of Milestone 1.
+- Issuing formal review verdict `APPROVE`.
 
 ## Artifact Index
-- `.agents/teamwork_preview_reviewer_m1_2/DISPATCH.md` — Dispatch record
-- `.agents/teamwork_preview_reviewer_m1_2/progress.md` — Progress tracker
-- `.agents/teamwork_preview_reviewer_m1_2/handoff.md` — Final review and challenge report
+- `DISPATCH.md` — Incoming task instructions
+- `BRIEFING.md` — Working memory and review checklist
+- `progress.md` — Progress tracker
+- `handoff.md` — Comprehensive review report and APPROVE verdict

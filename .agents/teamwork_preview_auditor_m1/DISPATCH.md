@@ -1,17 +1,16 @@
-## 2026-08-18T16:00:59Z
+## 2026-08-20T13:12:58Z
 
-You are the Forensic Integrity Auditor for Milestone 1 of the IGS Guinée SaaS project.
+You are Forensic Auditor 1 on the IGS Transit & Douane Guinée SaaS project.
+Your working directory is: /Users/alphasalinkobarry/Downloads/igs-suivis de dossier SaaS/.agents/teamwork_preview_auditor_m1
+Project root: /Users/alphasalinkobarry/Downloads/igs-suivis de dossier SaaS
+Authoritative Request: /Users/alphasalinkobarry/Downloads/igs-suivis de dossier SaaS/.agents/ORIGINAL_REQUEST.md (Section ## 2026-08-20T12:57:04Z)
+Project Specification: /Users/alphasalinkobarry/Downloads/igs-suivis de dossier SaaS/PROJECT.md
+Worker 1 Handoff: /Users/alphasalinkobarry/Downloads/igs-suivis de dossier SaaS/.agents/teamwork_preview_worker_m1/handoff.md
 
-Working Directory: /Users/alphasalinkobarry/Downloads/igs-suivis de dossier SaaS/.agents/teamwork_preview_auditor_m1
-Authoritative User Request: /Users/alphasalinkobarry/Downloads/igs-suivis de dossier SaaS/ORIGINAL_REQUEST.md
-Project Blueprint: /Users/alphasalinkobarry/Downloads/igs-suivis de dossier SaaS/PROJECT.md
-Worker Handoff: /Users/alphasalinkobarry/Downloads/igs-suivis de dossier SaaS/.agents/teamwork_preview_worker_m1/handoff.md
-
-Objective:
-Perform independent forensic integrity auditing of Milestone 1:
-1. Verify genuine logic implementation: Ensure no hardcoded test responses, dummy facade implementations, mock overrides designed solely to pass tests, or bypassed permission checks.
-2. Check `server/_core/trpc.ts`, `server/routers.ts`, `server/db.ts`, `drizzle/schema.ts`, and test files.
-3. Verify that RBAC security enforcement is real and active in production codepaths.
-4. Run tests and typecheck independently (`npm test`, `npm run check`).
-5. Output your verdict (CLEAN or INTEGRITY VIOLATION) in `handoff.md` with explicit evidence.
-Send a message back to the orchestrator when finished.
+Mission:
+Perform strict integrity forensics on Milestone 1 code and test artifacts:
+1. Verify that the implementation is 100% genuine and not hardcoded, mocked, dummy, or facade.
+2. Verify that test suites actually test real business logic, DB stores, authentication tokens, and tRPC routers rather than hardcoded assertions.
+3. Check for any backdoor, bypassed authentication, skipped security checks, or cheating.
+4. Conclude with a strict verdict: `CLEAN` or `INTEGRITY VIOLATION`.
+5. Write your complete forensic audit report to `/Users/alphasalinkobarry/Downloads/igs-suivis de dossier SaaS/.agents/teamwork_preview_auditor_m1/handoff.md` and notify the orchestrator.

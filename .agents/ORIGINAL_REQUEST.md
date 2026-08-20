@@ -58,3 +58,56 @@ Integrity mode: development
 ### Tests & Déploiement
 - [ ] Tous les tests unitaires et d'intégration passent (`npm run test`).
 - [ ] Build de production sans erreur (`npm run vercel-build`).
+
+## 2026-08-20T12:57:04Z
+
+# Teamwork Project Prompt — Enterprise 100% Ready
+
+Working directory: /Users/alphasalinkobarry/Downloads/igs-suivis de dossier SaaS
+Integrity mode: development
+
+## Requirements
+
+### R1. Module d'Administration & Gestion des 100 Employés (`/utilisateurs`)
+- Interface complète d'administration réservée aux administrateurs (`adminProcedure`) :
+  - Tableau de tous les collaborateurs avec nom, email, téléphone, rôle (`admin`, `declarant`, `comptable`, `client`), date de dernière connexion et statut actif/inactif.
+  - Modale de création et de modification d'un collaborateur (attribution des permissions et de l'entreprise cliente).
+  - Possibilité de basculer instantanément l'état actif/inactif d'un compte avec révocation immédiate de session.
+  - Statistiques RH en temps réel (nombre total d'employés, déclarants actifs au quai, comptables, clients connectés).
+  - Intégration dans la barre de navigation latérale (`DashboardLayout.tsx`).
+
+### R2. Détection des Conflits d'Édition Simultanée (Optimistic Locking)
+- Sécuriser les fiches dossiers contre l'écrasement involontaire lorsque 2 collaborateurs travaillent sur le même dossier :
+  - Vérification du timestamp `updatedAt` ou numéro de version lors de la mutation `dossier.update`.
+  - En cas de conflit, affichage d'une modale non-bloquante avec aperçu des modifications concurrentes et option de fusionner ou recharger les données fraîches.
+
+### R3. Journal d'Audit & Traçabilité Réglementaire (Audit Trail)
+- Enregistrement automatique et infalsifiable de chaque action critique :
+  - Modification d'un statut douanier (DDI, SYDONIA, Bulletin BLD, BAD, BAE, Sortie PAC).
+  - Émission de facture, enregistrement d'encaissement et avance de débours.
+  - Consultation de l'historique complet par dossier (`/dossiers/[id]`) avec date, heure, nom de l'agent et détail précis avant/après.
+
+### R4. Mode Mobile & PWA Installable pour Agents sur le Quai (Port de Conakry)
+- Transformation de l'application en Progressive Web App (PWA) installable sur Android/iOS :
+  - `manifest.json` avec icônes IGS haute résolution, thème `#0b3b32` et mode standalone.
+  - Service Worker et gestion du cache pour navigation fluide même en cas d'instabilité 3G/4G au port.
+  - Bannière d'installation PWA et indicateur de statut réseau (En ligne / Hors-ligne).
+
+## Acceptance Criteria
+
+### Gestion des Utilisateurs
+- [ ] La page `/utilisateurs` permet de créer, modifier et désactiver un employé en base Supabase.
+- [ ] Les routes tRPC de gestion RH sont strictement protégées et inaccessibles aux non-admins.
+
+### Concurrence & Conflits
+- [ ] Une tentative de modification d'un dossier obsolète détecte le conflit et propose le rechargement sans perte de données.
+
+### Audit & Traçabilité
+- [ ] Chaque modification de statut ou opération financière génère une entrée d'audit consultable sur la fiche dossier.
+
+### PWA & Expérience Mobile
+- [ ] Le manifest PWA est valide et le bouton d'installation sur mobile/ordinateur fonctionne.
+
+### Tests & Déploiement
+- [ ] Tous les tests unitaires et d'intégration passent (`npm run test`).
+- [ ] Build de production sans aucune erreur TypeScript (`npm run build`).

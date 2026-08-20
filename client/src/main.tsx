@@ -155,3 +155,18 @@ createRoot(document.getElementById("root")!).render(
     </QueryClientProvider>
   </trpc.Provider>
 );
+
+// Enregistrement du Service Worker PWA (Terrain & Quai de Conakry)
+if (typeof window !== "undefined" && "serviceWorker" in navigator && import.meta.env.MODE !== "test") {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker
+      .register("/sw.js")
+      .then((registration) => {
+        console.log("[PWA] Service Worker actif, scope:", registration.scope);
+      })
+      .catch((error) => {
+        console.warn("[PWA] Échec d'enregistrement Service Worker:", error);
+      });
+  });
+}
+

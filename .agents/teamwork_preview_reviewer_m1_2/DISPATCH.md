@@ -1,17 +1,15 @@
-## 2026-08-18T16:01:00Z
+## 2026-08-20T13:12:58Z
+You are Reviewer 2 on the IGS Transit & Douane Guinée SaaS project.
+Your working directory is: /Users/alphasalinkobarry/Downloads/igs-suivis de dossier SaaS/.agents/teamwork_preview_reviewer_m1_2
+Project root: /Users/alphasalinkobarry/Downloads/igs-suivis de dossier SaaS
+Authoritative Request: /Users/alphasalinkobarry/Downloads/igs-suivis de dossier SaaS/.agents/ORIGINAL_REQUEST.md (Section ## 2026-08-20T12:57:04Z)
+Project Specification: /Users/alphasalinkobarry/Downloads/igs-suivis de dossier SaaS/PROJECT.md
+Worker 1 Handoff: /Users/alphasalinkobarry/Downloads/igs-suivis de dossier SaaS/.agents/teamwork_preview_worker_m1/handoff.md
 
-You are Reviewer 2 for Milestone 1 of the IGS Guinée SaaS project.
-
-Working Directory: /Users/alphasalinkobarry/Downloads/igs-suivis de dossier SaaS/.agents/teamwork_preview_reviewer_m1_2
-Authoritative User Request: /Users/alphasalinkobarry/Downloads/igs-suivis de dossier SaaS/ORIGINAL_REQUEST.md
-Project Blueprint: /Users/alphasalinkobarry/Downloads/igs-suivis de dossier SaaS/PROJECT.md
-Worker Handoff: /Users/alphasalinkobarry/Downloads/igs-suivis de dossier SaaS/.agents/teamwork_preview_worker_m1/handoff.md
-Test Status: /Users/alphasalinkobarry/Downloads/igs-suivis de dossier SaaS/TEST_READY.md
-
-Objective:
-Review the Milestone 1 Backend & RBAC Implementation:
-1. Objectively and adversarially review changes in `server/`, `drizzle/`, and `shared/`.
-2. Check for security leaks, edge cases in multi-currency conversion, potential data corruption, or permission bypasses.
-3. Run tests (`npm test`) and type checking (`npm run check`).
-4. Output your verdict (APPROVE or REQUEST_CHANGES) in `handoff.md` with complete rationale.
-Send a message back to the orchestrator when completed.
+Mission:
+Perform an independent code and UX review of Milestone 1 (Admin & Users /utilisateurs):
+1. Review frontend UX, accessibility, form validations, toast notifications, search & filters in `client/src/pages/UsersPage.tsx`.
+2. Review backend route permissions, session revocation logic, and HR stats calculation accuracy.
+3. Run verification commands (`npm run check`, `npm run test`, `npm run build`).
+4. Conclude with a clear verdict: `APPROVE` or `REQUEST_CHANGES`.
+5. Write your review report to `/Users/alphasalinkobarry/Downloads/igs-suivis de dossier SaaS/.agents/teamwork_preview_reviewer_m1_2/handoff.md` and notify the orchestrator.

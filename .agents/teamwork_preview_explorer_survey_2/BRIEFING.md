@@ -1,43 +1,39 @@
-# BRIEFING — 2026-08-19T11:24:45Z
+# BRIEFING — 2026-08-20T13:01:15Z
 
 ## Mission
-Investigate R3 (Controles Actions Prioritaires table horizontal overflow & action buttons visibility) and R4 (Dossier Sheet loading latency optimization to <300ms).
+Investigate codebase for R2 (Optimistic Locking) and R3 (Audit Trail & Regulatory Logging) in IGS Transit & Douane Guinée SaaS.
 
 ## 🔒 My Identity
-- Archetype: explorer
-- Roles: investigator, analyzer, synthesizer
+- Archetype: Explorer
+- Roles: Read-only investigation, codebase analysis, synthesis & handoff
 - Working directory: /Users/alphasalinkobarry/Downloads/igs-suivis de dossier SaaS/.agents/teamwork_preview_explorer_survey_2
-- Original parent: 7e34697f-8374-458f-91db-f80cdb8a5ab3
-- Milestone: survey_preview_exploration
+- Original parent: f7bcce2f-9a8f-4812-bea3-9b914f48ebb1
+- Milestone: Explorer Survey R2 & R3
 
 ## 🔒 Key Constraints
-- Read-only investigation — do NOT implement
-- Adhere strictly to AGENTS.md and Teamwork Explorer instructions
+- Read-only investigation — do NOT modify application source code
+- Produce structured survey report at .agents/teamwork_preview_explorer_survey_2/survey_report.md
+- Produce handoff report at .agents/teamwork_preview_explorer_survey_2/handoff.md
+- Send message to parent orchestrator upon completion
 
 ## Current Parent
-- Conversation ID: 7e34697f-8374-458f-91db-f80cdb8a5ab3
-- Updated: 2026-08-19T11:24:45Z
+- Conversation ID: f7bcce2f-9a8f-4812-bea3-9b914f48ebb1
+- Updated: 2026-08-20T13:01:15Z
 
 ## Investigation State
-- **Explored paths**:
-  - `client/src/pages/ControlsPage.tsx`
-  - `client/src/components/CustomsEditModal.tsx`
-  - `client/src/pages/DossierDetailPage.tsx`
-  - `server/routers.ts`
-  - `server/db.ts`
-  - `server/alertsService.ts`
-  - `client/src/main.tsx`
-  - `server/__tests__/tier2_trpc_rbac_integration/dossier_detail_dynamic_route.test.ts`
+- **Explored paths**: `drizzle/schema.ts`, `server/db.ts`, `server/routers.ts`, `client/src/pages/DossierDetailPage.tsx`, `client/src/components/CustomsEditModal.tsx`, `client/src/pages/ControlsPage.tsx`, `client/src/pages/FinancesPage.tsx`, `server/__tests__/` test suites.
 - **Key findings**:
-  - R3: `ControlsPage.tsx` uses `min-w-[750px]` in a non-styled `overflow-x-auto` container, pushing action buttons off-screen on screens < 1024px without visual cues or responsive stacked cards.
-  - R4: Zero `setTimeout` or `sleep` artificial delays found. The 5-8s latency is caused by unconditional full-database fetching via `dossier.list.useQuery()`, eager execution of 5 tab sub-queries, cascading batch requests for slug-based routes, and non-indexed 6-clause OR queries in `db.getDossier`.
-- **Unexplored areas**: None. Both R3 and R4 fully mapped and actionable.
+  - R2 (Optimistic Locking): Currently completely missing. `dossiers` table lacks a `version` column. Mutations `dossier.update` and `dossier.updateCustoms` do not verify version or timestamp, allowing silent lost updates. Frontend lacks conflict detection dialog and diff merge view.
+  - R3 (Audit Trail): `dossierStatusHistory` table exists but lacks action identifiers, entity types (`entityType`, `entityId`), user role, before/after JSON structures, and IP metadata. Financial operations (`createInvoice`, `createPacDisbursement`) are not consistently logged to history.
+- **Unexplored areas**: None for R2 & R3 survey scope.
 
 ## Key Decisions Made
-- Structured the complete handoff report with exact line numbers, code snippets, logic chains, caveats, and verification methods in `handoff.md`.
+- Completed full survey report at `survey_report.md`.
+- Formulated clear 4-step implementation blueprint for R2 and 3-step blueprint for R3.
 
 ## Artifact Index
-- DISPATCH.md — Dispatch log
-- BRIEFING.md — Persistent context & state
-- progress.md — Heartbeat & execution progress
-- handoff.md — Final 5-component report
+- DISPATCH.md — Records incoming dispatches
+- BRIEFING.md — Persistent working memory
+- progress.md — Liveness heartbeat and step tracking
+- survey_report.md — Comprehensive survey report
+- handoff.md — 5-component handoff report

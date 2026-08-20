@@ -1,42 +1,45 @@
-# BRIEFING — 2026-08-19T11:24:50Z
+# BRIEFING — 2026-08-20T13:02:28Z
 
 ## Mission
-Explore and analyze R1 (Client Portal search bug infinite loading) and R2 (Notification bell mark as read & badge counter updates) to determine root causes, affected files/components, and precise fix recommendations.
+Investigate codebase for R1: Module d'Administration & Gestion des 100 Employés (/utilisateurs) in IGS Transit & Douane Guinée SaaS.
 
 ## 🔒 My Identity
-- Archetype: explorer
-- Roles: survey, analysis, synthesis
+- Archetype: Explorer
+- Roles: Codebase Investigator, Architecture Analyst, Survey Reporter
 - Working directory: /Users/alphasalinkobarry/Downloads/igs-suivis de dossier SaaS/.agents/teamwork_preview_explorer_survey_1
-- Original parent: 7e34697f-8374-458f-91db-f80cdb8a5ab3
-- Milestone: survey_r1_r2
+- Original parent: f7bcce2f-9a8f-4812-bea3-9b914f48ebb1
+- Milestone: Survey & Investigation for R1 (User & HR Management)
 
 ## 🔒 Key Constraints
-- Read-only investigation — do NOT implement
-- Target R1: /portail-client search bug (invalid code infinite loading)
-- Target R2: Notification bell system ("Marquer lu" / "Tout marquer lu" not updating state or badge)
+- Read-only investigation — do NOT implement production code
+- Write only to .agents/teamwork_preview_explorer_survey_1/ (metadata, survey_report.md, handoff.md, progress.md)
+- Adhere strictly to AGENTS.md rules & Handoff Protocol
 
 ## Current Parent
-- Conversation ID: 7e34697f-8374-458f-91db-f80cdb8a5ab3
-- Updated: 2026-08-19T11:21:45Z
+- Conversation ID: f7bcce2f-9a8f-4812-bea3-9b914f48ebb1
+- Updated: 2026-08-20T13:02:28Z
 
 ## Investigation State
 - **Explored paths**:
-  - `client/src/pages/ClientPortalPage.tsx`
-  - `client/src/components/DashboardLayout.tsx`
-  - `client/src/main.tsx`
-  - `server/routers.ts` (`portal.track`, `notification.*`)
-  - `server/db.ts` (`getDossierByPortalCode`, `listNotifications`, `markNotificationAsRead`, `markAllNotificationsAsRead`)
-  - `server/alertsService.ts` (`generateProactiveAlerts`)
-  - `server/__tests__/tier2_trpc_rbac_integration/client_portal_isolation.test.ts`
-  - `server/__tests__/tier1_business_logic/proactive_alerts_service.test.ts`
+  - `drizzle/schema.ts` & SQL migrations (`users`, `clients`, `dossiers` tables)
+  - `server/db.ts` (storage, memory users, CRUD queries)
+  - `server/_core/sdk.ts`, `server/_core/context.ts`, `server/_core/trpc.ts` (JWT verification, RBAC procedures)
+  - `server/routers.ts` (tRPC routers and existing auth routes)
+  - `client/src/App.tsx`, `client/src/components/ProtectedRoute.tsx`, `client/src/hooks/usePermissions.ts`
+  - `client/src/components/DashboardLayout.tsx` (sidebar menus, role switching)
+  - `server/__tests__` suite (31 test files, 311 tests passing)
 - **Key findings**:
-  - R1: `portal.track` query had default `retry: 1`, lacked `retry: false`, button/view state checked `isLoading` instead of `isFetching`, missing `clientDossierNumber` search in `db.getDossierByPortalCode`, and generic `Error` thrown instead of explicit `TRPCError` with code `NOT_FOUND`.
-  - R2: `DashboardLayout.tsx` lacked `trpc.useUtils()` and optimistic cache updates (`setData`/`invalidate`); backend `alertsService.ts` generated unstable dynamic IDs (`idCounter++`) that shifted when dossiers reordered on update, breaking `_readNotificationIds` tracking.
-- **Unexplored areas**: None for R1/R2 scope.
+  1. `users` table needs `isActive` (boolean) and `sessionRevokedAt` (timestamp) fields to support instant suspension and session revocation.
+  2. `sdk.authenticateRequest` and `requireUser` currently do not check `user.isActive`, which is a security gap to patch during implementation.
+  3. `server/routers.ts` requires new `adminProcedure` endpoints: `user.list`, `user.create`, `user.update`, `user.toggleStatus`, `user.getHRStats`.
+  4. Frontend needs new page `client/src/pages/UsersPage.tsx` protected by `<ProtectedRoute component={UsersPage} allowedRoles={["admin"]} />`, plus sidebar link in `DashboardLayout.tsx`.
+- **Unexplored areas**: None for R1 survey scope.
 
 ## Key Decisions Made
-- Formulated exact architectural fix for R1 (query options, UI state handling, DB search expansion, tRPC error code).
-- Formulated exact architectural fix for R2 (deterministic alert IDs in alertsService, TanStack query optimistic mutation & invalidation in DashboardLayout).
+- Produced comprehensive `survey_report.md` detailing DB schema additions, session revocation architecture, tRPC endpoints design, frontend UI blueprint, and test matrix.
 
 ## Artifact Index
-- `handoff.md` — Complete 5-component handoff report for R1 and R2
+- DISPATCH.md — Initial mission dispatch
+- progress.md — Liveness and step tracking
+- survey_report.md — Comprehensive R1 survey report
+- handoff.md — 5-component handoff report

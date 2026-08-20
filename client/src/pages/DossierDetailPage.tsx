@@ -1,5 +1,6 @@
 import DashboardLayout from "@/components/DashboardLayout";
 import { CustomsEditModal } from "@/components/CustomsEditModal";
+import { ConflictResolutionModal, ConflictFieldDiff } from "@/components/ConflictResolutionModal";
 import Breadcrumbs from "@/components/Breadcrumbs";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -289,10 +290,16 @@ function DetailContent() {
       },
     }
   );
+  const allDossiersQuery = trpc.dossier.list.useQuery(undefined, {
+    staleTime: 30000,
+  });
   const { data: references = [] } = trpc.reference.list.useQuery();
   const [form, setForm] = useState<FormState>(blank);
   const [showValidation, setShowValidation] = useState(false);
   const [customsModalOpen, setCustomsModalOpen] = useState(false);
+  const [conflictModalOpen, setConflictModalOpen] = useState(false);
+  const [conflictDiffs, setConflictDiffs] = useState<ConflictFieldDiff[]>([]);
+  const [auditFilter, setAuditFilter] = useState<"all" | "customs" | "finance" | "documents">("all");
 
   // Onglets & Modales
   const [activeTab, setActiveTab] = useState("general");
@@ -467,11 +474,10 @@ function DetailContent() {
     });
   }, [dossier, isNew]);
 
-  const cachedDossiers = utils.dossier.list.getData() || [];
-  const sortedDossiers = useMemo(
-    () => [...cachedDossiers].sort((a, b) => a.dossierNumber.localeCompare(b.dossierNumber)),
-    [cachedDossiers]
-  );
+  const sortedDossiers = useMemo(() => {
+    return (allDossiersQuery.data || []).slice().sort((a, b) => b.id - a.id);
+  }, [allDossiersQuery.data]);
+
   const currentIndex = sortedDossiers.findIndex(item => item.id === numericId || item.dossierNumber === rawId);
   const prev = currentIndex > 0 ? sortedDossiers[currentIndex - 1] : null;
   const next = currentIndex >= 0 && currentIndex < sortedDossiers.length - 1 ? sortedDossiers[currentIndex + 1] : null;
@@ -484,26 +490,6 @@ function DetailContent() {
       setLocation("/dossiers");
     },
     onError: err => toast.error(err.message || "Erreur de création"),
-  });
-
-  const updateMutation = trpc.dossier.update.useMutation({
-    onSuccess: updated => {
-      toast.success(`Dossier ${updated?.dossierNumber} mis à jour avec succès`);
-      utils.dossier.invalidate();
-      utils.dashboard.invalidate();
-      setLocation("/dossiers");
-    },
-    onError: err => toast.error(err.message || "Erreur de mise à jour"),
-  });
-
-  const removeMutation = trpc.dossier.remove.useMutation({
-    onSuccess: () => {
-      toast.success("Dossier supprimé");
-      utils.dossier.invalidate();
-      utils.dashboard.invalidate();
-      setLocation("/dossiers");
-    },
-    onError: err => toast.error(`Erreur de suppression : ${err.message}`),
   });
 
   const buildPayload = () => ({
@@ -539,6 +525,73 @@ function DetailContent() {
     notes: toText(form.notes),
   });
 
+  const updateMutation = trpc.dossier.update.useMutation({
+    onSuccess: updated => {
+      toast.success(`Dossier ${updated?.dossierNumber} mis à jour avec succès`);
+      utils.dossier.invalidate();
+      utils.dashboard.invalidate();
+      setConflictModalOpen(false);
+      setLocation("/dossiers");
+    },
+    onError: (err, variables) => {
+      const isConflict =
+        (err as any)?.data?.code === "CONFLICT" ||
+        err.message?.toLowerCase().includes("conflit") ||
+        (err as any)?.shape?.data?.httpStatus === 409;
+
+      if (isConflict) {
+        const diffs: ConflictFieldDiff[] = [];
+        const payload = variables.data || buildPayload();
+        for (const [k, v] of Object.entries(payload)) {
+          const serverVal = (dossier as any)?.[k];
+          const localVal = v instanceof Date ? v.toISOString().slice(0, 10) : v;
+          const sVal = serverVal instanceof Date ? serverVal.toISOString().slice(0, 10) : serverVal;
+          if (localVal !== undefined && String(localVal || "") !== String(sVal || "")) {
+            diffs.push({
+              field: k,
+              localValue: localVal,
+              serverValue: sVal,
+            });
+          }
+        }
+        setConflictDiffs(diffs);
+        setConflictModalOpen(true);
+        toast.error("Conflit d'édition simultanée : ce dossier a été modifié par un autre collaborateur.");
+        return;
+      }
+      toast.error(err.message || "Erreur de mise à jour");
+    },
+  });
+
+  const removeMutation = trpc.dossier.remove.useMutation({
+    onSuccess: () => {
+      toast.success("Dossier supprimé");
+      utils.dossier.invalidate();
+      utils.dashboard.invalidate();
+      setLocation("/dossiers");
+    },
+    onError: err => toast.error(`Erreur de suppression : ${err.message}`),
+  });
+
+  const handleForceOverwrite = () => {
+    if (!numericId) return;
+    const payload = buildPayload();
+    updateMutation.mutate({
+      id: numericId,
+      forceOverwrite: true,
+      data: payload,
+    });
+  };
+
+  const handleReloadServerData = () => {
+    if (rawId) {
+      utils.dossier.get.invalidate({ id: rawId });
+    }
+    utils.dossier.list.invalidate();
+    setConflictModalOpen(false);
+    toast.info("Données du serveur rechargées.");
+  };
+
   const handleSaveDraft = (event?: React.MouseEvent) => {
     if (event) event.preventDefault();
     if (!form.client?.trim() && !form.clientDossierNumber?.trim() && !form.blLtaNumber?.trim()) {
@@ -551,7 +604,12 @@ function DetailContent() {
     if (isNew) {
       createMutation.mutate(payload);
     } else if (numericId) {
-      updateMutation.mutate({ id: numericId, data: payload });
+      updateMutation.mutate({
+        id: numericId,
+        expectedVersion: dossier?.version,
+        expectedUpdatedAt: dossier?.updatedAt,
+        data: payload,
+      });
     }
   };
 
@@ -585,7 +643,12 @@ function DetailContent() {
     if (isNew) {
       createMutation.mutate(payload);
     } else if (numericId) {
-      updateMutation.mutate({ id: numericId, data: payload });
+      updateMutation.mutate({
+        id: numericId,
+        expectedVersion: dossier?.version,
+        expectedUpdatedAt: dossier?.updatedAt,
+        data: payload,
+      });
     }
   };
 
@@ -1432,27 +1495,193 @@ function DetailContent() {
         {/* ONGLET 5: Audit Trail & Historique (Gated via perms.canViewAudit) */}
         {perms.canViewAudit && (
           <TabsContent value="audit" className="space-y-4">
-            <div>
-              <h2 className="font-[Georgia] text-lg font-semibold text-[#173b32]">Journal d'Audit & Traçabilité Complète</h2>
-              <p className="text-xs text-muted-foreground">Historique horodaté des changements de statuts, ajouts de documents et modifications (preuve légale et conformité).</p>
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pb-2 border-b border-gray-100">
+              <div>
+                <h2 className="font-[Georgia] text-lg font-semibold text-[#173b32] flex items-center gap-2">
+                  <ShieldCheck className="h-5 w-5 text-emerald-700" />
+                  Journal d'Audit & Traçabilité Réglementaire
+                </h2>
+                <p className="text-xs text-muted-foreground">
+                  Registre immuable des transitions douanières (SYDONIA, BLD, BAE, PAC), opérations financières et documents (preuve légale et conformité).
+                </p>
+              </div>
+
+              {/* Filtres de catégorie d'audit */}
+              <div className="flex flex-wrap gap-1.5">
+                {[
+                  { id: "all", label: "Tout l'historique" },
+                  { id: "customs", label: "Douane & PAC" },
+                  { id: "finance", label: "Finances & Factures" },
+                  { id: "documents", label: "Pièces & Documents" },
+                ].map(tab => (
+                  <Button
+                    key={tab.id}
+                    type="button"
+                    variant={auditFilter === tab.id ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => setAuditFilter(tab.id as any)}
+                    className={
+                      auditFilter === tab.id
+                        ? "bg-[#0b3b32] text-white text-[11px] h-7 rounded-lg"
+                        : "text-gray-600 text-[11px] h-7 rounded-lg border-gray-200"
+                    }
+                  >
+                    {tab.label}
+                  </Button>
+                ))}
+              </div>
             </div>
 
+            {/* Statistiques d'audit */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <div className="rounded-xl border border-emerald-100 bg-emerald-50/50 p-3">
+                <span className="text-[10px] uppercase font-bold text-emerald-700">Total Événements</span>
+                <p className="text-lg font-bold text-emerald-950">{auditQuery.data?.length || 0}</p>
+              </div>
+              <div className="rounded-xl border border-blue-100 bg-blue-50/50 p-3">
+                <span className="text-[10px] uppercase font-bold text-blue-700">Contrôles Douane</span>
+                <p className="text-lg font-bold text-blue-950">
+                  {auditQuery.data?.filter(e => e.action?.includes("DOUANE") || e.action?.includes("SYDONIA") || e.action?.includes("BLD") || e.action?.includes("BAE") || e.action?.includes("BAD") || e.action?.includes("PAC") || e.action?.includes("DDI")).length || 0}
+                </p>
+              </div>
+              <div className="rounded-xl border border-amber-100 bg-amber-50/50 p-3">
+                <span className="text-[10px] uppercase font-bold text-amber-700">Opérations Financières</span>
+                <p className="text-lg font-bold text-amber-950">
+                  {auditQuery.data?.filter(e => e.action?.includes("FACTURE") || e.action?.includes("PAIEMENT") || e.action?.includes("DEBOURS") || e.entityType === "invoice" || e.entityType === "payment" || e.entityType === "disbursement").length || 0}
+                </p>
+              </div>
+              <div className="rounded-xl border border-purple-100 bg-purple-50/50 p-3">
+                <span className="text-[10px] uppercase font-bold text-purple-700">Documents Liés</span>
+                <p className="text-lg font-bold text-purple-950">
+                  {auditQuery.data?.filter(e => e.entityType === "document" || e.action?.includes("DOCUMENT")).length || 0}
+                </p>
+              </div>
+            </div>
+
+            {/* Timeline */}
             <div className="relative pl-6 border-l-2 border-emerald-900/20 space-y-4 py-2">
-              {auditQuery.data?.map(entry => (
-                <div key={entry.id} className="relative">
-                  <span className="absolute -left-[31px] top-1 h-3.5 w-3.5 rounded-full bg-emerald-700 ring-4 ring-white" />
-                  <div className="bg-white p-3 rounded-xl border border-gray-100 shadow-sm text-xs space-y-0.5">
-                    <div className="flex items-center justify-between">
-                      <span className="font-bold text-emerald-950">{entry.fieldChanged}</span>
-                      <span className="text-[10px] text-muted-foreground">{new Date(entry.createdAt).toLocaleString("fr-FR")}</span>
+              {auditQuery.data
+                ?.filter(entry => {
+                  if (auditFilter === "all") return true;
+                  if (auditFilter === "customs") {
+                    return (
+                      entry.action?.includes("DOUANE") ||
+                      entry.action?.includes("SYDONIA") ||
+                      entry.action?.includes("BLD") ||
+                      entry.action?.includes("BAE") ||
+                      entry.action?.includes("BAD") ||
+                      entry.action?.includes("PAC") ||
+                      entry.action?.includes("DDI") ||
+                      entry.fieldChanged === "declarationNumber" ||
+                      entry.fieldChanged === "bulletinNumber" ||
+                      entry.fieldChanged === "baeStatus" ||
+                      entry.fieldChanged === "badStatus"
+                    );
+                  }
+                  if (auditFilter === "finance") {
+                    return (
+                      entry.action?.includes("FACTURE") ||
+                      entry.action?.includes("PAIEMENT") ||
+                      entry.action?.includes("DEBOURS") ||
+                      entry.entityType === "invoice" ||
+                      entry.entityType === "payment" ||
+                      entry.entityType === "disbursement" ||
+                      entry.fieldChanged === "financialStatus" ||
+                      entry.fieldChanged === "Facture" ||
+                      entry.fieldChanged === "Paiement Facture" ||
+                      entry.fieldChanged === "Débours PAC"
+                    );
+                  }
+                  if (auditFilter === "documents") {
+                    return entry.entityType === "document" || entry.action?.includes("DOCUMENT") || entry.fieldChanged === "Document";
+                  }
+                  return true;
+                })
+                .map(entry => {
+                  const isCustoms =
+                    entry.action?.includes("DOUANE") ||
+                    entry.action?.includes("SYDONIA") ||
+                    entry.action?.includes("BLD") ||
+                    entry.action?.includes("BAE") ||
+                    entry.action?.includes("BAD") ||
+                    entry.action?.includes("PAC") ||
+                    entry.action?.includes("DDI");
+                  const isFinance =
+                    entry.action?.includes("FACTURE") ||
+                    entry.action?.includes("PAIEMENT") ||
+                    entry.action?.includes("DEBOURS") ||
+                    entry.entityType === "invoice" ||
+                    entry.entityType === "payment" ||
+                    entry.entityType === "disbursement";
+                  const isDoc = entry.entityType === "document" || entry.action?.includes("DOCUMENT");
+
+                  const dotColor = isCustoms ? "bg-blue-600" : isFinance ? "bg-amber-600" : isDoc ? "bg-purple-600" : "bg-emerald-700";
+                  const badgeBg = isCustoms
+                    ? "bg-blue-50 text-blue-800 border-blue-200"
+                    : isFinance
+                    ? "bg-amber-50 text-amber-800 border-amber-200"
+                    : isDoc
+                    ? "bg-purple-50 text-purple-800 border-purple-200"
+                    : "bg-emerald-50 text-emerald-800 border-emerald-200";
+
+                  return (
+                    <div key={entry.id} className="relative group">
+                      <span className={`absolute -left-[31px] top-1.5 h-3.5 w-3.5 rounded-full ${dotColor} ring-4 ring-white shadow-xs`} />
+                      <div className="bg-white p-3.5 rounded-2xl border border-gray-100 shadow-xs hover:border-gray-300 transition text-xs space-y-1.5">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider border ${badgeBg}`}>
+                              {entry.action ? entry.action.replace(/_/g, " ") : entry.fieldChanged}
+                            </span>
+                            <span className="font-bold text-gray-900">{entry.fieldChanged}</span>
+                            {entry.userRole && (
+                              <Badge variant="outline" className="text-[9px] py-0 px-1.5 text-gray-500 font-mono">
+                                {entry.userRole.toUpperCase()}
+                              </Badge>
+                            )}
+                          </div>
+                          <span className="text-[10px] font-mono text-muted-foreground flex items-center gap-1">
+                            <Clock size={11} />
+                            {new Date(entry.createdAt).toLocaleString("fr-FR", {
+                              day: "2-digit",
+                              month: "2-digit",
+                              year: "numeric",
+                              hour: "2-digit",
+                              minute: "2-digit",
+                              second: "2-digit",
+                            })}
+                          </span>
+                        </div>
+
+                        <div className="flex flex-wrap items-center gap-2 text-[11px] text-gray-700 bg-gray-50/70 p-2 rounded-xl border border-gray-100">
+                          <strong className="text-gray-900 font-semibold">{entry.authorName || "Système IGS"}</strong>
+                          <span>:</span>
+                          {entry.previousValue && (
+                            <span className="text-muted-foreground line-through font-mono">
+                              {entry.previousValue}
+                            </span>
+                          )}
+                          {entry.previousValue && <span className="text-gray-400">➔</span>}
+                          <span className="font-mono font-semibold text-emerald-900">
+                            {entry.newValue}
+                          </span>
+                        </div>
+
+                        {entry.comment && (
+                          <p className="text-[11px] text-muted-foreground italic pl-1">
+                            « {entry.comment} »
+                          </p>
+                        )}
+
+                        {entry.ipAddress && (
+                          <div className="text-[9px] text-gray-400 font-mono">
+                            IP Enregistrée : {entry.ipAddress}
+                          </div>
+                        )}
+                      </div>
                     </div>
-                    <p className="text-[11px] text-emerald-800">
-                      <strong>{entry.authorName || "Système"}</strong> : {entry.previousValue ? `${entry.previousValue} ➔ ` : ""}{entry.newValue}
-                    </p>
-                    {entry.comment && <p className="text-[11px] text-muted-foreground italic">« {entry.comment} »</p>}
-                  </div>
-                </div>
-              ))}
+                  );
+                })}
             </div>
           </TabsContent>
         )}
@@ -1467,6 +1696,19 @@ function DetailContent() {
           onSuccess={() => utils.dossier.get.invalidate({ id: rawId! })}
         />
       )}
+
+      {/* Modale de Résolution de Conflits d'Édition Simultanée (R2) */}
+      <ConflictResolutionModal
+        isOpen={conflictModalOpen}
+        onClose={() => setConflictModalOpen(false)}
+        dossierNumber={dossier?.dossierNumber || form.clientDossierNumber || "DOS-XXXX"}
+        serverVersion={dossier?.version}
+        serverUpdatedAt={dossier?.updatedAt}
+        diffs={conflictDiffs}
+        onReload={handleReloadServerData}
+        onForceOverwrite={handleForceOverwrite}
+        isOverwriting={updateMutation.isPending}
+      />
 
       {/* Modal d'envoi d'Alerte Multi-Canal (WhatsApp / Email) */}
       <Dialog open={alertModalOpen} onOpenChange={setAlertModalOpen}>

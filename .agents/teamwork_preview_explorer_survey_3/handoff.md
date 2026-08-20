@@ -1,320 +1,88 @@
-# Handoff Report: R5 Breadcrumbs & Quick Back Navigation + Build & Test Infrastructure Survey
-
-**Agent**: teamwork_preview_explorer_survey_3  
-**Date**: 2026-08-19T11:26:00Z  
-**Type**: Hard Handoff (Investigation Complete)  
-
----
+# Handoff Report — Explorer 3 (Survey: Navigation, PWA / Offline, Test & Build)
 
 ## 1. Observation
 
-### A. Navigation Architecture & Breadcrumb State (R5)
+### A. Frontend Layout & Navigation
+- `client/src/components/DashboardLayout.tsx` (lines 35-42): Menu items are defined in `allMenuItems`:
+  ```typescript
+  const allMenuItems = [
+    { icon: LayoutDashboard, label: "Pilotage & KPI", path: "/", roles: ["admin", "comptable", "manager"] },
+    { icon: FolderKanban, label: "Tous les Dossiers", path: "/dossiers", roles: ["admin", "declarant", "comptable", "manager", "client"] },
+    { icon: CircleDollarSign, label: "Finances & Facturation", path: "/finances", roles: ["admin", "comptable", "manager"] },
+    { icon: CalendarDays, label: "Planning & Échéances", path: "/planning", roles: ["admin", "declarant", "manager"] },
+    { icon: ShieldAlert, label: "Contrôles Douane & PAC", path: "/controles", roles: ["admin", "declarant", "manager"] },
+    { icon: Globe, label: "Portail Client Externe", path: "/portail-client", roles: ["admin", "client"] },
+  ];
+  ```
+- `client/src/App.tsx` (lines 30-97): Wouter `<Switch>` with `<ProtectedRoute>` components handling role checks (`allowedRoles` and `requirePermission`).
+- `client/src/hooks/usePermissions.ts` (lines 4-25, 44-77): `resolvePermissions` creates a permission matrix based on role (`admin`, `declarant`, `comptable`, `client`, `manager`, `user`).
+- `client/src/components/Breadcrumbs.tsx`: Contextual breadcrumbs component with back button and path navigation trail.
 
-1. **Router & Route Hierarchy**:
-   - Router library: `wouter` v3.3.5 (configured in `client/src/App.tsx:4`, `App.tsx:29-96`).
-   - Dynamic & Static Routes in `client/src/App.tsx`:
-     - `/` → `Home` (Pilotage & KPI Dashboard)
-     - `/dossiers` → `DossiersPage` (Tous les Dossiers)
-     - `/dossiers/nouveau` → `DossierDetailPage` (Création d'un dossier)
-     - `/dossiers/:id` → `DossierDetailPage` (Consultation & Édition fiche dossier)
-     - `/finances` → `FinancesPage` (Finances, Facturation & Débours)
-     - `/planning` → `PlanningPage` (Planning des Arrivées & Check-list Terrain)
-     - `/controles` → `ControlsPage` (Contrôles Douane & PAC)
-     - `/portail-client` → `ClientPortalPage` (Portail de suivi public/externe)
-     - `*` → `NotFound` (Page 404)
+### B. PWA & Offline Support
+- `client/index.html` (lines 1-19): Currently has `<title>IGS Dossiers — Transit & Douane</title>` and `<link rel="icon" type="image/png" href="/favicon.png" />`, but **no** `<link rel="manifest">`, **no** `<meta name="theme-color">`, **no** Apple PWA meta tags.
+- `client/public/`: Contains `favicon.png` (131 KB), `igs-logo-icon.png` (89 KB), `igs-logo-sidebar.png` (118 KB), `igs-logo-transparent.png` (131 KB). No `manifest.json` or `sw.js` is currently present.
+- `client/src/main.tsx` (lines 11-20, 123-145): `QueryClient` configured with `staleTime: 3min` and `gcTime: 15min`. The tRPC `httpBatchLink` custom fetch catches network exceptions and returns code `503` with a friendly French error message.
 
-2. **Layout Structure (`client/src/components/DashboardLayout.tsx`)**:
-   - `DashboardLayout` wraps all authenticated views (`client/src/components/DashboardLayout.tsx:46-488`).
-   - In `DashboardLayout.tsx:348-358`:
-     ```tsx
-     <header className="sticky top-0 z-40 flex h-14 items-center justify-between border-b border-[#e4ebe8] bg-white/90 px-4 sm:px-6 backdrop-blur">
-       <div className="flex items-center gap-3">
-         {isMobile && <SidebarTrigger />}
-         <span className="font-semibold text-sm text-[#15362e] hidden sm:inline">{active?.label || "IGS Suivi"}</span>
-         {user?.role === "client" && (
-           <Badge className="bg-blue-100 text-blue-800 border-blue-200">
-             Espace Client : {user.clientCompany || "Société"}
-           </Badge>
-         )}
-       </div>
-     ```
-   - Currently, `DashboardLayout` displays only a static menu label (`active?.label`) in the top bar header. It does **not** include contextual breadcrumbs nor a quick back button.
-
-3. **Sub-Page Navigation & Back Buttons**:
-   - `DossierDetailPage.tsx` (`client/src/pages/DossierDetailPage.tsx:658-666`):
-     ```tsx
-     <Button
-       variant="ghost"
-       size="sm"
-       onClick={() => setLocation("/dossiers")}
-       className="rounded-xl border border-[#dfe8e4] bg-white text-[#3f5a52] hover:bg-[#ebf3f0]"
-     >
-       <ArrowLeft size={16} className="mr-1.5" /> Retour
-     </Button>
-     ```
-     Contains an isolated back button hardcoded to `/dossiers`, but lacks breadcrumbs (e.g. `Accueil > Tous les Dossiers > Fiche DOS-0054` or `Accueil > Tous les Dossiers > Nouveau dossier`).
-   - `DossiersPage.tsx`, `FinancesPage.tsx`, `PlanningPage.tsx`, `ControlsPage.tsx`: None of these sub-pages have breadcrumbs or standardized back navigation.
-
-4. **UI Primitives Availability**:
-   - `client/src/components/ui/breadcrumb.tsx` (110 lines) exists and exports standard Radix/shadcn components:
-     - `Breadcrumb`, `BreadcrumbList`, `BreadcrumbItem`, `BreadcrumbLink`, `BreadcrumbPage`, `BreadcrumbSeparator`, `BreadcrumbEllipsis`.
-
----
-
-### B. Build, Test & Typecheck Infrastructure
-
-1. **Test Infrastructure (`vitest` v3.2.7)**:
-   - Config file: `vitest.config.ts:15-18`:
-     ```ts
-     test: {
-       environment: "node",
-       include: ["server/**/*.test.ts", "server/**/*.spec.ts"],
-     },
-     ```
-   - Running `npm test` executes all 20 server test files with **181 tests passed, 0 failures**:
-     ```
-     RUN v3.2.7
-     ✓ server/__tests__/tier1_business_logic/currency_conversion.test.ts (14 tests)
-     ✓ server/__tests__/tier1_business_logic/proactive_alerts_service.test.ts (4 tests)
-     ✓ server/__tests__/tier3_ui_navigation_guards/route_guards.test.ts (10 tests)
-     ✓ server/routers.integration.test.ts (3 tests)
-     ✓ server/__tests__/tier2_trpc_rbac_integration/m1_backend_rbac_complete.test.ts (12 tests)
-     ✓ server/__tests__/tier4_e2e_scenarios/end_to_end_scenarios.test.ts (31 tests)
-     ✓ server/__tests__/tier2_trpc_rbac_integration/m1_persistence_currency_stress.test.ts (27 tests)
-     ✓ server/__tests__/tier1_business_logic/challenger2_frontend_finance_stress.test.ts (12 tests)
-     ✓ server/__tests__/tier2_trpc_rbac_integration/challenger_m1_adversarial_matrix.test.ts (12 tests)
-     ✓ server/__tests__/tier1_business_logic/customs_rules.test.ts (11 tests)
-     ✓ server/__tests__/tier2_trpc_rbac_integration/dossier_detail_dynamic_route.test.ts (6 tests)
-     ✓ server/initialImportData.test.ts (2 tests)
-     ✓ server/dossierRules.test.ts (3 tests)
-     ✓ server/__tests__/tier2_trpc_rbac_integration/client_portal_isolation.test.ts (6 tests)
-     ✓ server/__tests__/tier1_business_logic/rbac_permissions.test.ts (5 tests)
-     ✓ server/__tests__/tier2_trpc_rbac_integration/declarant_pac_workflow.test.ts (7 tests)
-     ✓ server/__tests__/tier2_trpc_rbac_integration/auth_role_simulation.test.ts (7 tests)
-     ✓ server/__tests__/tier2_trpc_rbac_integration/comptable_finance_workflow.test.ts (7 tests)
-     ✓ server/dossierImport.test.ts (1 test)
-     ✓ server/auth.logout.test.ts (1 test)
-     Test Files 20 passed (20) | Tests 181 passed (181) | Duration 7.94s
-     ```
-   - Client test files exist in `client/src/__tests__/challenger_fe_stress.test.ts` (444 lines) and `client/src/hooks/usePermissions.test.ts` (95 lines). They can be included in test runs by updating `vitest.config.ts` to include `client/**/*.test.ts`.
-
-2. **Production Build (`npm run vercel-build` and `npm run build`)**:
-   - `npm run vercel-build` (`vite build && esbuild server/vercel-entry.ts --bundle --platform=node --format=esm --outfile=api/index.mjs --packages=external`):
-     - **Status: PASS (Exit code 0)**.
-     - Built client bundle in `dist/public` (2.52 kB HTML, 150.62 kB CSS, chunks for react, charts, ui, trpc) and server endpoint `api/index.mjs` (147.7 kB).
-   - `npm run build` (`vite build && esbuild server/_core/index.ts ...`):
-     - **Status: PASS (Exit code 0)**.
-     - Generated `dist/public` and `dist/index.js` (155.1 kB).
-
-3. **TypeScript Typecheck (`npm run check` -> `tsc --noEmit`)**:
-   - **Status: FAILED (Exit code 2)** with 4 compile errors:
-     1. `client/src/components/DashboardLayout.tsx(195,33): error TS2304: Cannot find name 'useMemo'.`
-        - Cause: `useMemo` is used at line 195 (`const filteredNotifications = useMemo(...)`) but was not imported from `"react"` at line 25 (`import { CSSProperties, useEffect, useRef, useState } from "react";`).
-     2. `client/src/components/DashboardLayout.tsx(425,47): error TS7006: Parameter 'n' implicitly has an 'any' type.`
-        - Cause: In `filteredNotifications.map(n => ...)` at line 425, parameter `n` lacks explicit typing when inference defaults to any under strict mode.
-     3. `client/src/pages/ControlsPage.tsx(279,73): error TS2339: Property 'message' does not exist on type 'never'.`
-        - Cause: At line 48 `if (error || dossiersError)`, TypeScript's control flow analysis narrows `dossiersError` to `null` / `never` downstream at line 276 `dossiersError ? ... : ...`.
-     4. `client/src/pages/DossierDetailPage.tsx(1161,36): error TS2304: Cannot find name 'id'.`
-        - Cause: In `createInvoiceMutation.mutate({ dossierId: id, ... })`, variable `id` is not declared. The defined identifier is `numericId` (declared at line 300: `const numericId = dossier?.id || ...`).
+### C. Test & Build Infrastructure
+- Commands executed:
+  - `npm run check` (`tsc --noEmit`): Exited code 0 (0 TypeScript errors).
+  - `npm run build` (`vite build && esbuild ...`): Exited code 0 in 5.28s.
+  - `npm run test` (`vitest run`): Exited code 0, **31 test files passed, 311 tests passed in 11.82s**.
+- `vitest.config.ts` (line 17): `include: ["server/**/*.test.ts", "server/**/*.spec.ts"]`. Client tests in `client/src/__tests__/` and `client/src/hooks/` are currently excluded from default test discovery.
 
 ---
 
 ## 2. Logic Chain
 
-1. **R5 Breadcrumb Navigation**:
-   - Observation 1 shows that all top-level and detail routes follow a strict hierarchy (`/` -> `/dossiers` -> `/dossiers/:id` or `/dossiers/nouveau`, `/finances`, `/planning`, `/controles`).
-   - Observation 2 & 4 show that shadcn's `Breadcrumb` components are available in `client/src/components/ui/breadcrumb.tsx`.
-   - Creating a reusable navigation component (e.g. `client/src/components/PageBreadcrumb.tsx` or embedding directly into `DashboardLayout` header) with items `[{ label: "Accueil", href: "/" }, { label: "Tous les Dossiers", href: "/dossiers" }, { label: "Fiche DOS-0054" }]` and an integrated Quick Back button (`<Button onClick={...}><ArrowLeft /> Retour</Button>`) will provide consistent UX across all sub-pages and edit screens without duplicating code.
+1. **Navigation & Admin Access (`/utilisateurs`) :**
+   - Observations show `allMenuItems` in `DashboardLayout.tsx` filters by `item.roles.includes(userRole)`.
+   - By adding `{ icon: Users, label: "Gestion Collaborateurs", path: "/utilisateurs", roles: ["admin"] }` and routing in `App.tsx` via `<ProtectedRoute allowedRoles={["admin"]} />`, only administrators will see and access the user management interface.
+   - Adding `canManageUsers: isAdmin` to `usePermissions.ts` ensures standard type-safe permission checks across the entire client codebase.
 
-2. **Build & Test Infrastructure**:
-   - `npm test` runs 181 unit/integration tests with 100% pass rate.
-   - `npm run vercel-build` and `npm run build` execute cleanly with Vite + esbuild.
-   - `npm run check` detects 4 strict TypeScript errors.
-   - Fixing these 4 syntax/type references in `DashboardLayout.tsx`, `ControlsPage.tsx`, and `DossierDetailPage.tsx` will achieve 0 TypeScript errors on `npm run check` and full compliance with `AGENTS.md` and `ORIGINAL_REQUEST.md` acceptance criteria.
+2. **PWA & Offline Quai Mode (Port de Conakry) :**
+   - Since network stability at Port de Conakry is intermittent (3G/4G loss between cargo containers), a Progressive Web App requires:
+     - `manifest.json` in `client/public/` referencing existing assets (`igs-logo-icon.png`, `igs-logo-transparent.png`), with `theme_color: "#0b3b32"` and `display: "standalone"`.
+     - PWA tags in `client/index.html`.
+     - Service Worker (`client/public/sw.js`) with Cache-First strategy for static assets and Network-First with Cache fallback for read API/tRPC queries (`dossier.list`, `dossier.get`, `dashboard.get`).
+     - Network status hook `useOnlineStatus.ts` and UI banner `NetworkStatusBanner.tsx` to inform agents on the docks when they are viewing offline cached data.
+     - PWA installation prompt component (`PWAInstallBanner.tsx`) using the `beforeinstallprompt` browser event.
+
+3. **Build & Test Validation :**
+   - The project builds cleanly with zero TypeScript errors and passes all 311 backend tests.
+   - Updating `vitest.config.ts` to include `client/src/**/*.test.ts` will ensure frontend test suites (`challenger_fe_stress.test.ts`, `usePermissions.test.ts`) are continuously verified during CI/CD.
 
 ---
 
 ## 3. Caveats
 
-1. **Client Portal Route (`/portail-client`)**: The external client tracking portal is intentionally standalone (not wrapped in `DashboardLayout`) to prevent exposing internal navigation to external clients, but already includes a top navigation bar with a link back to `/`.
-2. **Dynamic Breadcrumb Labels**: On dynamic routes like `/dossiers/:id`, the terminal breadcrumb label should display the loaded dossier number (e.g. `Fiche DOS-0054`) with fallback to the raw ID if the dossier record is loading.
+- **Supabase User Provisioning :** User creation/modification in `/utilisateurs` interacts with the Supabase `users` table or auth schema. The backend router should use `adminProcedure` to enforce server-side security.
+- **Service Worker in Dev Mode :** In local development (`vite dev`), Service Workers can occasionally cache older modules if not configured with `skipWaiting` and proper bypass headers. Registration should be active in production and properly configured in development.
+- **No other caveats.**
 
 ---
 
-## 4. Conclusion & Proposed Implementations
+## 4. Conclusion
 
-### A. R5 Standardized Breadcrumb Component Design
-
-Create a reusable component `client/src/components/PageBreadcrumb.tsx`:
-
-```tsx
-import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator } from "@/components/ui/breadcrumb";
-import { Button } from "@/components/ui/button";
-import { ArrowLeft, ChevronRight, Home } from "lucide-react";
-import { useLocation } from "wouter";
-
-export interface BreadcrumbStep {
-  label: string;
-  href?: string;
-}
-
-interface PageBreadcrumbProps {
-  items: BreadcrumbStep[];
-  backHref?: string;
-  className?: string;
-}
-
-export function PageBreadcrumb({ items, backHref, className = "" }: PageBreadcrumbProps) {
-  const [, setLocation] = useLocation();
-
-  const handleBack = () => {
-    if (backHref) {
-      setLocation(backHref);
-    } else if (window.history.length > 1) {
-      window.history.back();
-    } else {
-      setLocation("/");
-    }
-  };
-
-  return (
-    <div className={`flex items-center gap-3 py-1 ${className}`}>
-      <Button
-        variant="ghost"
-        size="sm"
-        onClick={handleBack}
-        className="h-8 rounded-xl border border-[#dfe8e4] bg-white px-2.5 text-xs text-[#3f5a52] hover:bg-[#ebf3f0] hover:text-[#102c26] shadow-sm transition"
-      >
-        <ArrowLeft size={14} className="mr-1.5" />
-        Retour
-      </Button>
-
-      <Breadcrumb>
-        <BreadcrumbList className="text-xs text-[#71827d]">
-          <BreadcrumbItem>
-            <BreadcrumbLink
-              onClick={() => setLocation("/")}
-              className="flex items-center gap-1 cursor-pointer hover:text-[#102c26] transition font-medium"
-            >
-              <Home size={13} className="text-[#204a3e]" />
-              Accueil
-            </BreadcrumbLink>
-          </BreadcrumbItem>
-
-          {items.map((item, index) => {
-            const isLast = index === items.length - 1;
-            return (
-              <div key={item.label + index} className="flex items-center gap-1.5 sm:gap-2.5">
-                <BreadcrumbSeparator className="text-[#a4b5af]">
-                  <ChevronRight size={13} />
-                </BreadcrumbSeparator>
-                <BreadcrumbItem>
-                  {isLast || !item.href ? (
-                    <BreadcrumbPage className="font-semibold text-[#102c26]">{item.label}</BreadcrumbPage>
-                  ) : (
-                    <BreadcrumbLink
-                      onClick={() => setLocation(item.href!)}
-                      className="cursor-pointer hover:text-[#102c26] transition font-medium"
-                    >
-                      {item.label}
-                    </BreadcrumbLink>
-                  )}
-                </BreadcrumbItem>
-              </div>
-            );
-          })}
-        </BreadcrumbList>
-      </Breadcrumb>
-    </div>
-  );
-}
-```
-
-#### Page Integration Mapping:
-- `DossierDetailPage.tsx` (`/dossiers/:id` & `/dossiers/nouveau`):
-  ```tsx
-  <PageBreadcrumb
-    items={[
-      { label: "Tous les Dossiers", href: "/dossiers" },
-      { label: isNew ? "Nouveau dossier" : `Fiche ${dossier?.dossierNumber || rawId}` }
-    ]}
-    backHref="/dossiers"
-  />
-  ```
-- `DossiersPage.tsx` (`/dossiers`):
-  ```tsx
-  <PageBreadcrumb
-    items={[{ label: "Tous les Dossiers" }]}
-    backHref="/"
-  />
-  ```
-- `FinancesPage.tsx` (`/finances`):
-  ```tsx
-  <PageBreadcrumb
-    items={[{ label: "Finances & Facturation" }]}
-    backHref="/"
-  />
-  ```
-- `PlanningPage.tsx` (`/planning`):
-  ```tsx
-  <PageBreadcrumb
-    items={[{ label: "Planning & Échéances" }]}
-    backHref="/"
-  />
-  ```
-- `ControlsPage.tsx` (`/controles`):
-  ```tsx
-  <PageBreadcrumb
-    items={[{ label: "Contrôles Douane & PAC" }]}
-    backHref="/"
-  />
-  ```
-
----
-
-### B. Fixes for TypeScript Compile Errors
-
-1. **`client/src/components/DashboardLayout.tsx`**:
-   - Add `useMemo` to React imports:
-     ```tsx
-     import { CSSProperties, useEffect, useMemo, useRef, useState } from "react";
-     ```
-   - Type `n` in map callback:
-     ```tsx
-     filteredNotifications.map((n: any) => ( ... ))
-     ```
-
-2. **`client/src/pages/ControlsPage.tsx`**:
-   - Fix line 279 error display:
-     ```tsx
-     Impossible de charger la liste détaillée : {(dossiersError as any)?.message || "Erreur inconnue"}
-     ```
-
-3. **`client/src/pages/DossierDetailPage.tsx`**:
-   - Fix line 1161 in `createInvoiceMutation.mutate`:
-     ```tsx
-     dossierId: numericId,
-     ```
+The architecture is clean, highly modular, and 100% prepared for the implementation of R4 (PWA & Offline Quai Mode) and the navigation updates for R1 (`/utilisateurs`). The survey report (`survey_report.md`) provides the exact file blueprints, code snippets, and configuration steps for immediate execution.
 
 ---
 
 ## 5. Verification Method
 
-### Step 1: Run Full Test Suite
-```bash
-npm test
-```
-Expected output: 20 test files passed, 181+ tests passed, 0 failures.
-
-### Step 2: Run Strict TypeScript Check
-```bash
-npm run check
-```
-Expected output: `tsc --noEmit` exits with 0 errors.
-
-### Step 3: Run Production Build
-```bash
-npm run vercel-build
-npm run build
-```
-Expected output: Successful Vite client bundle compilation and esbuild server bundle generation.
+To independently verify the survey observations:
+1. **Verify TypeScript compilation :**
+   ```bash
+   npm run check
+   ```
+2. **Verify Production build :**
+   ```bash
+   npm run build
+   ```
+3. **Verify Automated test suite :**
+   ```bash
+   npm run test
+   ```
+4. **Inspect Survey Report :**
+   ```bash
+   cat .agents/teamwork_preview_explorer_survey_3/survey_report.md
+   ```

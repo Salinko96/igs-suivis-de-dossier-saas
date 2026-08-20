@@ -1,13 +1,15 @@
-# Progress Tracker
+# Progress — Milestone 1 (Administration & Gestion des 100 Employés)
 
-Last visited: 2026-08-18T15:59:50Z
+Last visited: 2026-08-20T13:12:35Z
+Status: Completed (100% Pass)
 
-## Status
-- [x] Initial setup & briefing
-- [x] Investigate codebase (ORIGINAL_REQUEST.md, PROJECT.md, survey handoffs, current files)
-- [x] Implement RBAC procedures in `server/_core/trpc.ts` (`declarantProcedure`, `comptableProcedure`, `internalProcedure`)
-- [x] Update `drizzle/schema.ts` and `shared/types.ts` (`invoices` and `dossiers` fields)
-- [x] Update `server/db.ts` (PostgreSQL and memory mode dual parity for tasks, invoices, payments, exchange rate)
-- [x] Update `server/routers.ts` (finance endpoints secured with comptableProcedure, multi-currency summary, dossier RBAC, task filters)
-- [x] Run typecheck and tests, add new tests to verify all requirements (`15/15` suites, `120/120` tests passing, `0` TypeScript errors)
-- [x] Complete self-critique, verification, and write handoff.md
+## Steps
+- [x] 1. Codebase Investigation & Survey Review
+- [x] 2. Update Database Schema (`drizzle/schema.ts`) with `isActive`, `sessionRevokedAt`
+- [x] 3. Enrich `server/db.ts` with 111 realistic Guinean collaborators seed (`server/initialUsersData.ts`) & HR helper functions
+- [x] 4. Implement Session Revocation & Auth rejection for inactive users (`server/_core/sdk.ts`, `server/_core/trpc.ts`)
+- [x] 5. Implement User tRPC router (`server/routers.ts`) with adminProcedure
+- [x] 6. Frontend: `usePermissions.ts`, `UsersPage.tsx`, `DashboardLayout.tsx`, `App.tsx`
+- [x] 7. Comprehensive Unit & Integration Tests (`server/__tests__/user_admin_management.test.ts`)
+- [x] 8. Verify with `npm run check` and `npm run test` (32 test files, 333 tests passing)
+- [x] 9. Write `handoff.md` and notify parent

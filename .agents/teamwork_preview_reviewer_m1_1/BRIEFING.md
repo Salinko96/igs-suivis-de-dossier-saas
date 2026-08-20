@@ -1,52 +1,59 @@
-# BRIEFING — 2026-08-18T16:03:00Z
+# BRIEFING — 2026-08-20T13:16:00Z
 
 ## Mission
-Review Milestone 1 Backend & RBAC Implementation for IGS Guinée SaaS (RBAC procedures, schema, dual parity DB, task filtering, invoicing, test execution, integrity check).
+Objective and adversarial review of Milestone 1 (Administration & Employee Management 100 users, RBAC, session revocation, UI).
 
 ## 🔒 My Identity
-- Archetype: reviewer_and_adversarial_critic
+- Archetype: reviewer_critic
 - Roles: reviewer, critic
 - Working directory: /Users/alphasalinkobarry/Downloads/igs-suivis de dossier SaaS/.agents/teamwork_preview_reviewer_m1_1
-- Original parent: 3bba92c2-33c3-493f-8daa-7cb66a8d90a8
-- Milestone: Milestone 1 - Backend & RBAC Implementation
+- Original parent: f7bcce2f-9a8f-4812-bea3-9b914f48ebb1
+- Milestone: Milestone 1 Review
 - Instance: 1 of 1
 
 ## 🔒 Key Constraints
 - Review-only — do NOT modify implementation code
-- Actively check for integrity violations (hardcoded test results, facade implementations, bypasses, self-certifying without real logic)
-- Dual parity verification: Postgres and in-memory fallback
-- Verify RBAC procedures and 403 FORBIDDEN handling
-- Verify task filtering and invoicing/receipt capabilities
+- Evidence-based verdicts: APPROVE or REQUEST_CHANGES
+- Check for integrity violations, facade implementations, test bypasses
+- Rigorous security, RBAC, and boundary verification
 
 ## Current Parent
-- Conversation ID: 3bba92c2-33c3-493f-8daa-7cb66a8d90a8
-- Updated: 2026-08-18T16:03:00Z
+- Conversation ID: f7bcce2f-9a8f-4812-bea3-9b914f48ebb1
+- Updated: 2026-08-20T13:16:00Z
 
 ## Review Scope
-- **Files to review**: `server/_core/trpc.ts`, `drizzle/schema.ts`, `server/db.ts`, `server/routers.ts`, `shared/types.ts`, tests in `server/__tests__/`
-- **Interface contracts**: `PROJECT.md`, `ORIGINAL_REQUEST.md`
-- **Review criteria**: correctness, security, dual parity, edge cases, RBAC enforcement, integrity
+- **Files to review**:
+  - `drizzle/schema.ts`
+  - `server/db.ts`
+  - `server/initialUsersData.ts`
+  - `server/_core/sdk.ts`
+  - `server/_core/trpc.ts`
+  - `server/routers.ts`
+  - `client/src/pages/UsersPage.tsx`
+  - `client/src/components/DashboardLayout.tsx`
+  - `client/src/App.tsx`
+  - `client/src/hooks/usePermissions.ts`
+  - Unit/Integration tests in `server/__tests__/user_admin_management.test.ts` & `challenger_user_admin_stress.test.ts`
+- **Interface contracts**: `/Users/alphasalinkobarry/Downloads/igs-suivis de dossier SaaS/PROJECT.md`
+- **Review criteria**: Correctness, integrity, security/RBAC, performance, type safety, test coverage, UI conformance
 
 ## Review Checklist
-- **Items reviewed**: `server/_core/trpc.ts`, `drizzle/schema.ts`, `server/db.ts`, `server/routers.ts`, `shared/types.ts`, Vitest suites (15 suites, 120 tests).
+- **Items reviewed**: All modified backend, schema, auth, tRPC router, frontend pages/components, and tests
 - **Verdict**: APPROVE
-- **Unverified claims**: None. All claims verified by independent file inspection and test runs.
+- **Unverified claims**: None (all claims verified via independent inspection, typecheck, tests, and build)
 
 ## Attack Surface
 - **Hypotheses tested**:
-  - RBAC bypass by unauthorized role on `finance.*`, `dossier.importBatch`, `dossier.create`, `dossier.remove` -> verified rejected with 403 FORBIDDEN.
-  - Multi-tenant data leak on client company -> verified `dossier.get` blocks foreign company access.
-  - Task filtering by persona (Mamadou Diallo, Fatoumata Camara) -> verified dynamic substring matching in SQL and memory fallback.
-  - Invoice payment and receipt generation -> verified REC-2026-X format, `paidAt`, and dossier financial status sync.
-  - Dual parity -> verified all DB methods mirror operations between PostgreSQL and in-memory stores.
+  1. Unauthorized access to `user.*` by unauthenticated or non-admin roles (passed: 401/403).
+  2. Inactive account session reuse / token bypass (passed: instant rejection by `authenticateRequest` and tRPC procedures).
+  3. Client tenant isolation on `/utilisateurs` and client portal (passed: strict route & query guard).
+  4. Search and pagination boundary conditions (passed).
 - **Vulnerabilities found**: None.
-- **Untested angles**: None.
+- **Untested angles**: None within Milestone 1 scope.
 
 ## Key Decisions Made
-- Confirmed full compliance of Milestone 1 implementation against `ORIGINAL_REQUEST.md` and `PROJECT.md`.
-- Determined verdict as APPROVE.
+- Confirmed full compliance with Milestone 1 requirements and issued verdict: `APPROVE`.
 
 ## Artifact Index
-- `.agents/teamwork_preview_reviewer_m1_1/DISPATCH.md` — Dispatch log
-- `.agents/teamwork_preview_reviewer_m1_1/progress.md` — Liveness & progress tracking
 - `.agents/teamwork_preview_reviewer_m1_1/handoff.md` — Final review report
+- `.agents/teamwork_preview_reviewer_m1_1/progress.md` — Liveness heartbeat

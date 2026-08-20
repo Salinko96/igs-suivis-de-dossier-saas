@@ -1,14 +1,16 @@
-# Progress Tracker — Challenger 2 (Milestone 1)
+# Progress — Challenger 2 (Session Revocation & Auth Lifecycle)
 
-Last visited: 2026-08-18T16:03:45Z
+**Last visited:** 2026-08-20T13:18:00Z
+**Status:** Completed (APPROVE)
 
-## Status
-- [x] Initialized BRIEFING.md, DISPATCH.md, progress.md
-- [x] Read worker handoff, original request, and project blueprint
-- [x] Examine implementation files (`server/db.ts`, `server/routers.ts`, `server/_core/trpc.ts`, `drizzle/schema.ts`, `shared/types.ts`)
-- [x] Design and execute 27-test empirical stress harness in `server/__tests__/tier2_trpc_rbac_integration/m1_persistence_currency_stress.test.ts`
-- [x] Run full test suite (`npm test`): 17 test suites, 159 tests passed
-- [x] Verify type safety and build (`npm run check`, `npm run build`): 0 errors
-- [x] Update BRIEFING.md
-- [x] Write handoff report (`handoff.md`) with verdict APPROVE
-- [ ] Send coordination message back to orchestrator
+- [x] Initialized DISPATCH.md and BRIEFING.md
+- [x] Investigate codebase (`server/_core/trpc.ts`, `server/_core/sdk.ts`, `server/routers.ts`, `server/db.ts`, `drizzle/schema.ts`)
+- [x] Formulated attack surface and adversarial scenarios across 4 dimensions
+- [x] Implemented test suite `server/__tests__/challenger_session_lifecycle.test.ts` (16 adversarial test cases)
+- [x] Executed dedicated test suite: `npx vitest run server/__tests__/challenger_session_lifecycle.test.ts` (16/16 passed)
+- [x] Executed global test suite: `npm run test` (34/34 files passed, 387/387 tests passed)
+- [x] Verified static typing: `npm run check` (0 errors)
+- [x] Verified production build: `npm run build` (Vite + esbuild successful)
+- [x] Formulated verdict: `APPROVE`
+- [x] Wrote handoff report to `.agents/teamwork_preview_challenger_m1_2/handoff.md`
+- [ ] Notify orchestrator

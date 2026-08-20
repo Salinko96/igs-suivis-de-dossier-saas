@@ -1,4 +1,4 @@
-import { index, integer, pgEnum, pgTable, serial, text, timestamp, uniqueIndex, varchar } from "drizzle-orm/pg-core";
+import { boolean, index, integer, pgEnum, pgTable, serial, text, timestamp, uniqueIndex, varchar } from "drizzle-orm/pg-core";
 
 export const roleEnum = pgEnum("role", ["user", "declarant", "comptable", "manager", "client", "admin"]);
 export const calculatedStatusEnum = pgEnum("calculated_status", ["Régularisé", "À régulariser"]);
@@ -18,6 +18,8 @@ export const users = pgTable("users", {
   role: roleEnum("role").default("user").notNull(),
   clientCompany: varchar("clientCompany", { length: 255 }), // Pour le portail client
   phone: varchar("phone", { length: 32 }),
+  isActive: boolean("isActive").default(true).notNull(),
+  sessionRevokedAt: timestamp("sessionRevokedAt"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().notNull(),
   lastSignedIn: timestamp("lastSignedIn").defaultNow().notNull(),
@@ -40,6 +42,7 @@ export const clients = pgTable("clients", {
 
 export const dossiers = pgTable("dossiers", {
   id: serial("id").primaryKey(),
+  version: integer("version").notNull().default(1),
   dossierNumber: varchar("dossierNumber", { length: 16 }).notNull(),
   clientDossierNumber: varchar("clientDossierNumber", { length: 120 }),
   clientId: integer("clientId"),
@@ -113,15 +116,27 @@ export const dossierStatusHistory = pgTable("dossier_status_history", {
   dossierId: integer("dossierId").notNull(),
   changedById: integer("changedById"),
   authorName: varchar("authorName", { length: 120 }),
+  userRole: varchar("userRole", { length: 64 }),
+  action: varchar("action", { length: 120 }),
+  entityType: varchar("entityType", { length: 64 }).default("dossier"),
+  entityId: integer("entityId"),
   fieldChanged: varchar("fieldChanged", { length: 80 }).notNull(),
   previousValue: text("previousValue"),
   newValue: text("newValue"),
+  beforeData: text("beforeData"),
+  afterData: text("afterData"),
   comment: text("comment"),
+  ipAddress: varchar("ipAddress", { length: 64 }),
+  metadata: text("metadata"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 }, table => [
   index("dossier_history_dossier_idx").on(table.dossierId),
+  index("dossier_history_action_idx").on(table.action),
+  index("dossier_history_entity_idx").on(table.entityType, table.entityId),
   index("dossier_history_created_idx").on(table.createdAt),
 ]);
+
+export const auditLogs = dossierStatusHistory;
 
 export const invoices = pgTable("invoices", {
   id: serial("id").primaryKey(),
@@ -281,3 +296,6 @@ export type InsertDossierComment = typeof dossierComments.$inferInsert;
 export type Notification = typeof notifications.$inferSelect;
 export type InsertNotification = typeof notifications.$inferInsert;
 export type ReferenceItem = typeof referenceItems.$inferSelect;
+export type AuditLog = DossierStatusHistory;
+export type InsertAuditLog = InsertDossierStatusHistory;
+

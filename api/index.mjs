@@ -140,9 +140,10 @@ import { parse as parseCookieHeader2 } from "cookie";
 import { and, asc, desc, eq, ilike, like, or, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
+import { TRPCError } from "@trpc/server";
 
 // drizzle/schema.ts
-import { index, integer, pgEnum, pgTable, serial, text, timestamp, uniqueIndex, varchar } from "drizzle-orm/pg-core";
+import { boolean, index, integer, pgEnum, pgTable, serial, text, timestamp, uniqueIndex, varchar } from "drizzle-orm/pg-core";
 var roleEnum = pgEnum("role", ["user", "declarant", "comptable", "manager", "client", "admin"]);
 var calculatedStatusEnum = pgEnum("calculated_status", ["R\xE9gularis\xE9", "\xC0 r\xE9gulariser"]);
 var calculatedPriorityEnum = pgEnum("calculated_priority", ["Haute", "Normale", "Basse"]);
@@ -161,6 +162,8 @@ var users = pgTable("users", {
   clientCompany: varchar("clientCompany", { length: 255 }),
   // Pour le portail client
   phone: varchar("phone", { length: 32 }),
+  isActive: boolean("isActive").default(true).notNull(),
+  sessionRevokedAt: timestamp("sessionRevokedAt"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().notNull(),
   lastSignedIn: timestamp("lastSignedIn").defaultNow().notNull()
@@ -181,6 +184,7 @@ var clients = pgTable("clients", {
 ]);
 var dossiers = pgTable("dossiers", {
   id: serial("id").primaryKey(),
+  version: integer("version").notNull().default(1),
   dossierNumber: varchar("dossierNumber", { length: 16 }).notNull(),
   clientDossierNumber: varchar("clientDossierNumber", { length: 120 }),
   clientId: integer("clientId"),
@@ -256,13 +260,23 @@ var dossierStatusHistory = pgTable("dossier_status_history", {
   dossierId: integer("dossierId").notNull(),
   changedById: integer("changedById"),
   authorName: varchar("authorName", { length: 120 }),
+  userRole: varchar("userRole", { length: 64 }),
+  action: varchar("action", { length: 120 }),
+  entityType: varchar("entityType", { length: 64 }).default("dossier"),
+  entityId: integer("entityId"),
   fieldChanged: varchar("fieldChanged", { length: 80 }).notNull(),
   previousValue: text("previousValue"),
   newValue: text("newValue"),
+  beforeData: text("beforeData"),
+  afterData: text("afterData"),
   comment: text("comment"),
+  ipAddress: varchar("ipAddress", { length: 64 }),
+  metadata: text("metadata"),
   createdAt: timestamp("createdAt").defaultNow().notNull()
 }, (table) => [
   index("dossier_history_dossier_idx").on(table.dossierId),
+  index("dossier_history_action_idx").on(table.action),
+  index("dossier_history_entity_idx").on(table.entityType, table.entityId),
   index("dossier_history_created_idx").on(table.createdAt)
 ]);
 var invoices = pgTable("invoices", {
@@ -2589,6 +2603,1680 @@ var initialImportData = {
   ]
 };
 
+// server/initialUsersData.ts
+var initialUsersData = [
+  // --- 1. CORE PROFILES ---
+  {
+    id: 1,
+    openId: "igs_admin_conakry",
+    name: "Ibrahima Gold Service (Admin)",
+    email: "contact@igs-logistics.gn",
+    loginMethod: "direct",
+    role: "admin",
+    clientCompany: null,
+    phone: "+224 620 00 00 00",
+    isActive: true,
+    sessionRevokedAt: null,
+    createdAt: /* @__PURE__ */ new Date("2025-01-01T08:00:00Z"),
+    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T10:30:00Z")
+  },
+  {
+    id: 2,
+    openId: "declarant_conakry",
+    name: "Mamadou Diallo (D\xE9clarant PAC)",
+    email: "declarant@igs-logistics.gn",
+    loginMethod: "direct",
+    role: "declarant",
+    clientCompany: null,
+    phone: "+224 621 11 22 33",
+    isActive: true,
+    sessionRevokedAt: null,
+    createdAt: /* @__PURE__ */ new Date("2025-01-05T08:00:00Z"),
+    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T11:15:00Z")
+  },
+  {
+    id: 3,
+    openId: "comptable_conakry",
+    name: "Fatoumata Camara (Comptable)",
+    email: "finance@igs-logistics.gn",
+    loginMethod: "direct",
+    role: "comptable",
+    clientCompany: null,
+    phone: "+224 622 44 55 66",
+    isActive: true,
+    sessionRevokedAt: null,
+    createdAt: /* @__PURE__ */ new Date("2025-01-10T08:00:00Z"),
+    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T09:45:00Z")
+  },
+  {
+    id: 4,
+    openId: "client_birimian",
+    name: "Guinean Birimian Gold (Portail)",
+    email: "logistique@birimian-gold.gn",
+    loginMethod: "direct",
+    role: "client",
+    clientCompany: "Guinean Birimian Gold S.A",
+    phone: "+224 623 77 88 99",
+    isActive: true,
+    sessionRevokedAt: null,
+    createdAt: /* @__PURE__ */ new Date("2025-02-01T08:00:00Z"),
+    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T12:00:00Z")
+  },
+  // --- 2. ADMINS & MANAGERS D'EXPLOITATION (12) ---
+  {
+    id: 5,
+    openId: "igs_manager_alpha_barry",
+    name: "Alpha Barry (Directeur des Op\xE9rations)",
+    email: "alpha.barry@igs-logistics.gn",
+    loginMethod: "direct",
+    role: "manager",
+    clientCompany: null,
+    phone: "+224 620 12 34 56",
+    isActive: true,
+    sessionRevokedAt: null,
+    createdAt: /* @__PURE__ */ new Date("2025-01-15T08:00:00Z"),
+    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T11:50:00Z")
+  },
+  {
+    id: 6,
+    openId: "igs_admin_mariama_kourouma",
+    name: "Mariama Kourouma (Directrice G\xE9n\xE9rale Adjointe)",
+    email: "m.kourouma@igs-logistics.gn",
+    loginMethod: "direct",
+    role: "admin",
+    clientCompany: null,
+    phone: "+224 620 98 76 54",
+    isActive: true,
+    sessionRevokedAt: null,
+    createdAt: /* @__PURE__ */ new Date("2025-01-15T08:00:00Z"),
+    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T10:10:00Z")
+  },
+  {
+    id: 7,
+    openId: "igs_admin_sekouba_keita",
+    name: "Sekouba Keita (Responsable Sydonia & GUCEG)",
+    email: "s.keita@igs-logistics.gn",
+    loginMethod: "direct",
+    role: "admin",
+    clientCompany: null,
+    phone: "+224 621 33 44 55",
+    isActive: true,
+    sessionRevokedAt: null,
+    createdAt: /* @__PURE__ */ new Date("2025-02-01T08:00:00Z"),
+    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T08:30:00Z")
+  },
+  {
+    id: 8,
+    openId: "igs_manager_hadja_diallo",
+    name: "Hadja Aissatou Diallo (Superviseur Port Kamsar)",
+    email: "a.diallo.kamsar@igs-logistics.gn",
+    loginMethod: "direct",
+    role: "manager",
+    clientCompany: null,
+    phone: "+224 622 77 88 99",
+    isActive: true,
+    sessionRevokedAt: null,
+    createdAt: /* @__PURE__ */ new Date("2025-02-10T08:00:00Z"),
+    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+    lastSignedIn: /* @__PURE__ */ new Date("2026-08-19T16:40:00Z")
+  },
+  {
+    id: 9,
+    openId: "igs_admin_ousmane_bah",
+    name: "Ousmane Bah (Directeur Transit Maritime)",
+    email: "o.bah@igs-logistics.gn",
+    loginMethod: "direct",
+    role: "admin",
+    clientCompany: null,
+    phone: "+224 623 11 22 44",
+    isActive: true,
+    sessionRevokedAt: null,
+    createdAt: /* @__PURE__ */ new Date("2025-02-15T08:00:00Z"),
+    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T09:15:00Z")
+  },
+  {
+    id: 10,
+    openId: "igs_manager_fatoumata_balde",
+    name: "Fatoumata Binta Balde (Audit Interne & Qualit\xE9)",
+    email: "fb.balde@igs-logistics.gn",
+    loginMethod: "direct",
+    role: "manager",
+    clientCompany: null,
+    phone: "+224 624 55 66 77",
+    isActive: true,
+    sessionRevokedAt: null,
+    createdAt: /* @__PURE__ */ new Date("2025-03-01T08:00:00Z"),
+    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T10:55:00Z")
+  },
+  {
+    id: 11,
+    openId: "igs_admin_mohamed_cisse",
+    name: "Mohamed Lamine Cisse (Chef des Relations Douane)",
+    email: "ml.cisse@igs-logistics.gn",
+    loginMethod: "direct",
+    role: "admin",
+    clientCompany: null,
+    phone: "+224 625 22 33 66",
+    isActive: true,
+    sessionRevokedAt: null,
+    createdAt: /* @__PURE__ */ new Date("2025-03-10T08:00:00Z"),
+    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T11:05:00Z")
+  },
+  {
+    id: 12,
+    openId: "igs_manager_kadiatou_sylla",
+    name: "Kadiatou Sylla (Superviseur Quai Nord PAC)",
+    email: "k.sylla@igs-logistics.gn",
+    loginMethod: "direct",
+    role: "manager",
+    clientCompany: null,
+    phone: "+224 626 44 88 11",
+    isActive: true,
+    sessionRevokedAt: null,
+    createdAt: /* @__PURE__ */ new Date("2025-03-15T08:00:00Z"),
+    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T08:15:00Z")
+  },
+  {
+    id: 13,
+    openId: "igs_manager_thierno_diallo",
+    name: "Thierno Sadou Diallo (Chef d'Agence Kamsar)",
+    email: "ts.diallo@igs-logistics.gn",
+    loginMethod: "direct",
+    role: "manager",
+    clientCompany: null,
+    phone: "+224 627 99 00 11",
+    isActive: true,
+    sessionRevokedAt: null,
+    createdAt: /* @__PURE__ */ new Date("2025-03-20T08:00:00Z"),
+    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+    lastSignedIn: /* @__PURE__ */ new Date("2026-08-19T14:20:00Z")
+  },
+  {
+    id: 14,
+    openId: "igs_admin_ibrahima_bangoura",
+    name: "Ibrahima Sory Bangoura (Responsable IT & S\xE9curit\xE9)",
+    email: "is.bangoura@igs-logistics.gn",
+    loginMethod: "direct",
+    role: "admin",
+    clientCompany: null,
+    phone: "+224 628 33 55 77",
+    isActive: true,
+    sessionRevokedAt: null,
+    createdAt: /* @__PURE__ */ new Date("2025-04-01T08:00:00Z"),
+    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T12:10:00Z")
+  },
+  {
+    id: 15,
+    openId: "igs_manager_djiba_camara",
+    name: "Djiba Camara (Manager Relations GUCEG PAC)",
+    email: "d.camara@igs-logistics.gn",
+    loginMethod: "direct",
+    role: "manager",
+    clientCompany: null,
+    phone: "+224 629 11 44 88",
+    isActive: true,
+    sessionRevokedAt: null,
+    createdAt: /* @__PURE__ */ new Date("2025-04-10T08:00:00Z"),
+    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T07:45:00Z")
+  },
+  {
+    id: 16,
+    openId: "igs_manager_cellou_diallo",
+    name: "Mamadou Cellou Diallo (Responsable HSE Portuaire)",
+    email: "mc.diallo@igs-logistics.gn",
+    loginMethod: "direct",
+    role: "manager",
+    clientCompany: null,
+    phone: "+224 660 55 66 88",
+    isActive: true,
+    sessionRevokedAt: null,
+    createdAt: /* @__PURE__ */ new Date("2025-04-15T08:00:00Z"),
+    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+    lastSignedIn: /* @__PURE__ */ new Date("2026-08-18T16:30:00Z")
+  },
+  // --- 3. DÉCLARANTS DOUANE PAC & PORTS (45) ---
+  {
+    id: 17,
+    openId: "igs_declarant_lamarana_diallo",
+    name: "Mamadou Lamarana Diallo (Quai Nord)",
+    email: "ml.diallo@igs-logistics.gn",
+    loginMethod: "direct",
+    role: "declarant",
+    clientCompany: null,
+    phone: "+224 621 44 11 22",
+    isActive: true,
+    sessionRevokedAt: null,
+    createdAt: /* @__PURE__ */ new Date("2025-01-20T08:00:00Z"),
+    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T11:40:00Z")
+  },
+  {
+    id: 18,
+    openId: "igs_declarant_aboubacar_soumah",
+    name: "Aboubacar Soumah (Terminal Conteneurs PAC)",
+    email: "a.soumah@igs-logistics.gn",
+    loginMethod: "direct",
+    role: "declarant",
+    clientCompany: null,
+    phone: "+224 622 33 22 11",
+    isActive: true,
+    sessionRevokedAt: null,
+    createdAt: /* @__PURE__ */ new Date("2025-01-22T08:00:00Z"),
+    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T10:25:00Z")
+  },
+  {
+    id: 19,
+    openId: "igs_declarant_amadou_barry",
+    name: "Amadou Tidiane Barry (SYDONIA PAC)",
+    email: "at.barry@igs-logistics.gn",
+    loginMethod: "direct",
+    role: "declarant",
+    clientCompany: null,
+    phone: "+224 623 55 66 11",
+    isActive: true,
+    sessionRevokedAt: null,
+    createdAt: /* @__PURE__ */ new Date("2025-01-25T08:00:00Z"),
+    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T09:30:00Z")
+  },
+  {
+    id: 20,
+    openId: "igs_declarant_mohamed_camara",
+    name: "Mohamed Camara (Quai Sud PAC)",
+    email: "m.camara@igs-logistics.gn",
+    loginMethod: "direct",
+    role: "declarant",
+    clientCompany: null,
+    phone: "+224 624 88 99 00",
+    isActive: true,
+    sessionRevokedAt: null,
+    createdAt: /* @__PURE__ */ new Date("2025-02-01T08:00:00Z"),
+    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T08:45:00Z")
+  },
+  {
+    id: 21,
+    openId: "igs_declarant_sekou_conde",
+    name: "Sekou Conde (Terminal Ro-Ro)",
+    email: "s.conde@igs-logistics.gn",
+    loginMethod: "direct",
+    role: "declarant",
+    clientCompany: null,
+    phone: "+224 625 77 11 33",
+    isActive: true,
+    sessionRevokedAt: null,
+    createdAt: /* @__PURE__ */ new Date("2025-02-05T08:00:00Z"),
+    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T11:10:00Z")
+  },
+  {
+    id: 22,
+    openId: "igs_declarant_alpha_oumar_diallo",
+    name: "Alpha Oumar Diallo (Port Min\xE9ralier Kamsar)",
+    email: "ao.diallo@igs-logistics.gn",
+    loginMethod: "direct",
+    role: "declarant",
+    clientCompany: null,
+    phone: "+224 626 22 44 66",
+    isActive: true,
+    sessionRevokedAt: null,
+    createdAt: /* @__PURE__ */ new Date("2025-02-10T08:00:00Z"),
+    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+    lastSignedIn: /* @__PURE__ */ new Date("2026-08-19T17:15:00Z")
+  },
+  {
+    id: 23,
+    openId: "igs_declarant_kalil_traore",
+    name: "Ibrahima Kalil Traore (Bureau Douane PAC)",
+    email: "ik.traore@igs-logistics.gn",
+    loginMethod: "direct",
+    role: "declarant",
+    clientCompany: null,
+    phone: "+224 627 66 88 00",
+    isActive: true,
+    sessionRevokedAt: null,
+    createdAt: /* @__PURE__ */ new Date("2025-02-12T08:00:00Z"),
+    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T10:40:00Z")
+  },
+  {
+    id: 24,
+    openId: "igs_declarant_morlaye_sylla",
+    name: "Morlaye Sylla (Terminal Vraquier)",
+    email: "m.sylla@igs-logistics.gn",
+    loginMethod: "direct",
+    role: "declarant",
+    clientCompany: null,
+    phone: "+224 628 44 99 11",
+    isActive: true,
+    sessionRevokedAt: null,
+    createdAt: /* @__PURE__ */ new Date("2025-02-15T08:00:00Z"),
+    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T09:20:00Z")
+  },
+  {
+    id: 25,
+    openId: "igs_declarant_fode_bangoura",
+    name: "Fode Bangoura (Bureau GUCEG Conakry)",
+    email: "f.bangoura@igs-logistics.gn",
+    loginMethod: "direct",
+    role: "declarant",
+    clientCompany: null,
+    phone: "+224 629 88 22 44",
+    isActive: true,
+    sessionRevokedAt: null,
+    createdAt: /* @__PURE__ */ new Date("2025-02-18T08:00:00Z"),
+    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T12:05:00Z")
+  },
+  {
+    id: 26,
+    openId: "igs_declarant_cheick_toure",
+    name: "Cheick Ahmed Toure (Terminal P\xE9trolier)",
+    email: "ca.toure@igs-logistics.gn",
+    loginMethod: "direct",
+    role: "declarant",
+    clientCompany: null,
+    phone: "+224 660 11 33 55",
+    isActive: true,
+    sessionRevokedAt: null,
+    createdAt: /* @__PURE__ */ new Date("2025-02-20T08:00:00Z"),
+    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z")
+  },
+  {
+    id: 27,
+    openId: "igs_declarant_abdoulaye_balde",
+    name: "Abdoulaye Balde (Quai Commercial PAC)",
+    email: "a.balde@igs-logistics.gn",
+    loginMethod: "direct",
+    role: "declarant",
+    clientCompany: null,
+    phone: "+224 661 44 77 99",
+    isActive: true,
+    sessionRevokedAt: null,
+    createdAt: /* @__PURE__ */ new Date("2025-02-25T08:00:00Z"),
+    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T11:25:00Z")
+  },
+  {
+    id: 28,
+    openId: "igs_declarant_lansana_keita",
+    name: "Lansana Keita (Sydonia BAE/BL)",
+    email: "l.keita@igs-logistics.gn",
+    loginMethod: "direct",
+    role: "declarant",
+    clientCompany: null,
+    phone: "+224 662 22 55 88",
+    isActive: true,
+    sessionRevokedAt: null,
+    createdAt: /* @__PURE__ */ new Date("2025-03-01T08:00:00Z"),
+    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T10:05:00Z")
+  },
+  {
+    id: 29,
+    openId: "igs_declarant_saliou_sow",
+    name: "Mamadou Saliou Sow (Quai Ouest PAC)",
+    email: "ms.sow@igs-logistics.gn",
+    loginMethod: "direct",
+    role: "declarant",
+    clientCompany: null,
+    phone: "+224 663 88 11 44",
+    isActive: true,
+    sessionRevokedAt: null,
+    createdAt: /* @__PURE__ */ new Date("2025-03-05T08:00:00Z"),
+    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T09:50:00Z")
+  },
+  {
+    id: 30,
+    openId: "igs_declarant_oumar_bah",
+    name: "Oumar Bah (DDI & Bulletin Liquidation)",
+    email: "o.bah.douane@igs-logistics.gn",
+    loginMethod: "direct",
+    role: "declarant",
+    clientCompany: null,
+    phone: "+224 664 33 66 99",
+    isActive: true,
+    sessionRevokedAt: null,
+    createdAt: /* @__PURE__ */ new Date("2025-03-10T08:00:00Z"),
+    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T11:35:00Z")
+  },
+  {
+    id: 31,
+    openId: "igs_declarant_youssouf_camara",
+    name: "Youssouf Camara (Zone Matoto & Entrep\xF4ts)",
+    email: "y.camara@igs-logistics.gn",
+    loginMethod: "direct",
+    role: "declarant",
+    clientCompany: null,
+    phone: "+224 665 77 00 22",
+    isActive: true,
+    sessionRevokedAt: null,
+    createdAt: /* @__PURE__ */ new Date("2025-03-12T08:00:00Z"),
+    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+    lastSignedIn: /* @__PURE__ */ new Date("2026-08-19T15:10:00Z")
+  },
+  {
+    id: 32,
+    openId: "igs_declarant_aly_cisse",
+    name: "Aly Badara Cisse (Transit Fronti\xE8re)",
+    email: "ab.cisse@igs-logistics.gn",
+    loginMethod: "direct",
+    role: "declarant",
+    clientCompany: null,
+    phone: "+224 666 11 44 77",
+    isActive: true,
+    sessionRevokedAt: null,
+    createdAt: /* @__PURE__ */ new Date("2025-03-15T08:00:00Z"),
+    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T08:20:00Z")
+  },
+  {
+    id: 33,
+    openId: "igs_declarant_sekou_diakite",
+    name: "S\xE9kou Oumar Diakite (Port Min\xE9ralier Boffa)",
+    email: "so.diakite@igs-logistics.gn",
+    loginMethod: "direct",
+    role: "declarant",
+    clientCompany: null,
+    phone: "+224 667 55 88 11",
+    isActive: true,
+    sessionRevokedAt: null,
+    createdAt: /* @__PURE__ */ new Date("2025-03-20T08:00:00Z"),
+    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T10:15:00Z")
+  },
+  {
+    id: 34,
+    openId: "igs_declarant_boubacar_diallo",
+    name: "Boubacar Diallo (Port de Bok\xE9 Dapilon)",
+    email: "b.diallo.boke@igs-logistics.gn",
+    loginMethod: "direct",
+    role: "declarant",
+    clientCompany: null,
+    phone: "+224 668 99 22 55",
+    isActive: true,
+    sessionRevokedAt: null,
+    createdAt: /* @__PURE__ */ new Date("2025-03-25T08:00:00Z"),
+    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+    lastSignedIn: /* @__PURE__ */ new Date("2026-08-19T18:00:00Z")
+  },
+  {
+    id: 35,
+    openId: "igs_declarant_alpha_barry_kamsar",
+    name: "Mamadou Alpha Barry (Bauxite Kamsar)",
+    email: "ma.barry.kamsar@igs-logistics.gn",
+    loginMethod: "direct",
+    role: "declarant",
+    clientCompany: null,
+    phone: "+224 669 33 66 00",
+    isActive: true,
+    sessionRevokedAt: null,
+    createdAt: /* @__PURE__ */ new Date("2025-04-01T08:00:00Z"),
+    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T07:30:00Z")
+  },
+  {
+    id: 36,
+    openId: "igs_declarant_alhassane_soumah",
+    name: "Alhassane Soumah (PAC Quai Nord 2)",
+    email: "a.soumah.pac@igs-logistics.gn",
+    loginMethod: "direct",
+    role: "declarant",
+    clientCompany: null,
+    phone: "+224 620 44 77 11",
+    isActive: true,
+    sessionRevokedAt: null,
+    createdAt: /* @__PURE__ */ new Date("2025-04-05T08:00:00Z"),
+    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T11:00:00Z")
+  },
+  {
+    id: 37,
+    openId: "igs_declarant_sory_diane",
+    name: "Ibrahima Sory Diane (SYDONIA Kamsar)",
+    email: "is.diane@igs-logistics.gn",
+    loginMethod: "direct",
+    role: "declarant",
+    clientCompany: null,
+    phone: "+224 621 88 11 55",
+    isActive: true,
+    sessionRevokedAt: null,
+    createdAt: /* @__PURE__ */ new Date("2025-04-10T08:00:00Z"),
+    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T09:40:00Z")
+  },
+  {
+    id: 38,
+    openId: "igs_declarant_jean_loua",
+    name: "Jean-Pierre Loua (R\xE9gime Transit N1)",
+    email: "jp.loua@igs-logistics.gn",
+    loginMethod: "direct",
+    role: "declarant",
+    clientCompany: null,
+    phone: "+224 622 22 66 00",
+    isActive: true,
+    sessionRevokedAt: null,
+    createdAt: /* @__PURE__ */ new Date("2025-04-15T08:00:00Z"),
+    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T10:50:00Z")
+  },
+  {
+    id: 39,
+    openId: "igs_declarant_david_haba",
+    name: "David Haba (D\xE9douanement V\xE9hicules PAC)",
+    email: "d.haba@igs-logistics.gn",
+    loginMethod: "direct",
+    role: "declarant",
+    clientCompany: null,
+    phone: "+224 623 66 00 44",
+    isActive: true,
+    sessionRevokedAt: null,
+    createdAt: /* @__PURE__ */ new Date("2025-04-20T08:00:00Z"),
+    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T08:55:00Z")
+  },
+  {
+    id: 40,
+    openId: "igs_declarant_paul_lamah",
+    name: "Paul Lamah (Fret Sp\xE9cialis\xE9)",
+    email: "p.lamah@igs-logistics.gn",
+    loginMethod: "direct",
+    role: "declarant",
+    clientCompany: null,
+    phone: "+224 624 00 44 88",
+    isActive: true,
+    sessionRevokedAt: null,
+    createdAt: /* @__PURE__ */ new Date("2025-04-25T08:00:00Z"),
+    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T11:45:00Z")
+  },
+  {
+    id: 41,
+    openId: "igs_declarant_mohamed_cherif",
+    name: "Mohamed Cherif (Hydrocarbures & Chimiques)",
+    email: "m.cherif@igs-logistics.gn",
+    loginMethod: "direct",
+    role: "declarant",
+    clientCompany: null,
+    phone: "+224 625 44 88 22",
+    isActive: true,
+    sessionRevokedAt: null,
+    createdAt: /* @__PURE__ */ new Date("2025-05-01T08:00:00Z"),
+    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T10:20:00Z")
+  },
+  {
+    id: 42,
+    openId: "igs_declarant_mamady_kaba",
+    name: "Mamady Kaba (Minerais & Vrac)",
+    email: "m.kaba.vrac@igs-logistics.gn",
+    loginMethod: "direct",
+    role: "declarant",
+    clientCompany: null,
+    phone: "+224 626 88 22 66",
+    isActive: true,
+    sessionRevokedAt: null,
+    createdAt: /* @__PURE__ */ new Date("2025-05-05T08:00:00Z"),
+    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T09:10:00Z")
+  },
+  {
+    id: 43,
+    openId: "igs_declarant_souleymane_diallo",
+    name: "Souleymane Diallo (DDI GUCEG)",
+    email: "s.diallo.guceg@igs-logistics.gn",
+    loginMethod: "direct",
+    role: "declarant",
+    clientCompany: null,
+    phone: "+224 627 22 66 00",
+    isActive: true,
+    sessionRevokedAt: null,
+    createdAt: /* @__PURE__ */ new Date("2025-05-10T08:00:00Z"),
+    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T12:00:00Z")
+  },
+  {
+    id: 44,
+    openId: "igs_declarant_bakary_kante",
+    name: "Bakary Kante (Terminal Conteneurs)",
+    email: "b.kante@igs-logistics.gn",
+    loginMethod: "direct",
+    role: "declarant",
+    clientCompany: null,
+    phone: "+224 628 66 00 44",
+    isActive: true,
+    sessionRevokedAt: null,
+    createdAt: /* @__PURE__ */ new Date("2025-05-15T08:00:00Z"),
+    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T08:35:00Z")
+  },
+  {
+    id: 45,
+    openId: "igs_declarant_alseny_camara",
+    name: "Alseny Camara (Acconage & Relevage PAC)",
+    email: "a.camara.acconage@igs-logistics.gn",
+    loginMethod: "direct",
+    role: "declarant",
+    clientCompany: null,
+    phone: "+224 629 00 44 88",
+    isActive: true,
+    sessionRevokedAt: null,
+    createdAt: /* @__PURE__ */ new Date("2025-05-20T08:00:00Z"),
+    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T11:15:00Z")
+  },
+  {
+    id: 46,
+    openId: "igs_declarant_naby_toure",
+    name: "Naby Youssouf Toure (Quai Sud)",
+    email: "ny.toure@igs-logistics.gn",
+    loginMethod: "direct",
+    role: "declarant",
+    clientCompany: null,
+    phone: "+224 660 44 88 22",
+    isActive: true,
+    sessionRevokedAt: null,
+    createdAt: /* @__PURE__ */ new Date("2025-05-25T08:00:00Z"),
+    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T10:00:00Z")
+  },
+  {
+    id: 47,
+    openId: "igs_declarant_daouda_conde",
+    name: "Daouda Conde (Magasin Calage PAC)",
+    email: "d.conde.magasin@igs-logistics.gn",
+    loginMethod: "direct",
+    role: "declarant",
+    clientCompany: null,
+    phone: "+224 661 88 22 66",
+    isActive: true,
+    sessionRevokedAt: null,
+    createdAt: /* @__PURE__ */ new Date("2025-06-01T08:00:00Z"),
+    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T09:05:00Z")
+  },
+  {
+    id: 48,
+    openId: "igs_declarant_cherif_diallo",
+    name: "Cherif Diallo (D\xE9barquement Min\xE9ralier)",
+    email: "c.diallo.mineral@igs-logistics.gn",
+    loginMethod: "direct",
+    role: "declarant",
+    clientCompany: null,
+    phone: "+224 662 22 66 00",
+    isActive: true,
+    sessionRevokedAt: null,
+    createdAt: /* @__PURE__ */ new Date("2025-06-05T08:00:00Z"),
+    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T07:50:00Z")
+  },
+  {
+    id: 49,
+    openId: "igs_declarant_thierno_sow",
+    name: "Thierno Oumar Sow (Quittance & BAE PAC)",
+    email: "to.sow@igs-logistics.gn",
+    loginMethod: "direct",
+    role: "declarant",
+    clientCompany: null,
+    phone: "+224 663 66 00 44",
+    isActive: true,
+    sessionRevokedAt: null,
+    createdAt: /* @__PURE__ */ new Date("2025-06-10T08:00:00Z"),
+    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T11:55:00Z")
+  },
+  {
+    id: 50,
+    openId: "igs_declarant_ibrahima_bah",
+    name: "Ibrahima Bah (Port Autonome Conakry)",
+    email: "i.bah.pac@igs-logistics.gn",
+    loginMethod: "direct",
+    role: "declarant",
+    clientCompany: null,
+    phone: "+224 664 00 44 88",
+    isActive: true,
+    sessionRevokedAt: null,
+    createdAt: /* @__PURE__ */ new Date("2025-06-15T08:00:00Z"),
+    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T10:35:00Z")
+  },
+  {
+    id: 51,
+    openId: "igs_declarant_hady_diallo",
+    name: "Mamadou Hady Diallo (SYDONIA Expert)",
+    email: "mh.diallo@igs-logistics.gn",
+    loginMethod: "direct",
+    role: "declarant",
+    clientCompany: null,
+    phone: "+224 665 44 88 22",
+    isActive: true,
+    sessionRevokedAt: null,
+    createdAt: /* @__PURE__ */ new Date("2025-06-20T08:00:00Z"),
+    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T08:40:00Z")
+  },
+  {
+    id: 52,
+    openId: "igs_declarant_salifou_camara",
+    name: "Salifou Camara (Terminal Fruiti\xE8re PAC)",
+    email: "s.camara.fruit@igs-logistics.gn",
+    loginMethod: "direct",
+    role: "declarant",
+    clientCompany: null,
+    phone: "+224 666 88 22 66",
+    isActive: true,
+    sessionRevokedAt: null,
+    createdAt: /* @__PURE__ */ new Date("2025-06-25T08:00:00Z"),
+    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T12:15:00Z")
+  },
+  {
+    id: 53,
+    openId: "igs_declarant_yamoussa_bangoura",
+    name: "Yamoussa Bangoura (Quai Nord Post 3)",
+    email: "y.bangoura@igs-logistics.gn",
+    loginMethod: "direct",
+    role: "declarant",
+    clientCompany: null,
+    phone: "+224 667 22 66 00",
+    isActive: true,
+    sessionRevokedAt: null,
+    createdAt: /* @__PURE__ */ new Date("2025-07-01T08:00:00Z"),
+    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T09:25:00Z")
+  },
+  {
+    id: 54,
+    openId: "igs_declarant_almamy_toure",
+    name: "Almamy Toure (Port Kamsar Nord)",
+    email: "a.toure.kamsar@igs-logistics.gn",
+    loginMethod: "direct",
+    role: "declarant",
+    clientCompany: null,
+    phone: "+224 668 66 00 44",
+    isActive: true,
+    sessionRevokedAt: null,
+    createdAt: /* @__PURE__ */ new Date("2025-07-05T08:00:00Z"),
+    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+    lastSignedIn: /* @__PURE__ */ new Date("2026-08-19T16:00:00Z")
+  },
+  {
+    id: 55,
+    openId: "igs_declarant_ousmane_diallo",
+    name: "Ousmane Diallo (Conteneurs 40' PAC)",
+    email: "o.diallo.tc@igs-logistics.gn",
+    loginMethod: "direct",
+    role: "declarant",
+    clientCompany: null,
+    phone: "+224 669 00 44 88",
+    isActive: true,
+    sessionRevokedAt: null,
+    createdAt: /* @__PURE__ */ new Date("2025-07-10T08:00:00Z"),
+    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T10:45:00Z")
+  },
+  {
+    id: 56,
+    openId: "igs_declarant_alpha_amadou_barry",
+    name: "Alpha Amadou Barry (Sydonia N3)",
+    email: "aa.barry@igs-logistics.gn",
+    loginMethod: "direct",
+    role: "declarant",
+    clientCompany: null,
+    phone: "+224 620 55 99 33",
+    isActive: true,
+    sessionRevokedAt: null,
+    createdAt: /* @__PURE__ */ new Date("2025-07-15T08:00:00Z"),
+    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T11:20:00Z")
+  },
+  {
+    id: 57,
+    openId: "igs_declarant_sory_camara",
+    name: "Sory Camara (DDI Express Guceg)",
+    email: "s.camara.express@igs-logistics.gn",
+    loginMethod: "direct",
+    role: "declarant",
+    clientCompany: null,
+    phone: "+224 621 99 33 77",
+    isActive: true,
+    sessionRevokedAt: null,
+    createdAt: /* @__PURE__ */ new Date("2025-07-20T08:00:00Z"),
+    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T08:10:00Z")
+  },
+  {
+    id: 58,
+    openId: "igs_declarant_fode_soumah",
+    name: "Fode Soumah (Terminal Polyvalent PAC)",
+    email: "f.soumah.tp@igs-logistics.gn",
+    loginMethod: "direct",
+    role: "declarant",
+    clientCompany: null,
+    phone: "+224 622 33 77 11",
+    isActive: true,
+    sessionRevokedAt: null,
+    createdAt: /* @__PURE__ */ new Date("2025-07-25T08:00:00Z"),
+    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T12:20:00Z")
+  },
+  {
+    id: 59,
+    openId: "igs_declarant_facinet_camara",
+    name: "Facinet Camara (Compte Suspendu)",
+    email: "f.camara.suspendu@igs-logistics.gn",
+    loginMethod: "direct",
+    role: "declarant",
+    clientCompany: null,
+    phone: "+224 623 77 11 55",
+    isActive: false,
+    sessionRevokedAt: /* @__PURE__ */ new Date("2026-08-10T14:00:00Z"),
+    createdAt: /* @__PURE__ */ new Date("2025-08-01T08:00:00Z"),
+    updatedAt: /* @__PURE__ */ new Date("2026-08-10T14:00:00Z"),
+    lastSignedIn: /* @__PURE__ */ new Date("2026-08-10T13:45:00Z")
+  },
+  {
+    id: 60,
+    openId: "igs_declarant_karamo_kaba",
+    name: "Karamo Kaba (Compte Suspendu)",
+    email: "k.kaba.suspendu@igs-logistics.gn",
+    loginMethod: "direct",
+    role: "declarant",
+    clientCompany: null,
+    phone: "+224 624 11 55 99",
+    isActive: false,
+    sessionRevokedAt: /* @__PURE__ */ new Date("2026-08-12T10:00:00Z"),
+    createdAt: /* @__PURE__ */ new Date("2025-08-05T08:00:00Z"),
+    updatedAt: /* @__PURE__ */ new Date("2026-08-12T10:00:00Z"),
+    lastSignedIn: /* @__PURE__ */ new Date("2026-08-12T09:30:00Z")
+  },
+  {
+    id: 61,
+    openId: "igs_declarant_lamine_keita",
+    name: "Lamine Keita (Compte Suspendu)",
+    email: "l.keita.suspendu@igs-logistics.gn",
+    loginMethod: "direct",
+    role: "declarant",
+    clientCompany: null,
+    phone: "+224 625 55 99 33",
+    isActive: false,
+    sessionRevokedAt: /* @__PURE__ */ new Date("2026-08-15T09:00:00Z"),
+    createdAt: /* @__PURE__ */ new Date("2025-08-10T08:00:00Z"),
+    updatedAt: /* @__PURE__ */ new Date("2026-08-15T09:00:00Z"),
+    lastSignedIn: /* @__PURE__ */ new Date("2026-08-15T08:50:00Z")
+  },
+  // --- 4. COMPTABLES & GESTIONNAIRES FINANCIERS (18) ---
+  {
+    id: 62,
+    openId: "igs_comptable_aissatou_diallo",
+    name: "Aissatou Bella Diallo (Facturation GNF/USD)",
+    email: "ab.diallo.finance@igs-logistics.gn",
+    loginMethod: "direct",
+    role: "comptable",
+    clientCompany: null,
+    phone: "+224 626 99 33 77",
+    isActive: true,
+    sessionRevokedAt: null,
+    createdAt: /* @__PURE__ */ new Date("2025-01-18T08:00:00Z"),
+    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T10:00:00Z")
+  },
+  {
+    id: 63,
+    openId: "igs_comptable_fode_sylla",
+    name: "Mohamed Fode Sylla (D\xE9bours PAC & Surestaries)",
+    email: "mf.sylla@igs-logistics.gn",
+    loginMethod: "direct",
+    role: "comptable",
+    clientCompany: null,
+    phone: "+224 627 33 77 11",
+    isActive: true,
+    sessionRevokedAt: null,
+    createdAt: /* @__PURE__ */ new Date("2025-01-20T08:00:00Z"),
+    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T11:30:00Z")
+  },
+  {
+    id: 64,
+    openId: "igs_comptable_mariama_camara",
+    name: "Mariama Cir\xE9 Camara (Tr\xE9sorerie & Encaissements)",
+    email: "mc.camara.tresor@igs-logistics.gn",
+    loginMethod: "direct",
+    role: "comptable",
+    clientCompany: null,
+    phone: "+224 628 77 11 55",
+    isActive: true,
+    sessionRevokedAt: null,
+    createdAt: /* @__PURE__ */ new Date("2025-02-01T08:00:00Z"),
+    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T09:15:00Z")
+  },
+  {
+    id: 65,
+    openId: "igs_comptable_thierno_barry",
+    name: "Thierno Souleymane Barry (Rapprochement Bancaire)",
+    email: "ts.barry.finance@igs-logistics.gn",
+    loginMethod: "direct",
+    role: "comptable",
+    clientCompany: null,
+    phone: "+224 629 11 55 99",
+    isActive: true,
+    sessionRevokedAt: null,
+    createdAt: /* @__PURE__ */ new Date("2025-02-10T08:00:00Z"),
+    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T10:45:00Z")
+  },
+  {
+    id: 66,
+    openId: "igs_comptable_fatoumata_diallo",
+    name: "Fatoumata Binta Diallo (Droits Douane & DDI)",
+    email: "fb.diallo.douane@igs-logistics.gn",
+    loginMethod: "direct",
+    role: "comptable",
+    clientCompany: null,
+    phone: "+224 660 55 99 33",
+    isActive: true,
+    sessionRevokedAt: null,
+    createdAt: /* @__PURE__ */ new Date("2025-02-15T08:00:00Z"),
+    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T08:30:00Z")
+  },
+  {
+    id: 67,
+    openId: "igs_comptable_kalil_kaba",
+    name: "Ibrahima Kalil Kaba (Auditeur Factures & Marges)",
+    email: "ik.kaba.audit@igs-logistics.gn",
+    loginMethod: "direct",
+    role: "comptable",
+    clientCompany: null,
+    phone: "+224 661 99 33 77",
+    isActive: true,
+    sessionRevokedAt: null,
+    createdAt: /* @__PURE__ */ new Date("2025-03-01T08:00:00Z"),
+    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T11:50:00Z")
+  },
+  {
+    id: 68,
+    openId: "igs_comptable_aminata_traore",
+    name: "Aminata Traore (Fournisseurs & Armateurs)",
+    email: "a.traore.armateurs@igs-logistics.gn",
+    loginMethod: "direct",
+    role: "comptable",
+    clientCompany: null,
+    phone: "+224 662 33 77 11",
+    isActive: true,
+    sessionRevokedAt: null,
+    createdAt: /* @__PURE__ */ new Date("2025-03-10T08:00:00Z"),
+    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T09:35:00Z")
+  },
+  {
+    id: 69,
+    openId: "igs_comptable_kadiatou_bah",
+    name: "Kadiatou Bah (D\xE9bours Portuaires PAC)",
+    email: "k.bah.debours@igs-logistics.gn",
+    loginMethod: "direct",
+    role: "comptable",
+    clientCompany: null,
+    phone: "+224 663 77 11 55",
+    isActive: true,
+    sessionRevokedAt: null,
+    createdAt: /* @__PURE__ */ new Date("2025-03-15T08:00:00Z"),
+    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T12:05:00Z")
+  },
+  {
+    id: 70,
+    openId: "igs_comptable_oumou_diallo",
+    name: "Oumou Hawa Diallo (Factures D\xE9finitives)",
+    email: "oh.diallo.definitif@igs-logistics.gn",
+    loginMethod: "direct",
+    role: "comptable",
+    clientCompany: null,
+    phone: "+224 664 11 55 99",
+    isActive: true,
+    sessionRevokedAt: null,
+    createdAt: /* @__PURE__ */ new Date("2025-03-20T08:00:00Z"),
+    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T08:15:00Z")
+  },
+  {
+    id: 71,
+    openId: "igs_comptable_sekouba_camara",
+    name: "Sekouba Camara (Recouvrement Clients)",
+    email: "s.camara.recouvrement@igs-logistics.gn",
+    loginMethod: "direct",
+    role: "comptable",
+    clientCompany: null,
+    phone: "+224 665 55 99 33",
+    isActive: true,
+    sessionRevokedAt: null,
+    createdAt: /* @__PURE__ */ new Date("2025-04-01T08:00:00Z"),
+    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T10:10:00Z")
+  },
+  {
+    id: 72,
+    openId: "igs_comptable_hadja_conde",
+    name: "Hadja Saran Conde (Quittances Tr\xE9sor)",
+    email: "hs.conde.tresor@igs-logistics.gn",
+    loginMethod: "direct",
+    role: "comptable",
+    clientCompany: null,
+    phone: "+224 666 99 33 77",
+    isActive: true,
+    sessionRevokedAt: null,
+    createdAt: /* @__PURE__ */ new Date("2025-04-10T08:00:00Z"),
+    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T11:40:00Z")
+  },
+  {
+    id: 73,
+    openId: "igs_comptable_bhoye_diallo",
+    name: "Mamadou Bhoye Diallo (Devises USD/EUR)",
+    email: "mb.diallo.devises@igs-logistics.gn",
+    loginMethod: "direct",
+    role: "comptable",
+    clientCompany: null,
+    phone: "+224 667 33 77 11",
+    isActive: true,
+    sessionRevokedAt: null,
+    createdAt: /* @__PURE__ */ new Date("2025-04-15T08:00:00Z"),
+    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T09:20:00Z")
+  },
+  {
+    id: 74,
+    openId: "igs_comptable_fanta_keita",
+    name: "Fanta Keita (Frais Portuaires Conakry Terminal)",
+    email: "f.keita.terminal@igs-logistics.gn",
+    loginMethod: "direct",
+    role: "comptable",
+    clientCompany: null,
+    phone: "+224 668 77 11 55",
+    isActive: true,
+    sessionRevokedAt: null,
+    createdAt: /* @__PURE__ */ new Date("2025-05-01T08:00:00Z"),
+    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T10:30:00Z")
+  },
+  {
+    id: 75,
+    openId: "igs_comptable_lamine_diane",
+    name: "Mohamed Lamine Diane (Auditeur Comptable)",
+    email: "ml.diane.audit@igs-logistics.gn",
+    loginMethod: "direct",
+    role: "comptable",
+    clientCompany: null,
+    phone: "+224 669 11 55 99",
+    isActive: true,
+    sessionRevokedAt: null,
+    createdAt: /* @__PURE__ */ new Date("2025-05-10T08:00:00Z"),
+    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T11:10:00Z")
+  },
+  {
+    id: 76,
+    openId: "igs_comptable_rouguiatou_sow",
+    name: "Rouguiatou Sow (Facturation Portuaire)",
+    email: "r.sow.port@igs-logistics.gn",
+    loginMethod: "direct",
+    role: "comptable",
+    clientCompany: null,
+    phone: "+224 620 33 66 99",
+    isActive: true,
+    sessionRevokedAt: null,
+    createdAt: /* @__PURE__ */ new Date("2025-05-20T08:00:00Z"),
+    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T08:50:00Z")
+  },
+  {
+    id: 77,
+    openId: "igs_comptable_kabinet_kaba",
+    name: "Alpha Kabinet Kaba (Surestaries & Magasinage)",
+    email: "ak.kaba.surestaries@igs-logistics.gn",
+    loginMethod: "direct",
+    role: "comptable",
+    clientCompany: null,
+    phone: "+224 621 77 00 33",
+    isActive: true,
+    sessionRevokedAt: null,
+    createdAt: /* @__PURE__ */ new Date("2025-06-01T08:00:00Z"),
+    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T12:10:00Z")
+  },
+  {
+    id: 78,
+    openId: "igs_comptable_baillo_bah",
+    name: "Mamadou Baillo Bah (Compte Inactif)",
+    email: "mb.bah.inactif@igs-logistics.gn",
+    loginMethod: "direct",
+    role: "comptable",
+    clientCompany: null,
+    phone: "+224 622 11 44 77",
+    isActive: false,
+    sessionRevokedAt: /* @__PURE__ */ new Date("2026-07-30T10:00:00Z"),
+    createdAt: /* @__PURE__ */ new Date("2025-06-15T08:00:00Z"),
+    updatedAt: /* @__PURE__ */ new Date("2026-07-30T10:00:00Z"),
+    lastSignedIn: /* @__PURE__ */ new Date("2026-07-30T09:40:00Z")
+  },
+  {
+    id: 79,
+    openId: "igs_comptable_mariame_diallo",
+    name: "Mariame Diallo (Compte Inactif)",
+    email: "m.diallo.inactif@igs-logistics.gn",
+    loginMethod: "direct",
+    role: "comptable",
+    clientCompany: null,
+    phone: "+224 623 55 88 11",
+    isActive: false,
+    sessionRevokedAt: /* @__PURE__ */ new Date("2026-08-05T12:00:00Z"),
+    createdAt: /* @__PURE__ */ new Date("2025-07-01T08:00:00Z"),
+    updatedAt: /* @__PURE__ */ new Date("2026-08-05T12:00:00Z"),
+    lastSignedIn: /* @__PURE__ */ new Date("2026-08-05T11:20:00Z")
+  },
+  // --- 5. REPRÉSENTANTS ENTREPRISES CLIENTES (32) ---
+  {
+    id: 80,
+    openId: "client_birimian_aliou",
+    name: "Mamadou Aliou Diallo (Birimian Gold)",
+    email: "aliou.diallo@birimian-gold.gn",
+    loginMethod: "direct",
+    role: "client",
+    clientCompany: "Guinean Birimian Gold S.A",
+    phone: "+224 624 99 22 55",
+    isActive: true,
+    sessionRevokedAt: null,
+    createdAt: /* @__PURE__ */ new Date("2025-01-10T08:00:00Z"),
+    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T10:40:00Z")
+  },
+  {
+    id: 81,
+    openId: "client_topaz_fofana",
+    name: "Ibrahima Kassory Fofana (TOPAZ)",
+    email: "logistique@topaz.gn",
+    loginMethod: "direct",
+    role: "client",
+    clientCompany: "TOPAZ Multi-Industries S.A",
+    phone: "+224 625 33 66 00",
+    isActive: true,
+    sessionRevokedAt: null,
+    createdAt: /* @__PURE__ */ new Date("2025-01-15T08:00:00Z"),
+    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T11:25:00Z")
+  },
+  {
+    id: 82,
+    openId: "client_smb_chen_wei",
+    name: "Chen Wei (Soci\xE9t\xE9 Mini\xE8re de Bok\xE9)",
+    email: "logistics@smb-boke.gn",
+    loginMethod: "direct",
+    role: "client",
+    clientCompany: "Soci\xE9t\xE9 Mini\xE8re de Bok\xE9 (SMB)",
+    phone: "+224 626 77 00 44",
+    isActive: true,
+    sessionRevokedAt: null,
+    createdAt: /* @__PURE__ */ new Date("2025-01-20T08:00:00Z"),
+    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T08:35:00Z")
+  },
+  {
+    id: 83,
+    openId: "client_cbg_morvan",
+    name: "Pierre Morvan (Compagnie des Bauxites)",
+    email: "supply@cbg-guinee.com",
+    loginMethod: "direct",
+    role: "client",
+    clientCompany: "Compagnie des Bauxites de Guin\xE9e (CBG)",
+    phone: "+224 627 11 44 88",
+    isActive: true,
+    sessionRevokedAt: null,
+    createdAt: /* @__PURE__ */ new Date("2025-01-25T08:00:00Z"),
+    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T09:55:00Z")
+  },
+  {
+    id: 84,
+    openId: "client_gac_barry",
+    name: "Alassane Barry (Guinea Alumina)",
+    email: "import@gacguinee.com",
+    loginMethod: "direct",
+    role: "client",
+    clientCompany: "Guinea Alumina Corporation (GAC)",
+    phone: "+224 628 55 88 22",
+    isActive: true,
+    sessionRevokedAt: null,
+    createdAt: /* @__PURE__ */ new Date("2025-02-01T08:00:00Z"),
+    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T12:00:00Z")
+  },
+  {
+    id: 85,
+    openId: "client_cdm_zhang_li",
+    name: "Zhang Li (CDM-Chine Guin\xE9e)",
+    email: "import@cdm-chine.gn",
+    loginMethod: "direct",
+    role: "client",
+    clientCompany: "CDM-Chine Guin\xE9e S.A",
+    phone: "+224 629 99 22 66",
+    isActive: true,
+    sessionRevokedAt: null,
+    createdAt: /* @__PURE__ */ new Date("2025-02-05T08:00:00Z"),
+    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T07:45:00Z")
+  },
+  {
+    id: 86,
+    openId: "client_dangote_diop",
+    name: "Souleymane Diop (Dangote Cement)",
+    email: "transit@dangote-guinee.com",
+    loginMethod: "direct",
+    role: "client",
+    clientCompany: "Dangote Cement Guin\xE9e S.A",
+    phone: "+224 660 33 66 00",
+    isActive: true,
+    sessionRevokedAt: null,
+    createdAt: /* @__PURE__ */ new Date("2025-02-10T08:00:00Z"),
+    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T11:05:00Z")
+  },
+  {
+    id: 87,
+    openId: "client_sobragui_bangoura",
+    name: "Fatoumata Zahra Bangoura (Sobragui)",
+    email: "achats@sobragui.gn",
+    loginMethod: "direct",
+    role: "client",
+    clientCompany: "Sobragui S.A",
+    phone: "+224 661 77 00 44",
+    isActive: true,
+    sessionRevokedAt: null,
+    createdAt: /* @__PURE__ */ new Date("2025-02-15T08:00:00Z"),
+    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T09:10:00Z")
+  },
+  {
+    id: 88,
+    openId: "client_ciments_camara",
+    name: "Mamadou Saliou Camara (Ciments de Guin\xE9e)",
+    email: "logistique@ciments-guinee.gn",
+    loginMethod: "direct",
+    role: "client",
+    clientCompany: "Ciments de Guin\xE9e S.A",
+    phone: "+224 662 11 44 88",
+    isActive: true,
+    sessionRevokedAt: null,
+    createdAt: /* @__PURE__ */ new Date("2025-02-20T08:00:00Z"),
+    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T10:15:00Z")
+  },
+  {
+    id: 89,
+    openId: "client_chanimex_chanim",
+    name: "Karim Chanim (Chanimex Guin\xE9e)",
+    email: "import@chanimex-guinee.com",
+    loginMethod: "direct",
+    role: "client",
+    clientCompany: "Chanimex Guin\xE9e S.A.R.L",
+    phone: "+224 663 55 88 22",
+    isActive: true,
+    sessionRevokedAt: null,
+    createdAt: /* @__PURE__ */ new Date("2025-02-25T08:00:00Z"),
+    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T11:45:00Z")
+  },
+  {
+    id: 90,
+    openId: "client_total_dupont",
+    name: "Alexandre Dupont (TotalEnergies Guin\xE9e)",
+    email: "supply@totalenergies.gn",
+    loginMethod: "direct",
+    role: "client",
+    clientCompany: "TotalEnergies Marketing Guin\xE9e",
+    phone: "+224 664 99 22 66",
+    isActive: true,
+    sessionRevokedAt: null,
+    createdAt: /* @__PURE__ */ new Date("2025-03-01T08:00:00Z"),
+    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T08:20:00Z")
+  },
+  {
+    id: 91,
+    openId: "client_soguipah_soumah",
+    name: "Hadja M'Mahawa Soumah (SOGUIPAH)",
+    email: "transit@soguipah.gn",
+    loginMethod: "direct",
+    role: "client",
+    clientCompany: "SOGUIPAH S.A",
+    phone: "+224 665 33 66 00",
+    isActive: true,
+    sessionRevokedAt: null,
+    createdAt: /* @__PURE__ */ new Date("2025-03-05T08:00:00Z"),
+    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T10:50:00Z")
+  },
+  {
+    id: 92,
+    openId: "client_sag_cherif",
+    name: "Ousmane Cherif (AngloGold Ashanti / SAG)",
+    email: "logistics@anglogold-guinee.com",
+    loginMethod: "direct",
+    role: "client",
+    clientCompany: "Soci\xE9t\xE9 Anglogold Ashanti de Guin\xE9e (SAG)",
+    phone: "+224 666 77 00 44",
+    isActive: true,
+    sessionRevokedAt: null,
+    createdAt: /* @__PURE__ */ new Date("2025-03-10T08:00:00Z"),
+    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T12:10:00Z")
+  },
+  {
+    id: 93,
+    openId: "client_belair_diallo",
+    name: "Amadou Bailo Diallo (Bel Air Mining)",
+    email: "import@belairmining.gn",
+    loginMethod: "direct",
+    role: "client",
+    clientCompany: "Bel Air Mining Guin\xE9e S.A",
+    phone: "+224 667 11 44 88",
+    isActive: true,
+    sessionRevokedAt: null,
+    createdAt: /* @__PURE__ */ new Date("2025-03-15T08:00:00Z"),
+    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T09:40:00Z")
+  },
+  {
+    id: 94,
+    openId: "client_amr_traore",
+    name: "Sekou Traore (Alliance Mini\xE8re Responsable)",
+    email: "ops@amr-guinee.com",
+    loginMethod: "direct",
+    role: "client",
+    clientCompany: "Alliance Mini\xE8re Responsable (AMR)",
+    phone: "+224 668 55 88 22",
+    isActive: true,
+    sessionRevokedAt: null,
+    createdAt: /* @__PURE__ */ new Date("2025-03-20T08:00:00Z"),
+    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T11:15:00Z")
+  },
+  {
+    id: 95,
+    openId: "client_simfer_wang",
+    name: "Wang Yong (Simfer Rio Tinto Simandou)",
+    email: "supply.simandou@simfer.gn",
+    loginMethod: "direct",
+    role: "client",
+    clientCompany: "Simfer S.A (Rio Tinto Simandou)",
+    phone: "+224 669 99 22 66",
+    isActive: true,
+    sessionRevokedAt: null,
+    createdAt: /* @__PURE__ */ new Date("2025-03-25T08:00:00Z"),
+    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T08:45:00Z")
+  },
+  {
+    id: 96,
+    openId: "client_sg_bah",
+    name: "Mariama Dalanda Bah (Soci\xE9t\xE9 G\xE9n\xE9rale Guin\xE9e)",
+    email: "m.bah@socgen.gn",
+    loginMethod: "direct",
+    role: "client",
+    clientCompany: "Soci\xE9t\xE9 G\xE9n\xE9rale Guin\xE9e",
+    phone: "+224 620 11 55 88",
+    isActive: true,
+    sessionRevokedAt: null,
+    createdAt: /* @__PURE__ */ new Date("2025-04-01T08:00:00Z"),
+    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T10:05:00Z")
+  },
+  {
+    id: 97,
+    openId: "client_agl_bernard",
+    name: "Christian Bernard (AGL Africa Global Logistics)",
+    email: "c.bernard@aglgroup.com",
+    loginMethod: "direct",
+    role: "client",
+    clientCompany: "Africa Global Logistics Guin\xE9e (AGL)",
+    phone: "+224 621 55 99 22",
+    isActive: true,
+    sessionRevokedAt: null,
+    createdAt: /* @__PURE__ */ new Date("2025-04-05T08:00:00Z"),
+    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T12:00:00Z")
+  },
+  {
+    id: 98,
+    openId: "client_katata_kaba",
+    name: "Mohamed Lamine Kaba (Mining Co of Katata)",
+    email: "transit@katatamining.gn",
+    loginMethod: "direct",
+    role: "client",
+    clientCompany: "Mining Company of Katata (MCK)",
+    phone: "+224 622 99 33 66",
+    isActive: true,
+    sessionRevokedAt: null,
+    createdAt: /* @__PURE__ */ new Date("2025-04-10T08:00:00Z"),
+    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T09:30:00Z")
+  },
+  {
+    id: 99,
+    openId: "client_mandiana_diallo",
+    name: "Thierno Mamadou Diallo (Or Mandiana)",
+    email: "direction@aurifere-mandiana.gn",
+    loginMethod: "direct",
+    role: "client",
+    clientCompany: "Soci\xE9t\xE9 Aurif\xE8re de Mandiana S.A",
+    phone: "+224 623 33 77 00",
+    isActive: true,
+    sessionRevokedAt: null,
+    createdAt: /* @__PURE__ */ new Date("2025-04-15T08:00:00Z"),
+    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T11:35:00Z")
+  },
+  {
+    id: 100,
+    openId: "client_soguicar_cisse",
+    name: "Aissatou Cisse (Soguicar Concessionnaire)",
+    email: "import@soguicar.gn",
+    loginMethod: "direct",
+    role: "client",
+    clientCompany: "SOGUICAR Guin\xE9e S.A",
+    phone: "+224 624 77 11 44",
+    isActive: true,
+    sessionRevokedAt: null,
+    createdAt: /* @__PURE__ */ new Date("2025-04-20T08:00:00Z"),
+    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T10:20:00Z")
+  },
+  {
+    id: 101,
+    openId: "client_gi_camara",
+    name: "Aboubacar Camara (Guin\xE9enne d'Industrie)",
+    email: "achats@gi-guinee.gn",
+    loginMethod: "direct",
+    role: "client",
+    clientCompany: "Guin\xE9enne d'Industrie (GI)",
+    phone: "+224 625 11 55 88",
+    isActive: true,
+    sessionRevokedAt: null,
+    createdAt: /* @__PURE__ */ new Date("2025-05-01T08:00:00Z"),
+    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T08:10:00Z")
+  },
+  {
+    id: 102,
+    openId: "client_nimba_kpoghomou",
+    name: "Julien Kpoghomou (Soci\xE9t\xE9 des Mines de Fer de Guin\xE9e)",
+    email: "j.kpoghomou@smfg.gn",
+    loginMethod: "direct",
+    role: "client",
+    clientCompany: "Soci\xE9t\xE9 des Mines de Fer de Guin\xE9e (SMFG)",
+    phone: "+224 626 55 99 22",
+    isActive: true,
+    sessionRevokedAt: null,
+    createdAt: /* @__PURE__ */ new Date("2025-05-10T08:00:00Z"),
+    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T11:00:00Z")
+  },
+  {
+    id: 103,
+    openId: "client_navale_fofana",
+    name: "Lansana Fofana (Soci\xE9t\xE9 Navale Guin\xE9enne)",
+    email: "transit@navale-guinee.gn",
+    loginMethod: "direct",
+    role: "client",
+    clientCompany: "Soci\xE9t\xE9 Navale Guin\xE9enne (SNG)",
+    phone: "+224 627 99 33 66",
+    isActive: true,
+    sessionRevokedAt: null,
+    createdAt: /* @__PURE__ */ new Date("2025-05-15T08:00:00Z"),
+    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T09:05:00Z")
+  },
+  {
+    id: 104,
+    openId: "client_hydrocarbures_soumah",
+    name: "Fatoumata Yarie Soumah (Continental Hydrocarbures)",
+    email: "ops@continental-guinee.gn",
+    loginMethod: "direct",
+    role: "client",
+    clientCompany: "Continental Hydrocarbures Guin\xE9e",
+    phone: "+224 628 33 77 00",
+    isActive: true,
+    sessionRevokedAt: null,
+    createdAt: /* @__PURE__ */ new Date("2025-06-01T08:00:00Z"),
+    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T12:15:00Z")
+  },
+  {
+    id: 105,
+    openId: "client_lng_barry",
+    name: "Mamadou Tahirou Barry (West Africa LNG)",
+    email: "transit@walng-guinee.com",
+    loginMethod: "direct",
+    role: "client",
+    clientCompany: "West Africa LNG Guin\xE9e",
+    phone: "+224 629 77 11 44",
+    isActive: true,
+    sessionRevokedAt: null,
+    createdAt: /* @__PURE__ */ new Date("2025-06-10T08:00:00Z"),
+    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T10:30:00Z")
+  },
+  {
+    id: 106,
+    openId: "client_kimbo_conde",
+    name: "Sory Conde (Bauxite Kimbo Guin\xE9e)",
+    email: "ops@kimbo-bauxite.gn",
+    loginMethod: "direct",
+    role: "client",
+    clientCompany: "Bauxite Kimbo Guin\xE9e S.A",
+    phone: "+224 660 11 55 88",
+    isActive: true,
+    sessionRevokedAt: null,
+    createdAt: /* @__PURE__ */ new Date("2025-06-20T08:00:00Z"),
+    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T08:55:00Z")
+  },
+  {
+    id: 107,
+    openId: "client_kct_diakite",
+    name: "Ibrahima Diakite (Kamsar Container Terminal)",
+    email: "i.diakite@kct-guinee.com",
+    loginMethod: "direct",
+    role: "client",
+    clientCompany: "Kamsar Container Terminal Partners",
+    phone: "+224 661 55 99 22",
+    isActive: true,
+    sessionRevokedAt: null,
+    createdAt: /* @__PURE__ */ new Date("2025-07-01T08:00:00Z"),
+    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T11:40:00Z")
+  },
+  {
+    id: 108,
+    openId: "client_agro_toure",
+    name: "Abdoulaye Toure (Agro-Industrie Guin\xE9e)",
+    email: "transit@agro-guinee.gn",
+    loginMethod: "direct",
+    role: "client",
+    clientCompany: "Agro-Industrie de Guin\xE9e S.A",
+    phone: "+224 662 99 33 66",
+    isActive: true,
+    sessionRevokedAt: null,
+    createdAt: /* @__PURE__ */ new Date("2025-07-10T08:00:00Z"),
+    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T09:25:00Z")
+  },
+  {
+    id: 109,
+    openId: "client_tg_diallo",
+    name: "Diallo Abdoul Gadirou (Trans-Guin\xE9en Mines)",
+    email: "ag.diallo@transguineen.gn",
+    loginMethod: "direct",
+    role: "client",
+    clientCompany: "Trans-Guin\xE9en Chemin de Fer & Mines",
+    phone: "+224 663 33 77 00",
+    isActive: true,
+    sessionRevokedAt: null,
+    createdAt: /* @__PURE__ */ new Date("2025-07-15T08:00:00Z"),
+    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T12:05:00Z")
+  },
+  {
+    id: 110,
+    openId: "client_kipe_camara",
+    name: "Naby Camara (Kipe Trading - Compte Suspendu)",
+    email: "n.camara.suspendu@kipe-trading.gn",
+    loginMethod: "direct",
+    role: "client",
+    clientCompany: "Kipe Trading & Mining S.A.R.L",
+    phone: "+224 664 77 11 44",
+    isActive: false,
+    sessionRevokedAt: /* @__PURE__ */ new Date("2026-08-01T15:00:00Z"),
+    createdAt: /* @__PURE__ */ new Date("2025-07-20T08:00:00Z"),
+    updatedAt: /* @__PURE__ */ new Date("2026-08-01T15:00:00Z"),
+    lastSignedIn: /* @__PURE__ */ new Date("2026-08-01T14:30:00Z")
+  },
+  {
+    id: 111,
+    openId: "client_conakry_bauxite_balde",
+    name: "Mamadou Aliou Balde (Conakry Bauxite - Suspendu)",
+    email: "ma.balde.suspendu@conakry-bauxite.gn",
+    loginMethod: "direct",
+    role: "client",
+    clientCompany: "Conakry Bauxite Logistics",
+    phone: "+224 665 11 55 88",
+    isActive: false,
+    sessionRevokedAt: /* @__PURE__ */ new Date("2026-08-08T11:00:00Z"),
+    createdAt: /* @__PURE__ */ new Date("2025-08-01T08:00:00Z"),
+    updatedAt: /* @__PURE__ */ new Date("2026-08-08T11:00:00Z"),
+    lastSignedIn: /* @__PURE__ */ new Date("2026-08-08T10:45:00Z")
+  }
+];
+
 // server/_core/env.ts
 var ENV = {
   appId: process.env.VITE_APP_ID ?? "igs-dossiers",
@@ -2605,60 +4293,7 @@ var ENV = {
 var _db = null;
 var _client = null;
 var fromSourceDate = (value) => value ? /* @__PURE__ */ new Date(`${value}T00:00:00.000Z`) : null;
-var _memoryUsers = [
-  {
-    id: 1,
-    openId: "igs_admin_conakry",
-    name: "Ibrahima Gold Service (Admin)",
-    email: "contact@igs-logistics.gn",
-    loginMethod: "direct",
-    role: "admin",
-    clientCompany: null,
-    phone: "+224 620 00 00 00",
-    createdAt: /* @__PURE__ */ new Date(),
-    updatedAt: /* @__PURE__ */ new Date(),
-    lastSignedIn: /* @__PURE__ */ new Date()
-  },
-  {
-    id: 2,
-    openId: "declarant_conakry",
-    name: "Mamadou Diallo (D\xE9clarant PAC)",
-    email: "declarant@igs-logistics.gn",
-    loginMethod: "direct",
-    role: "declarant",
-    clientCompany: null,
-    phone: "+224 621 11 22 33",
-    createdAt: /* @__PURE__ */ new Date(),
-    updatedAt: /* @__PURE__ */ new Date(),
-    lastSignedIn: /* @__PURE__ */ new Date()
-  },
-  {
-    id: 3,
-    openId: "comptable_conakry",
-    name: "Fatoumata Camara (Comptable)",
-    email: "finance@igs-logistics.gn",
-    loginMethod: "direct",
-    role: "comptable",
-    clientCompany: null,
-    phone: "+224 622 44 55 66",
-    createdAt: /* @__PURE__ */ new Date(),
-    updatedAt: /* @__PURE__ */ new Date(),
-    lastSignedIn: /* @__PURE__ */ new Date()
-  },
-  {
-    id: 4,
-    openId: "client_birimian",
-    name: "Guinean Birimian Gold (Portail)",
-    email: "logistique@birimian-gold.gn",
-    loginMethod: "direct",
-    role: "client",
-    clientCompany: "Guinean Birimian Gold S.A",
-    phone: "+224 623 77 88 99",
-    createdAt: /* @__PURE__ */ new Date(),
-    updatedAt: /* @__PURE__ */ new Date(),
-    lastSignedIn: /* @__PURE__ */ new Date()
-  }
-];
+var _memoryUsers = initialUsersData.map((u) => ({ ...u }));
 var _memoryReferenceItems = initialImportData.referenceItems.map((item, idx) => ({
   id: idx + 1,
   category: item.category,
@@ -2676,6 +4311,7 @@ var _memoryDossiers = initialImportData.dossiers.map((source, idx) => {
   const now = /* @__PURE__ */ new Date();
   return {
     id: idx + 1,
+    version: 1,
     dossierNumber: source.dossierNumber,
     clientDossierNumber: source.clientDossierNumber ?? null,
     client: source.client ?? null,
@@ -2752,10 +4388,18 @@ var _memoryHistory = [
     dossierId: 1,
     changedById: 1,
     authorName: "Syst\xE8me IGS",
+    userRole: "admin",
+    action: "CREATION_DOSSIER",
+    entityType: "dossier",
+    entityId: 1,
     fieldChanged: "Cr\xE9ation Dossier",
     previousValue: null,
     newValue: "DOS-0001 import\xE9",
+    beforeData: null,
+    afterData: JSON.stringify({ dossierNumber: "DOS-0001" }),
     comment: "Initialisation automatique depuis le manifeste maritime",
+    ipAddress: "127.0.0.1",
+    metadata: null,
     createdAt: new Date(Date.now() - 864e5 * 3)
   },
   {
@@ -2763,10 +4407,18 @@ var _memoryHistory = [
     dossierId: 1,
     changedById: 2,
     authorName: "Mamadou Diallo",
+    userRole: "declarant",
+    action: "SYDONIA_DECLAREE",
+    entityType: "dossier",
+    entityId: 1,
     fieldChanged: "declarationNumber",
     previousValue: "Non renseign\xE9",
     newValue: "S 142- 27/07/2026",
+    beforeData: JSON.stringify({ declarationNumber: null }),
+    afterData: JSON.stringify({ declarationNumber: "S 142- 27/07/2026" }),
     comment: "Enregistrement de la d\xE9claration dans Sydonia++",
+    ipAddress: "192.168.1.45",
+    metadata: null,
     createdAt: new Date(Date.now() - 864e5 * 2)
   }
 ];
@@ -3018,6 +4670,8 @@ async function upsertUser(user) {
         role: user.role ?? (user.openId === ENV.ownerOpenId ? "admin" : "user"),
         clientCompany: user.clientCompany ?? null,
         phone: user.phone ?? null,
+        isActive: user.isActive ?? true,
+        sessionRevokedAt: user.sessionRevokedAt ?? null,
         lastSignedIn: user.lastSignedIn ?? /* @__PURE__ */ new Date()
       };
       await db.insert(users).values(values).onConflictDoUpdate({
@@ -3028,6 +4682,8 @@ async function upsertUser(user) {
           role: values.role,
           clientCompany: values.clientCompany,
           phone: values.phone,
+          isActive: values.isActive,
+          sessionRevokedAt: values.sessionRevokedAt,
           lastSignedIn: values.lastSignedIn
         }
       });
@@ -3046,7 +4702,7 @@ async function upsertUser(user) {
     };
   } else {
     _memoryUsers.push({
-      id: _memoryUsers.length + 1,
+      id: _memoryUsers.length > 0 ? Math.max(..._memoryUsers.map((u) => u.id)) + 1 : 1,
       openId: user.openId,
       name: user.name ?? null,
       email: user.email ?? null,
@@ -3054,6 +4710,8 @@ async function upsertUser(user) {
       role: user.role ?? (user.openId === ENV.ownerOpenId ? "admin" : "user"),
       clientCompany: user.clientCompany ?? null,
       phone: user.phone ?? null,
+      isActive: user.isActive ?? true,
+      sessionRevokedAt: user.sessionRevokedAt ?? null,
       createdAt: /* @__PURE__ */ new Date(),
       updatedAt: /* @__PURE__ */ new Date(),
       lastSignedIn: /* @__PURE__ */ new Date()
@@ -3077,15 +4735,170 @@ async function getUserByOpenId(openId) {
   }
   return void 0;
 }
-async function listUsers() {
+async function getUserById(id) {
+  const mem = _memoryUsers.find((u) => u.id === id);
+  if (mem) return mem;
   const db = await getDb();
   if (db) {
     try {
-      return await db.select().from(users).orderBy(asc(users.name));
+      const row = (await withDbTimeout(db.select().from(users).where(eq(users.id, id)).limit(1), 1500))[0];
+      if (row) return row;
     } catch (e) {
     }
   }
-  return _memoryUsers;
+  return void 0;
+}
+async function listUsers(filters) {
+  let list = [..._memoryUsers];
+  if (filters?.search) {
+    const s = filters.search.toLowerCase().trim();
+    list = list.filter(
+      (u) => u.name && u.name.toLowerCase().includes(s) || u.email && u.email.toLowerCase().includes(s) || u.phone && u.phone.toLowerCase().includes(s) || u.clientCompany && u.clientCompany.toLowerCase().includes(s) || u.openId && u.openId.toLowerCase().includes(s)
+    );
+  }
+  if (filters?.role && filters.role !== "all") {
+    list = list.filter((u) => u.role === filters.role);
+  }
+  if (filters?.isActive !== void 0) {
+    list = list.filter((u) => u.isActive === filters.isActive);
+  }
+  list.sort((a, b) => a.id - b.id);
+  if (filters?.offset !== void 0 || filters?.limit !== void 0) {
+    const offset = filters.offset ?? 0;
+    const limit = filters.limit ?? list.length;
+    return list.slice(offset, offset + limit);
+  }
+  return list;
+}
+async function createUser(data) {
+  const now = /* @__PURE__ */ new Date();
+  const cleanEmail = data.email.toLowerCase().trim();
+  const generatedOpenId = `igs_${data.role}_${cleanEmail.replace(/[^a-z0-9]/g, "")}_${Date.now().toString(36)}`;
+  const newUser = {
+    id: _memoryUsers.length > 0 ? Math.max(..._memoryUsers.map((u) => u.id)) + 1 : 1,
+    openId: generatedOpenId,
+    name: data.name.trim(),
+    email: cleanEmail,
+    loginMethod: "direct",
+    role: data.role,
+    clientCompany: data.role === "client" ? data.clientCompany ?? null : null,
+    phone: data.phone?.trim() ?? null,
+    isActive: data.isActive ?? true,
+    sessionRevokedAt: data.isActive === false ? now : null,
+    createdAt: now,
+    updatedAt: now,
+    lastSignedIn: now
+  };
+  const db = await getDb();
+  if (db) {
+    try {
+      const inserted = await db.insert(users).values({
+        openId: newUser.openId,
+        name: newUser.name,
+        email: newUser.email,
+        loginMethod: newUser.loginMethod,
+        role: newUser.role,
+        clientCompany: newUser.clientCompany,
+        phone: newUser.phone,
+        isActive: newUser.isActive,
+        sessionRevokedAt: newUser.sessionRevokedAt,
+        createdAt: newUser.createdAt,
+        updatedAt: newUser.updatedAt,
+        lastSignedIn: newUser.lastSignedIn
+      }).returning();
+      if (inserted[0]) {
+        _memoryUsers.push(inserted[0]);
+        return inserted[0];
+      }
+    } catch (err) {
+      console.warn("[DB] Error inserting created user in DB, falling back to memory:", err);
+    }
+  }
+  _memoryUsers.push(newUser);
+  return newUser;
+}
+async function updateUser(id, data) {
+  const userIdx = _memoryUsers.findIndex((u) => u.id === id);
+  if (userIdx < 0) {
+    throw new Error(`Utilisateur avec ID ${id} introuvable`);
+  }
+  const existing = _memoryUsers[userIdx];
+  const now = /* @__PURE__ */ new Date();
+  const updatedUser = {
+    ...existing,
+    name: data.name !== void 0 ? data.name : existing.name,
+    email: data.email !== void 0 ? data.email.toLowerCase().trim() : existing.email,
+    phone: data.phone !== void 0 ? data.phone : existing.phone,
+    role: data.role !== void 0 ? data.role : existing.role,
+    clientCompany: data.clientCompany !== void 0 ? data.clientCompany : existing.clientCompany,
+    isActive: data.isActive !== void 0 ? data.isActive : existing.isActive,
+    sessionRevokedAt: data.isActive === false && existing.isActive !== false ? now : data.isActive === true ? null : existing.sessionRevokedAt,
+    updatedAt: now
+  };
+  const db = await getDb();
+  if (db) {
+    try {
+      await db.update(users).set({
+        name: updatedUser.name,
+        email: updatedUser.email,
+        phone: updatedUser.phone,
+        role: updatedUser.role,
+        clientCompany: updatedUser.clientCompany,
+        isActive: updatedUser.isActive,
+        sessionRevokedAt: updatedUser.sessionRevokedAt,
+        updatedAt: updatedUser.updatedAt
+      }).where(eq(users.id, id));
+    } catch (err) {
+      console.warn("[DB] Error updating user in DB:", err);
+    }
+  }
+  _memoryUsers[userIdx] = updatedUser;
+  return updatedUser;
+}
+async function toggleUserStatus(id, isActive) {
+  const userIdx = _memoryUsers.findIndex((u) => u.id === id);
+  if (userIdx < 0) {
+    throw new Error(`Utilisateur introuvable avec l'ID ${id}`);
+  }
+  const existing = _memoryUsers[userIdx];
+  const now = /* @__PURE__ */ new Date();
+  const updatedUser = {
+    ...existing,
+    isActive,
+    sessionRevokedAt: !isActive ? now : null,
+    updatedAt: now
+  };
+  const db = await getDb();
+  if (db) {
+    try {
+      await db.update(users).set({
+        isActive,
+        sessionRevokedAt: updatedUser.sessionRevokedAt,
+        updatedAt: now
+      }).where(eq(users.id, id));
+    } catch (err) {
+      console.warn("[DB] Error toggling user status in DB:", err);
+    }
+  }
+  _memoryUsers[userIdx] = updatedUser;
+  return updatedUser;
+}
+async function getHRStats() {
+  const all = _memoryUsers;
+  const totalEmployees = all.length;
+  const activeDeclarantsAtPort = all.filter((u) => u.role === "declarant" && u.isActive !== false).length;
+  const activeComptables = all.filter((u) => u.role === "comptable" && u.isActive !== false).length;
+  const connectedClients = all.filter((u) => u.role === "client" && u.isActive !== false).length;
+  const totalActive = all.filter((u) => u.isActive !== false).length;
+  const totalInactive = all.filter((u) => u.isActive === false).length;
+  return {
+    totalEmployees,
+    activeDeclarantsAtPort,
+    activeComptables,
+    connectedClients,
+    totalActive,
+    totalInactive
+  };
 }
 var _dossiersCacheTimestamp = 0;
 var DOSSIERS_CACHE_TTL_MS = 3e3;
@@ -3273,6 +5086,7 @@ async function createDossier(input, userId, authorName) {
   const now = /* @__PURE__ */ new Date();
   const newDossier = {
     id: sequence,
+    version: 1,
     dossierNumber: num,
     clientDossierNumber: input.clientDossierNumber ?? null,
     client: input.client ?? null,
@@ -3317,19 +5131,24 @@ async function createDossier(input, userId, authorName) {
     updatedAt: now
   };
   _memoryDossiers.unshift(newDossier);
-  await addDossierHistory({
+  await logAuditEvent({
     dossierId: newDossier.id,
-    changedById: userId ?? 1,
-    authorName: authorName ?? "Utilisateur",
+    userId: userId ?? 1,
+    userName: authorName ?? "Utilisateur",
+    userRole: "declarant",
+    action: "DOSSIER_CREE",
+    entityType: "dossier",
+    entityId: newDossier.id,
     fieldChanged: "Cr\xE9ation Dossier",
     previousValue: null,
     newValue: `Dossier ${num} cr\xE9\xE9`,
+    afterData: { dossierNumber: num, client: newDossier.client, blLtaNumber: newDossier.blLtaNumber },
     comment: `Portail client: ${portalCode}`
   });
   const db = await getDb();
   if (db) {
     try {
-      await db.insert(dossiers).values({ ...input, dossierNumber: num, portalAccessCode: portalCode, ...state, createdById: userId, updatedById: userId });
+      await db.insert(dossiers).values({ ...input, version: 1, dossierNumber: num, portalAccessCode: portalCode, ...state, createdById: userId, updatedById: userId });
     } catch (e) {
       console.warn("[DB] Failed to insert dossier in DB, stored in memory");
     }
@@ -3337,55 +5156,127 @@ async function createDossier(input, userId, authorName) {
   invalidateDossiersCache();
   return newDossier;
 }
-async function updateDossier(id, input, userId, authorName) {
-  const current = await getDossier(id);
-  if (!current) throw new Error("Dossier introuvable");
-  const state = calculateDossierState({ ...current, ...input });
-  const now = /* @__PURE__ */ new Date();
-  const historyEntries = [];
-  for (const [key, val] of Object.entries(input)) {
-    const oldVal = current[key];
-    if (oldVal !== val && val !== void 0) {
-      const entry = {
-        id: _memoryHistory.length + historyEntries.length + 1,
-        dossierId: id,
-        changedById: userId ?? 1,
-        authorName: authorName ?? "Utilisateur",
-        fieldChanged: key,
-        previousValue: oldVal ? String(oldVal) : "Vide",
-        newValue: val ? String(val) : "Vide",
-        comment: `Mise \xE0 jour ${key}`,
-        createdAt: now
-      };
-      _memoryHistory.unshift(entry);
-      historyEntries.push(entry);
+function formatAuditValue(val) {
+  if (val === null || val === void 0) return "Vide";
+  if (val === "") return "Vide";
+  if (val instanceof Date) return val.toISOString();
+  return String(val);
+}
+var dossierMutexMap = /* @__PURE__ */ new Map();
+async function runWithDossierLock(dossierId, fn) {
+  const previousLock = dossierMutexMap.get(dossierId) || Promise.resolve();
+  let releaseLock;
+  const currentLock = new Promise((resolve) => {
+    releaseLock = resolve;
+  });
+  dossierMutexMap.set(dossierId, currentLock);
+  await previousLock.catch(() => {
+  });
+  try {
+    return await fn();
+  } finally {
+    releaseLock();
+    if (dossierMutexMap.get(dossierId) === currentLock) {
+      dossierMutexMap.delete(dossierId);
     }
   }
-  const updated = {
-    ...current,
-    ...input,
-    ...state,
-    updatedById: userId ?? current.updatedById,
-    updatedAt: now
-  };
-  const memIdx = _memoryDossiers.findIndex((d) => d.id === id);
-  if (memIdx >= 0) _memoryDossiers[memIdx] = updated;
-  const db = await getDb();
-  if (db) {
-    try {
-      await withDbTimeout(
-        Promise.all([
-          db.update(dossiers).set({ ...input, ...state, updatedById: userId, updatedAt: now }).where(eq(dossiers.id, id)),
-          historyEntries.length > 0 ? db.insert(dossierStatusHistory).values(historyEntries) : Promise.resolve()
-        ]),
-        2e3
-      );
-    } catch (e) {
-      console.warn("[DB] updateDossier DB sync error or timeout, saved in memory:", e);
+}
+async function updateDossier(id, input, userId, authorName, options) {
+  return runWithDossierLock(id, async () => {
+    const current = await getDossier(id);
+    if (!current) throw new TRPCError({ code: "NOT_FOUND", message: "Dossier introuvable" });
+    if (!options?.forceOverwrite) {
+      if (options?.expectedVersion !== void 0 && current.version !== options.expectedVersion) {
+        throw new TRPCError({
+          code: "CONFLICT",
+          message: `Conflit d'\xE9dition simultan\xE9e : ce dossier a \xE9t\xE9 modifi\xE9 par un autre utilisateur (version locale: v${options.expectedVersion}, version serveur: v${current.version}). Veuillez recharger ou \xE9craser les modifications.`
+        });
+      }
+      if (options?.expectedUpdatedAt !== void 0) {
+        const expectedTime = new Date(options.expectedUpdatedAt).getTime();
+        const currentTime = new Date(current.updatedAt).getTime();
+        if (!isNaN(expectedTime) && !isNaN(currentTime) && Math.abs(currentTime - expectedTime) > 1e3) {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message: "Conflit d'\xE9dition simultan\xE9e : ce dossier a \xE9t\xE9 modifi\xE9 par un autre utilisateur. Veuillez recharger ou \xE9craser les modifications."
+          });
+        }
+      }
     }
-  }
-  invalidateDossiersCache();
-  return updated;
+    const nextVersion = (current.version || 1) + 1;
+    const state = calculateDossierState({ ...current, ...input });
+    const now = /* @__PURE__ */ new Date();
+    const historyEntries = [];
+    const actionMap = {
+      ddiGucegNumber: "DDI_MODIFIEE",
+      declarationNumber: "SYDONIA_DECLAREE",
+      bulletinNumber: "BLD_LIQUIDEE",
+      finalDeclarationNumber: "DECLARATION_DEFINITIVE_ENREGISTREE",
+      badStatus: "BAD_STATUT_MODIFIE",
+      baeStatus: "BAE_STATUT_MODIFIE",
+      goodsReleaseDate: "SORTIE_PAC_ENREGISTREE",
+      customsStatus: "STATUT_DOUANE_MODIFIE",
+      portStatus: "STATUT_PORT_MODIFIE",
+      financialStatus: "STATUT_FINANCIER_MODIFIE",
+      cargoNature: "CARGAISON_MODIFIEE",
+      transportMode: "MODE_TRANSPORT_MODIFIE",
+      eta: "ETA_MODIFIEE",
+      notes: "NOTE_MODIFIEE"
+    };
+    for (const [key, val] of Object.entries(input)) {
+      const oldVal = current[key];
+      if (oldVal !== val && val !== void 0) {
+        const action = actionMap[key] || `MODIFICATION_${key.toUpperCase()}`;
+        const entry = {
+          id: _memoryHistory.length + historyEntries.length + 1,
+          dossierId: id,
+          changedById: userId ?? 1,
+          authorName: authorName ?? "Utilisateur",
+          userRole: options?.userRole ?? "declarant",
+          action,
+          entityType: "dossier",
+          entityId: id,
+          fieldChanged: key,
+          previousValue: formatAuditValue(oldVal),
+          newValue: formatAuditValue(val),
+          beforeData: JSON.stringify({ [key]: oldVal instanceof Date ? oldVal.toISOString() : oldVal }),
+          afterData: JSON.stringify({ [key]: val instanceof Date ? val.toISOString() : val }),
+          comment: `Mise \xE0 jour ${key}`,
+          ipAddress: options?.ipAddress ?? null,
+          metadata: null,
+          createdAt: now
+        };
+        _memoryHistory.unshift(entry);
+        historyEntries.push(entry);
+      }
+    }
+    const updated = {
+      ...current,
+      ...input,
+      ...state,
+      version: nextVersion,
+      updatedById: userId ?? current.updatedById,
+      updatedAt: now
+    };
+    const memIdx = _memoryDossiers.findIndex((d) => d.id === id);
+    if (memIdx >= 0) _memoryDossiers[memIdx] = updated;
+    const db = await getDb();
+    if (db) {
+      try {
+        await withDbTimeout(
+          Promise.all([
+            db.update(dossiers).set({ ...input, ...state, version: nextVersion, updatedById: userId, updatedAt: now }).where(eq(dossiers.id, id)),
+            historyEntries.length > 0 ? db.insert(dossierStatusHistory).values(historyEntries) : Promise.resolve()
+          ]),
+          2e3
+        );
+      } catch (e) {
+        console.warn("[DB] updateDossier DB sync error or timeout, saved in memory:", e);
+      }
+    }
+    invalidateDossiersCache();
+    return updated;
+  });
 }
 async function importDossiersBatch(items, userId, authorName) {
   if (items.length === 0) {
@@ -3459,10 +5350,12 @@ async function importDossiersBatch(items, userId, authorName) {
         nextAction: item.nextAction || existing.nextAction
       };
       const state = calculateDossierState({ ...existing, ...mergedInput });
+      const nextVer = (existing.version || 1) + 1;
       const updated = {
         ...existing,
         ...mergedInput,
         ...state,
+        version: nextVer,
         updatedById: userId ?? existing.updatedById,
         updatedAt: now
       };
@@ -3471,17 +5364,28 @@ async function importDossiersBatch(items, userId, authorName) {
       else _memoryDossiers.push(updated);
       if (cleanBL) existingMapByBL.set(cleanBL, updated);
       if (cleanClientNum) existingMapByClientRef.set(cleanClientNum, updated);
-      toUpdateDB.push({ id: existing.id, data: { ...mergedInput, ...state, updatedById: userId ?? 1, updatedAt: now } });
-      historyBatch.push({
+      toUpdateDB.push({ id: existing.id, data: { ...mergedInput, ...state, version: nextVer, updatedById: userId ?? 1, updatedAt: now } });
+      const updateHistoryEntry = {
+        id: _memoryHistory.length + 1,
         dossierId: existing.id,
         changedById: userId ?? 1,
         authorName: authorName ?? "Importateur Excel",
+        userRole: "declarant",
+        action: "IMPORT_BATCH_FUSION",
+        entityType: "dossier",
+        entityId: existing.id,
         fieldChanged: "Mise \xE0 jour Import",
         previousValue: existing.calculatedStatus,
         newValue: state.calculatedStatus,
+        beforeData: JSON.stringify({ calculatedStatus: existing.calculatedStatus }),
+        afterData: JSON.stringify({ calculatedStatus: state.calculatedStatus }),
         comment: `Fusion automatique (${cleanBL || cleanClientNum})`,
+        ipAddress: null,
+        metadata: null,
         createdAt: now
-      });
+      };
+      _memoryHistory.unshift(updateHistoryEntry);
+      historyBatch.push(updateHistoryEntry);
       processed.push(updated);
       updatedCount++;
     } else {
@@ -3490,6 +5394,7 @@ async function importDossiersBatch(items, userId, authorName) {
       const state = calculateDossierState(item);
       const newDossier = {
         id: nextSequence,
+        version: 1,
         dossierNumber: num,
         clientDossierNumber: item.clientDossierNumber ?? null,
         client: item.client ?? null,
@@ -3538,6 +5443,7 @@ async function importDossiersBatch(items, userId, authorName) {
       if (cleanClientNum) existingMapByClientRef.set(cleanClientNum, newDossier);
       toInsertDB.push({
         ...item,
+        version: 1,
         dossierNumber: num,
         portalAccessCode: portalCode,
         ...state,
@@ -3546,16 +5452,27 @@ async function importDossiersBatch(items, userId, authorName) {
         createdAt: now,
         updatedAt: now
       });
-      historyBatch.push({
+      const createHistoryEntry = {
+        id: _memoryHistory.length + 1,
         dossierId: newDossier.id,
         changedById: userId ?? 1,
         authorName: authorName ?? "Importateur Excel",
+        userRole: "declarant",
+        action: "DOSSIER_CREE",
+        entityType: "dossier",
+        entityId: newDossier.id,
         fieldChanged: "Cr\xE9ation Dossier",
         previousValue: null,
         newValue: `Dossier ${num} cr\xE9\xE9`,
+        beforeData: null,
+        afterData: JSON.stringify({ dossierNumber: num, client: newDossier.client, blLtaNumber: newDossier.blLtaNumber }),
         comment: `Import batch automatique`,
+        ipAddress: null,
+        metadata: null,
         createdAt: now
-      });
+      };
+      _memoryHistory.unshift(createHistoryEntry);
+      historyBatch.push(createHistoryEntry);
       processed.push(newDossier);
       createdCount++;
       nextSequence++;
@@ -3625,13 +5542,19 @@ async function createDocument(input) {
     createdAt: now
   };
   _memoryDocuments.unshift(doc);
-  await addDossierHistory({
+  await logAuditEvent({
     dossierId: input.dossierId,
-    changedById: input.uploadedById ?? 1,
-    authorName: input.uploaderName ?? "Op\xE9rateur IGS",
+    userId: input.uploadedById ?? 1,
+    userName: input.uploaderName ?? "Op\xE9rateur IGS",
+    userRole: "declarant",
+    action: "DOCUMENT_AJOUTE",
+    entityType: "document",
+    entityId: doc.id,
     fieldChanged: "Document",
     previousValue: null,
     newValue: `${doc.type}: ${doc.name}`,
+    afterData: { name: doc.name, type: doc.type, fileSize: doc.fileSize, mimeType: doc.mimeType },
+    metadata: { mimeType: doc.mimeType, fileSize: doc.fileSize },
     comment: `Fichier joint (${Math.round((doc.fileSize || 0) / 1024)} KB)`
   });
   const db = await getDb();
@@ -3643,8 +5566,25 @@ async function createDocument(input) {
   }
   return doc;
 }
-async function deleteDocument(id) {
+async function deleteDocument(id, userId, authorName) {
+  const targetDoc = _memoryDocuments.find((d) => d.id === id);
   _memoryDocuments = _memoryDocuments.filter((d) => d.id !== id);
+  if (targetDoc) {
+    await logAuditEvent({
+      dossierId: targetDoc.dossierId,
+      userId: userId ?? 1,
+      userName: authorName ?? "Op\xE9rateur IGS",
+      userRole: "declarant",
+      action: "DOCUMENT_SUPPRIME",
+      entityType: "document",
+      entityId: id,
+      fieldChanged: "Document",
+      previousValue: `${targetDoc.type}: ${targetDoc.name}`,
+      newValue: "Supprim\xE9",
+      beforeData: { name: targetDoc.name, type: targetDoc.type, fileSize: targetDoc.fileSize },
+      comment: `Suppression du document ${targetDoc.name}`
+    });
+  }
   const db = await getDb();
   if (db) {
     try {
@@ -3654,6 +5594,41 @@ async function deleteDocument(id) {
   }
   return { success: true };
 }
+async function logAuditEvent(params) {
+  const now = params.createdAt ?? /* @__PURE__ */ new Date();
+  const beforeStr = params.beforeData ? typeof params.beforeData === "string" ? params.beforeData : JSON.stringify(params.beforeData) : null;
+  const afterStr = params.afterData ? typeof params.afterData === "string" ? params.afterData : JSON.stringify(params.afterData) : null;
+  const metaStr = params.metadata ? typeof params.metadata === "string" ? params.metadata : JSON.stringify(params.metadata) : null;
+  const entry = {
+    id: _memoryHistory.length + 1,
+    dossierId: params.dossierId ?? (params.entityType === "dossier" && params.entityId ? params.entityId : 0),
+    changedById: params.userId ?? null,
+    authorName: params.userName ?? "Syst\xE8me IGS",
+    userRole: params.userRole ?? null,
+    action: params.action,
+    entityType: params.entityType ?? "dossier",
+    entityId: params.entityId ?? params.dossierId ?? null,
+    fieldChanged: params.fieldChanged ?? params.action,
+    previousValue: params.previousValue === null || params.previousValue === void 0 ? null : formatAuditValue(params.previousValue),
+    newValue: params.newValue === null || params.newValue === void 0 ? null : formatAuditValue(params.newValue),
+    beforeData: beforeStr,
+    afterData: afterStr,
+    comment: params.comment ?? null,
+    ipAddress: params.ipAddress ?? null,
+    metadata: metaStr,
+    createdAt: now
+  };
+  _memoryHistory.unshift(entry);
+  const db = await getDb();
+  if (db) {
+    try {
+      await db.insert(dossierStatusHistory).values(entry);
+    } catch (e) {
+      console.warn("[DB] Failed to insert audit log entry into DB:", e);
+    }
+  }
+  return entry;
+}
 async function listDossierHistory(dossierId) {
   const db = await getDb();
   if (db) {
@@ -3662,29 +5637,7 @@ async function listDossierHistory(dossierId) {
     } catch (e) {
     }
   }
-  return _memoryHistory.filter((h) => h.dossierId === dossierId).sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
-}
-async function addDossierHistory(input) {
-  const entry = {
-    id: _memoryHistory.length + 1,
-    dossierId: input.dossierId,
-    changedById: input.changedById ?? null,
-    authorName: input.authorName ?? "Utilisateur IGS",
-    fieldChanged: input.fieldChanged,
-    previousValue: input.previousValue ?? null,
-    newValue: input.newValue ?? null,
-    comment: input.comment ?? null,
-    createdAt: /* @__PURE__ */ new Date()
-  };
-  _memoryHistory.unshift(entry);
-  const db = await getDb();
-  if (db) {
-    try {
-      await db.insert(dossierStatusHistory).values(input);
-    } catch (e) {
-    }
-  }
-  return entry;
+  return _memoryHistory.filter((h) => h.dossierId === dossierId || h.entityType === "dossier" && h.entityId === dossierId).sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
 }
 async function listInvoices(dossierId) {
   let list = [..._memoryInvoices];
@@ -3750,6 +5703,30 @@ async function createInvoice(input) {
   };
   _memoryInvoices.unshift(inv);
   await updateDossier(input.dossierId, { financialStatus: isPaid ? "Pay\xE9" : inv.invoiceType === "Proforma" ? "Fact. Proforma" : "Factur\xE9" });
+  await logAuditEvent({
+    dossierId: input.dossierId,
+    userId: input.createdById ?? 1,
+    userName: "Service Comptabilit\xE9",
+    userRole: "comptable",
+    action: "FACTURE_CREEE",
+    entityType: "invoice",
+    entityId: inv.id,
+    fieldChanged: "Facture",
+    previousValue: null,
+    newValue: `${inv.invoiceType} N\xB0 ${invNum}`,
+    beforeData: null,
+    afterData: {
+      invoiceNumber: invNum,
+      client: inv.client,
+      amountHt,
+      amountTva,
+      amountTtc,
+      disbursementsAmount: disbursements,
+      currency: inv.currency,
+      status: inv.status
+    },
+    comment: `\xC9mission facture ${inv.invoiceType} de ${inv.amountTtc.toLocaleString("fr-FR")} ${inv.currency} pour ${inv.client}`
+  });
   try {
     await addNotification({
       dossierId: input.dossierId,
@@ -3810,6 +5787,20 @@ async function updateInvoice(id, input) {
     } else if (result.invoiceType === "Definitive" || result.status === "\xC9mise") {
       await updateDossier(result.dossierId, { financialStatus: "Factur\xE9" });
     }
+    await logAuditEvent({
+      dossierId: result.dossierId,
+      userId: 1,
+      userName: "Service Comptabilit\xE9",
+      userRole: "comptable",
+      action: "FACTURE_MODIFIEE",
+      entityType: "invoice",
+      entityId: id,
+      fieldChanged: "Statut Facture",
+      previousValue: current?.status ?? null,
+      newValue: result.status,
+      afterData: { status: result.status, invoiceType: result.invoiceType },
+      comment: `Facture ${result.invoiceNumber} mise \xE0 jour (Statut: ${result.status})`
+    });
   }
   return result;
 }
@@ -3866,12 +5857,27 @@ async function recordInvoicePayment(id, data) {
   }
   if (invoice?.dossierId) {
     await updateDossier(invoice.dossierId, { financialStatus: "Pay\xE9" });
-    await addDossierHistory({
+    await logAuditEvent({
       dossierId: invoice.dossierId,
+      userId: data.userId ?? 1,
+      userName: "Service Comptabilit\xE9",
+      userRole: "comptable",
+      action: "PAIEMENT_ENCAISSE",
+      entityType: "payment",
+      entityId: paymentEntry.id,
       fieldChanged: "Paiement Facture",
       previousValue: "Non pay\xE9e",
       newValue: `Pay\xE9e (Quittance ${receiptNumber})`,
-      comment: `Mode: ${updatePayload.paymentMethod}, R\xE9f: ${updatePayload.paymentReference}, Montant: ${finalAmount} ${invoice.currency}`
+      beforeData: { status: "\xC9mise", paidAt: null },
+      afterData: {
+        receiptNumber,
+        amount: finalAmount,
+        currency: invoice.currency,
+        paymentMethod: updatePayload.paymentMethod,
+        paymentReference: updatePayload.paymentReference,
+        paidAt: now
+      },
+      comment: `Encaissement de ${finalAmount.toLocaleString("fr-FR")} ${invoice.currency} (Mode: ${updatePayload.paymentMethod}, R\xE9f: ${updatePayload.paymentReference}, Quittance: ${receiptNumber})`
     });
     try {
       await addNotification({
@@ -3909,7 +5915,7 @@ async function listPacDisbursements(dossierId) {
   if (dossierId) return _memoryPacDisbursements.filter((d) => d.dossierId === dossierId);
   return _memoryPacDisbursements;
 }
-async function createPacDisbursement(input) {
+async function createPacDisbursement(input, userId, authorName, userRole = "comptable") {
   const now = /* @__PURE__ */ new Date();
   const entry = {
     id: _memoryPacDisbursements.length + 1,
@@ -3921,11 +5927,32 @@ async function createPacDisbursement(input) {
     status: input.status ?? "avance",
     receiptNumber: input.receiptNumber ?? null,
     notes: input.notes ?? null,
-    createdById: input.createdById ?? 1,
+    createdById: userId ?? input.createdById ?? 1,
     createdAt: now,
     updatedAt: now
   };
   _memoryPacDisbursements.unshift(entry);
+  await logAuditEvent({
+    dossierId: input.dossierId,
+    userId: userId ?? input.createdById ?? 1,
+    userName: authorName ?? "Agent Portuaire PAC",
+    userRole,
+    action: "DEBOURS_AVANCE",
+    entityType: "disbursement",
+    entityId: entry.id,
+    fieldChanged: "D\xE9bours PAC",
+    previousValue: null,
+    newValue: `${entry.type.toUpperCase()} : ${entry.amountAdvanced.toLocaleString("fr-FR")} GNF`,
+    beforeData: null,
+    afterData: {
+      type: entry.type,
+      amountAdvanced: entry.amountAdvanced,
+      receiptNumber: entry.receiptNumber,
+      status: entry.status
+    },
+    metadata: { receiptNumber: entry.receiptNumber, type: entry.type },
+    comment: `Avance d\xE9bours ${entry.type} de ${entry.amountAdvanced.toLocaleString("fr-FR")} GNF au Port Autonome de Conakry (Quittance: ${entry.receiptNumber || "N/A"})`
+  });
   const db = await getDb();
   if (db) {
     try {
@@ -4441,6 +6468,9 @@ var SDKServer = class {
     if (!user) {
       throw ForbiddenError("User not found");
     }
+    if (user.isActive === false) {
+      throw ForbiddenError("Ce compte collaborateur est suspendu ou d\xE9sactiv\xE9");
+    }
     await upsertUser({
       openId: user.openId,
       lastSignedIn: signedInAt
@@ -4558,13 +6588,13 @@ function registerStorageProxy(app2) {
 
 // server/routers.ts
 import { z as z2 } from "zod";
-import { TRPCError as TRPCError3 } from "@trpc/server";
+import { TRPCError as TRPCError4 } from "@trpc/server";
 
 // server/_core/systemRouter.ts
 import { z } from "zod";
 
 // server/_core/notification.ts
-import { TRPCError } from "@trpc/server";
+import { TRPCError as TRPCError2 } from "@trpc/server";
 var TITLE_MAX_LENGTH = 1200;
 var CONTENT_MAX_LENGTH = 2e4;
 var trimValue = (value) => value.trim();
@@ -4578,13 +6608,13 @@ var buildEndpointUrl = (baseUrl) => {
 };
 var validatePayload = (input) => {
   if (!isNonEmptyString2(input.title)) {
-    throw new TRPCError({
+    throw new TRPCError2({
       code: "BAD_REQUEST",
       message: "Notification title is required."
     });
   }
   if (!isNonEmptyString2(input.content)) {
-    throw new TRPCError({
+    throw new TRPCError2({
       code: "BAD_REQUEST",
       message: "Notification content is required."
     });
@@ -4592,13 +6622,13 @@ var validatePayload = (input) => {
   const title = trimValue(input.title);
   const content = trimValue(input.content);
   if (title.length > TITLE_MAX_LENGTH) {
-    throw new TRPCError({
+    throw new TRPCError2({
       code: "BAD_REQUEST",
       message: `Notification title must be at most ${TITLE_MAX_LENGTH} characters.`
     });
   }
   if (content.length > CONTENT_MAX_LENGTH) {
-    throw new TRPCError({
+    throw new TRPCError2({
       code: "BAD_REQUEST",
       message: `Notification content must be at most ${CONTENT_MAX_LENGTH} characters.`
     });
@@ -4608,13 +6638,13 @@ var validatePayload = (input) => {
 async function notifyOwner(payload) {
   const { title, content } = validatePayload(payload);
   if (!ENV.forgeApiUrl) {
-    throw new TRPCError({
+    throw new TRPCError2({
       code: "INTERNAL_SERVER_ERROR",
       message: "Notification service URL is not configured."
     });
   }
   if (!ENV.forgeApiKey) {
-    throw new TRPCError({
+    throw new TRPCError2({
       code: "INTERNAL_SERVER_ERROR",
       message: "Notification service API key is not configured."
     });
@@ -4646,7 +6676,7 @@ async function notifyOwner(payload) {
 }
 
 // server/_core/trpc.ts
-import { initTRPC, TRPCError as TRPCError2 } from "@trpc/server";
+import { initTRPC, TRPCError as TRPCError3 } from "@trpc/server";
 import superjson from "superjson";
 var t = initTRPC.context().create({
   transformer: superjson
@@ -4656,7 +6686,13 @@ var publicProcedure = t.procedure;
 var requireUser = t.middleware(async (opts) => {
   const { ctx, next } = opts;
   if (!ctx.user) {
-    throw new TRPCError2({ code: "UNAUTHORIZED", message: UNAUTHED_ERR_MSG });
+    throw new TRPCError3({ code: "UNAUTHORIZED", message: UNAUTHED_ERR_MSG });
+  }
+  if (ctx.user.isActive === false) {
+    throw new TRPCError3({
+      code: "FORBIDDEN",
+      message: "Votre compte est d\xE9sactiv\xE9. Veuillez contacter un administrateur IGS."
+    });
   }
   return next({
     ctx: {
@@ -4670,10 +6706,16 @@ var adminProcedure = t.procedure.use(
   t.middleware(async (opts) => {
     const { ctx, next } = opts;
     if (!ctx.user) {
-      throw new TRPCError2({ code: "UNAUTHORIZED", message: UNAUTHED_ERR_MSG });
+      throw new TRPCError3({ code: "UNAUTHORIZED", message: UNAUTHED_ERR_MSG });
+    }
+    if (ctx.user.isActive === false) {
+      throw new TRPCError3({
+        code: "FORBIDDEN",
+        message: "Votre compte est d\xE9sactiv\xE9. Veuillez contacter un administrateur IGS."
+      });
     }
     if (ctx.user.role !== "admin") {
-      throw new TRPCError2({ code: "FORBIDDEN", message: NOT_ADMIN_ERR_MSG });
+      throw new TRPCError3({ code: "FORBIDDEN", message: NOT_ADMIN_ERR_MSG });
     }
     return next({
       ctx: {
@@ -4687,10 +6729,16 @@ var declarantProcedure = t.procedure.use(
   t.middleware(async (opts) => {
     const { ctx, next } = opts;
     if (!ctx.user) {
-      throw new TRPCError2({ code: "UNAUTHORIZED", message: UNAUTHED_ERR_MSG });
+      throw new TRPCError3({ code: "UNAUTHORIZED", message: UNAUTHED_ERR_MSG });
+    }
+    if (ctx.user.isActive === false) {
+      throw new TRPCError3({
+        code: "FORBIDDEN",
+        message: "Votre compte est d\xE9sactiv\xE9. Veuillez contacter un administrateur IGS."
+      });
     }
     if (!["admin", "manager", "declarant"].includes(ctx.user.role)) {
-      throw new TRPCError2({ code: "FORBIDDEN", message: "Acc\xE8s refus\xE9 pour ce profil" });
+      throw new TRPCError3({ code: "FORBIDDEN", message: "Acc\xE8s refus\xE9 pour ce profil" });
     }
     return next({
       ctx: {
@@ -4704,10 +6752,16 @@ var comptableProcedure = t.procedure.use(
   t.middleware(async (opts) => {
     const { ctx, next } = opts;
     if (!ctx.user) {
-      throw new TRPCError2({ code: "UNAUTHORIZED", message: UNAUTHED_ERR_MSG });
+      throw new TRPCError3({ code: "UNAUTHORIZED", message: UNAUTHED_ERR_MSG });
+    }
+    if (ctx.user.isActive === false) {
+      throw new TRPCError3({
+        code: "FORBIDDEN",
+        message: "Votre compte est d\xE9sactiv\xE9. Veuillez contacter un administrateur IGS."
+      });
     }
     if (!["admin", "manager", "comptable"].includes(ctx.user.role)) {
-      throw new TRPCError2({ code: "FORBIDDEN", message: "Acc\xE8s refus\xE9 pour ce profil" });
+      throw new TRPCError3({ code: "FORBIDDEN", message: "Acc\xE8s refus\xE9 pour ce profil" });
     }
     return next({
       ctx: {
@@ -4721,10 +6775,16 @@ var internalProcedure = t.procedure.use(
   t.middleware(async (opts) => {
     const { ctx, next } = opts;
     if (!ctx.user) {
-      throw new TRPCError2({ code: "UNAUTHORIZED", message: UNAUTHED_ERR_MSG });
+      throw new TRPCError3({ code: "UNAUTHORIZED", message: UNAUTHED_ERR_MSG });
+    }
+    if (ctx.user.isActive === false) {
+      throw new TRPCError3({
+        code: "FORBIDDEN",
+        message: "Votre compte est d\xE9sactiv\xE9. Veuillez contacter un administrateur IGS."
+      });
     }
     if (!["admin", "manager", "declarant", "comptable"].includes(ctx.user.role)) {
-      throw new TRPCError2({ code: "FORBIDDEN", message: "Acc\xE8s refus\xE9 pour ce profil" });
+      throw new TRPCError3({ code: "FORBIDDEN", message: "Acc\xE8s refus\xE9 pour ce profil" });
     }
     return next({
       ctx: {
@@ -5013,7 +7073,7 @@ var appRouter = router({
         name = "Guinean Birimian Gold (Client)";
       }
       if (input.password.length < 4) {
-        throw new TRPCError3({
+        throw new TRPCError4({
           code: "UNAUTHORIZED",
           message: "Mot de passe incorrect. Veuillez v\xE9rifier vos identifiants IGS."
         });
@@ -5042,6 +7102,60 @@ var appRouter = router({
       return { success: true };
     })
   }),
+  // 1.1 GESTION RH & COLLABORATEURS (MODULE D'ADMINISTRATION 100 EMPLOYÉS)
+  user: router({
+    list: adminProcedure.input(
+      z2.object({
+        search: z2.string().trim().max(200).optional(),
+        role: z2.string().optional(),
+        isActive: z2.boolean().optional(),
+        limit: z2.number().int().min(1).max(500).optional(),
+        offset: z2.number().int().min(0).optional()
+      }).nullish()
+    ).query(async ({ input }) => listUsers(input || void 0)),
+    getHRStats: adminProcedure.query(async () => getHRStats()),
+    get: adminProcedure.input(z2.object({ id: z2.number().int().positive() })).query(async ({ input }) => {
+      const user = await getUserById(input.id);
+      if (!user) {
+        throw new TRPCError4({ code: "NOT_FOUND", message: `Collaborateur ${input.id} introuvable` });
+      }
+      return user;
+    }),
+    create: adminProcedure.input(
+      z2.object({
+        name: z2.string().min(2, "Le nom doit comporter au moins 2 caract\xE8res"),
+        email: z2.string().email("Adresse email invalide"),
+        phone: z2.string().optional().nullable(),
+        role: z2.enum(["admin", "declarant", "comptable", "client", "manager", "user"]),
+        clientCompany: z2.string().optional().nullable(),
+        isActive: z2.boolean().optional().default(true)
+      })
+    ).mutation(async ({ input }) => {
+      return createUser(input);
+    }),
+    update: adminProcedure.input(
+      z2.object({
+        id: z2.number().int().positive(),
+        name: z2.string().min(2).optional(),
+        email: z2.string().email().optional(),
+        phone: z2.string().optional().nullable(),
+        role: z2.enum(["admin", "declarant", "comptable", "client", "manager", "user"]).optional(),
+        clientCompany: z2.string().optional().nullable(),
+        isActive: z2.boolean().optional()
+      })
+    ).mutation(async ({ input }) => {
+      const { id, ...data } = input;
+      return updateUser(id, data);
+    }),
+    toggleStatus: adminProcedure.input(
+      z2.object({
+        id: z2.number().int().positive(),
+        isActive: z2.boolean()
+      })
+    ).mutation(async ({ input }) => {
+      return toggleUserStatus(input.id, input.isActive);
+    })
+  }),
   // 2. RÉFÉRENTIELS LOGISTIQUES & DOUANIERS
   reference: router({
     list: protectedProcedure.input(z2.object({ category: z2.string().optional() }).nullish()).query(async ({ input }) => getReferenceItems(input?.category)),
@@ -5063,21 +7177,21 @@ var appRouter = router({
       try {
         const rawId = String(input.id).trim();
         if (!rawId) {
-          throw new TRPCError3({ code: "BAD_REQUEST", message: "Identifiant de dossier manquant ou invalide" });
+          throw new TRPCError4({ code: "BAD_REQUEST", message: "Identifiant de dossier manquant ou invalide" });
         }
         const dossier = await getDossier(input.id);
         if (!dossier) {
           console.error(`[tRPC] Dossier introuvable pour l'identifiant: "${input.id}"`);
-          throw new TRPCError3({ code: "NOT_FOUND", message: `Dossier introuvable pour l'identifiant "${input.id}"` });
+          throw new TRPCError4({ code: "NOT_FOUND", message: `Dossier introuvable pour l'identifiant "${input.id}"` });
         }
         if (ctx.user?.role === "client" && ctx.user?.clientCompany && dossier.client !== ctx.user.clientCompany) {
-          throw new TRPCError3({ code: "FORBIDDEN", message: "Acc\xE8s refus\xE9 pour ce dossier" });
+          throw new TRPCError4({ code: "FORBIDDEN", message: "Acc\xE8s refus\xE9 pour ce dossier" });
         }
         return dossier;
       } catch (err) {
-        if (err instanceof TRPCError3) throw err;
+        if (err instanceof TRPCError4) throw err;
         console.error("[tRPC dossier.get Error]", err);
-        throw new TRPCError3({
+        throw new TRPCError4({
           code: "INTERNAL_SERVER_ERROR",
           message: `Erreur interne lors de la r\xE9cup\xE9ration du dossier: ${err.message}`
         });
@@ -5088,26 +7202,39 @@ var appRouter = router({
         invalidateDashboardCache();
         return await createDossier(input, ctx.user.id, ctx.user.name || "Op\xE9rateur");
       } catch (err) {
-        if (err instanceof TRPCError3) throw err;
+        if (err instanceof TRPCError4) throw err;
         console.error("[tRPC dossier.create Error]", err);
-        throw new TRPCError3({
+        throw new TRPCError4({
           code: "INTERNAL_SERVER_ERROR",
           message: `Erreur interne lors de la cr\xE9ation du dossier: ${err.message}`
         });
       }
     }),
-    update: internalProcedure.input(z2.object({ id: z2.union([z2.number(), z2.string()]), data: dossierPayload })).mutation(async ({ ctx, input }) => {
+    update: internalProcedure.input(
+      z2.object({
+        id: z2.union([z2.number(), z2.string()]),
+        expectedVersion: z2.number().int().positive().optional(),
+        expectedUpdatedAt: z2.union([z2.date(), z2.string()]).optional(),
+        forceOverwrite: z2.boolean().optional(),
+        data: dossierPayload
+      })
+    ).mutation(async ({ ctx, input }) => {
       try {
         const numId = Number(input.id);
         if (isNaN(numId) || numId <= 0) {
-          throw new TRPCError3({ code: "BAD_REQUEST", message: `Identifiant de dossier invalide: ${input.id}` });
+          throw new TRPCError4({ code: "BAD_REQUEST", message: `Identifiant de dossier invalide: ${input.id}` });
         }
         invalidateDashboardCache();
-        return await updateDossier(numId, input.data, ctx.user.id, ctx.user.name || "Op\xE9rateur");
+        return await updateDossier(numId, input.data, ctx.user.id, ctx.user.name || "Op\xE9rateur", {
+          expectedVersion: input.expectedVersion,
+          expectedUpdatedAt: input.expectedUpdatedAt,
+          forceOverwrite: input.forceOverwrite,
+          userRole: ctx.user.role
+        });
       } catch (err) {
-        if (err instanceof TRPCError3) throw err;
+        if (err instanceof TRPCError4) throw err;
         console.error("[tRPC dossier.update Error]", err);
-        throw new TRPCError3({
+        throw new TRPCError4({
           code: "INTERNAL_SERVER_ERROR",
           message: `Erreur lors de la mise \xE0 jour du dossier: ${err.message}`
         });
@@ -5116,20 +7243,28 @@ var appRouter = router({
     updateCustoms: declarantProcedure.input(
       z2.object({
         id: z2.union([z2.number(), z2.string()]),
+        expectedVersion: z2.number().int().positive().optional(),
+        expectedUpdatedAt: z2.union([z2.date(), z2.string()]).optional(),
+        forceOverwrite: z2.boolean().optional(),
         data: dossierPayload.partial()
       })
     ).mutation(async ({ ctx, input }) => {
       try {
         const numId = Number(input.id);
         if (isNaN(numId) || numId <= 0) {
-          throw new TRPCError3({ code: "BAD_REQUEST", message: `Identifiant de dossier invalide: ${input.id}` });
+          throw new TRPCError4({ code: "BAD_REQUEST", message: `Identifiant de dossier invalide: ${input.id}` });
         }
         invalidateDashboardCache();
-        return await updateDossier(numId, input.data, ctx.user.id, ctx.user.name || "D\xE9clarant PAC");
+        return await updateDossier(numId, input.data, ctx.user.id, ctx.user.name || "D\xE9clarant PAC", {
+          expectedVersion: input.expectedVersion,
+          expectedUpdatedAt: input.expectedUpdatedAt,
+          forceOverwrite: input.forceOverwrite,
+          userRole: ctx.user.role
+        });
       } catch (err) {
-        if (err instanceof TRPCError3) throw err;
+        if (err instanceof TRPCError4) throw err;
         console.error("[tRPC dossier.updateCustoms Error]", err);
-        throw new TRPCError3({
+        throw new TRPCError4({
           code: "INTERNAL_SERVER_ERROR",
           message: `Erreur lors de la mise \xE0 jour des contr\xF4les douane: ${err.message}`
         });
@@ -5149,7 +7284,7 @@ var appRouter = router({
     track: publicProcedure.input(z2.object({ accessCodeOrNumber: z2.string().trim().min(2) })).query(async ({ input }) => {
       const dossier = await getDossierByPortalCode(input.accessCodeOrNumber);
       if (!dossier) {
-        throw new TRPCError3({
+        throw new TRPCError4({
           code: "NOT_FOUND",
           message: "Dossier introuvable. Aucun dossier trouv\xE9 pour ce code. V\xE9rifiez le code d'acc\xE8s et r\xE9essayez."
         });
@@ -5210,7 +7345,7 @@ var appRouter = router({
         uploaderName: ctx.user.name || "Op\xE9rateur IGS"
       });
     }),
-    remove: protectedProcedure.input(z2.object({ id: z2.number().int().positive() })).mutation(async ({ input }) => deleteDocument(input.id))
+    remove: protectedProcedure.input(z2.object({ id: z2.number().int().positive() })).mutation(async ({ ctx, input }) => deleteDocument(input.id, ctx.user.id, ctx.user.name || "Op\xE9rateur IGS"))
   }),
   // 6. AUDIT TRAIL / HISTORIQUE
   audit: router({

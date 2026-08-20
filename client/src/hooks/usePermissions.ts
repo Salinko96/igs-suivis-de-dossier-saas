@@ -10,6 +10,7 @@ export interface PermissionsMatrix {
   isComptable: boolean;
   isClient: boolean;
   isManager: boolean;
+  canManageUsers: boolean;
   canViewFinances: boolean;
   canViewControls: boolean;
   canViewPlanning: boolean;
@@ -42,7 +43,7 @@ export function getRoleBadge(role?: string | null): string {
 }
 
 export function resolvePermissions(role?: string | null): PermissionsMatrix {
-  const r = (role || "admin") as Role;
+  const r = (role || "user") as Role;
   const isAdmin = r === "admin";
   const isDeclarant = r === "declarant";
   const isComptable = r === "comptable";
@@ -61,6 +62,7 @@ export function resolvePermissions(role?: string | null): PermissionsMatrix {
     isComptable,
     isClient,
     isManager,
+    canManageUsers: isAdmin,
     canViewFinances: isAdmin || isManager || isComptable,
     canViewControls: isAdmin || isManager || isDeclarant,
     canViewPlanning: isAdmin || isManager || isDeclarant,

@@ -17,6 +17,13 @@ const requireUser = t.middleware(async opts => {
     throw new TRPCError({ code: "UNAUTHORIZED", message: UNAUTHED_ERR_MSG });
   }
 
+  if (ctx.user.isActive === false) {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: "Votre compte est désactivé. Veuillez contacter un administrateur IGS.",
+    });
+  }
+
   return next({
     ctx: {
       ...ctx,
@@ -33,6 +40,13 @@ export const adminProcedure = t.procedure.use(
 
     if (!ctx.user) {
       throw new TRPCError({ code: "UNAUTHORIZED", message: UNAUTHED_ERR_MSG });
+    }
+
+    if (ctx.user.isActive === false) {
+      throw new TRPCError({
+        code: "FORBIDDEN",
+        message: "Votre compte est désactivé. Veuillez contacter un administrateur IGS.",
+      });
     }
 
     if (ctx.user.role !== 'admin') {
@@ -56,6 +70,13 @@ export const declarantProcedure = t.procedure.use(
       throw new TRPCError({ code: "UNAUTHORIZED", message: UNAUTHED_ERR_MSG });
     }
 
+    if (ctx.user.isActive === false) {
+      throw new TRPCError({
+        code: "FORBIDDEN",
+        message: "Votre compte est désactivé. Veuillez contacter un administrateur IGS.",
+      });
+    }
+
     if (!["admin", "manager", "declarant"].includes(ctx.user.role)) {
       throw new TRPCError({ code: "FORBIDDEN", message: "Accès refusé pour ce profil" });
     }
@@ -77,6 +98,13 @@ export const comptableProcedure = t.procedure.use(
       throw new TRPCError({ code: "UNAUTHORIZED", message: UNAUTHED_ERR_MSG });
     }
 
+    if (ctx.user.isActive === false) {
+      throw new TRPCError({
+        code: "FORBIDDEN",
+        message: "Votre compte est désactivé. Veuillez contacter un administrateur IGS.",
+      });
+    }
+
     if (!["admin", "manager", "comptable"].includes(ctx.user.role)) {
       throw new TRPCError({ code: "FORBIDDEN", message: "Accès refusé pour ce profil" });
     }
@@ -96,6 +124,13 @@ export const internalProcedure = t.procedure.use(
 
     if (!ctx.user) {
       throw new TRPCError({ code: "UNAUTHORIZED", message: UNAUTHED_ERR_MSG });
+    }
+
+    if (ctx.user.isActive === false) {
+      throw new TRPCError({
+        code: "FORBIDDEN",
+        message: "Votre compte est désactivé. Veuillez contacter un administrateur IGS.",
+      });
     }
 
     if (!["admin", "manager", "declarant", "comptable"].includes(ctx.user.role)) {

@@ -1,16 +1,18 @@
-## 2026-08-18T16:00:59Z
-You are Challenger 2 for Milestone 1 of the IGS Guinée SaaS project.
+## 2026-08-20T13:12:58Z
 
-Working Directory: /Users/alphasalinkobarry/Downloads/igs-suivis de dossier SaaS/.agents/teamwork_preview_challenger_m1_2
-Authoritative User Request: /Users/alphasalinkobarry/Downloads/igs-suivis de dossier SaaS/ORIGINAL_REQUEST.md
-Project Blueprint: /Users/alphasalinkobarry/Downloads/igs-suivis de dossier SaaS/PROJECT.md
-Worker Handoff: /Users/alphasalinkobarry/Downloads/igs-suivis de dossier SaaS/.agents/teamwork_preview_worker_m1/handoff.md
+You are Challenger 2 on the IGS Transit & Douane Guinée SaaS project.
+Your working directory is: /Users/alphasalinkobarry/Downloads/igs-suivis de dossier SaaS/.agents/teamwork_preview_challenger_m1_2
+Project root: /Users/alphasalinkobarry/Downloads/igs-suivis de dossier SaaS
+Authoritative Request: /Users/alphasalinkobarry/Downloads/igs-suivis de dossier SaaS/.agents/ORIGINAL_REQUEST.md (Section ## 2026-08-20T12:57:04Z)
+Project Specification: /Users/alphasalinkobarry/Downloads/igs-suivis de dossier SaaS/PROJECT.md
+Worker 1 Handoff: /Users/alphasalinkobarry/Downloads/igs-suivis de dossier SaaS/.agents/teamwork_preview_worker_m1/handoff.md
 
-Objective:
-Empirically challenge and stress-test the Milestone 1 Data Persistence & Multi-Currency logic:
-1. Test dual persistence (memory fallback vs PostgreSQL queries) in `server/db.ts`.
-2. Test exchange rate updates and edge cases (0, large amounts, fractional values).
-3. Test invoice lifecycle (Proforma -> Definitive -> Payée) and receipt number sequencing.
-4. Run all test suites (`npm test`).
-5. Output your verdict (APPROVE or CHALLENGE_FAILED) in `handoff.md`.
-Send a message back to the orchestrator when finished.
+Mission:
+Adversarially verify the session revocation and auth lifecycle of Milestone 1:
+1. Write a dedicated test suite in `server/__tests__/challenger_session_lifecycle.test.ts` testing:
+   - Active user login -> successful session token -> instant deactivation via `toggleUserStatus` -> immediate rejection on next tRPC query/mutation with 403 FORBIDDEN.
+   - Reactivation -> immediate access restored.
+   - User update -> ensure password/credentials or roles cannot be tampered with by unauthorized callers.
+2. Execute the tests (`npx vitest run server/__tests__/challenger_session_lifecycle.test.ts`, `npm run test`).
+3. Provide your verdict: `APPROVE` or `REQUEST_CHANGES`.
+4. Write your report to `/Users/alphasalinkobarry/Downloads/igs-suivis de dossier SaaS/.agents/teamwork_preview_challenger_m1_2/handoff.md` and notify the orchestrator.

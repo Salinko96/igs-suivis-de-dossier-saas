@@ -1,50 +1,63 @@
-# BRIEFING — 2026-08-18T16:03:30Z
+# BRIEFING — 2026-08-20T13:17:55Z
 
 ## Mission
-Empirically stress-test and challenge Milestone 1: Data Persistence (PostgreSQL/Supabase + memory fallback) and Multi-Currency / Invoicing logic for IGS Guinée SaaS.
+Adversarially verify the session revocation and auth lifecycle of Milestone 1 (Admin User Management):
+1. Write and execute test suite `server/__tests__/challenger_session_lifecycle.test.ts`.
+2. Stress test active login -> deactivation -> instant revocation -> reactivation -> unauthorized tampering attempts.
+3. Provide rigorous verdict (APPROVE / REQUEST_CHANGES) backed by concrete empirical evidence.
 
 ## 🔒 My Identity
-- Archetype: empirical_challenger
+- Archetype: EMPIRICAL CHALLENGER
 - Roles: critic, specialist
 - Working directory: /Users/alphasalinkobarry/Downloads/igs-suivis de dossier SaaS/.agents/teamwork_preview_challenger_m1_2
-- Original parent: 3bba92c2-33c3-493f-8daa-7cb66a8d90a8
-- Milestone: Milestone 1
+- Original parent: f7bcce2f-9a8f-4812-bea3-9b914f48ebb1
+- Milestone: Milestone 1 - Admin User Management & Session Revocation
 - Instance: 2 of 2
 
 ## 🔒 Key Constraints
-- Review-only — do NOT modify implementation code
-- Must run empirical tests directly and verify behavior
-- Provide clear APPROVE or CHALLENGE_FAILED verdict
+- Review & Verification focus: verify implementation code by executing tests and challenge harness.
+- Write tests in `server/__tests__/challenger_session_lifecycle.test.ts`.
+- Run commands and tests directly to produce empirical proof.
 
 ## Current Parent
-- Conversation ID: 3bba92c2-33c3-493f-8daa-7cb66a8d90a8
-- Updated: not yet
+- Conversation ID: f7bcce2f-9a8f-4812-bea3-9b914f48ebb1
+- Updated: 2026-08-20T13:17:55Z
 
 ## Review Scope
-- **Files reviewed**: `server/db.ts`, `server/routers.ts`, `server/_core/trpc.ts`, `drizzle/schema.ts`, `shared/types.ts`, `server/__tests__/`
-- **Interface contracts**: `PROJECT.md`, `ORIGINAL_REQUEST.md`, `Worker Handoff`
-- **Review criteria**: dual persistence parity, dynamic exchange rate validation & handling, invoice lifecycle (Proforma -> Definitive -> Payée), receipt number uniqueness (`REC-2026-X`), dossier financial synchronization, and RBAC shielding.
+- **Files to review**:
+  - `server/_core/trpc.ts`
+  - `server/_core/sdk.ts`
+  - `server/_core/cookies.ts`
+  - `server/routers.ts`
+  - `server/db.ts`
+  - `drizzle/schema.ts`
+  - `server/__tests__/user_admin_management.test.ts`
+- **Interface contracts**: `PROJECT.md`, `AGENTS.md`
+- **Review criteria**: Session revocation immediacy, token validation edge cases, RBAC tampering prevention, role elevation protection, unauthenticated/unauthorized tampering.
 
 ## Attack Surface
 - **Hypotheses tested**:
-  - *Hypothesis 1*: Invalid/zero/fractional exchange rates could crash `finance.setExchangeRate` or corrupt multi-currency conversion -> Passed (Zod schema correctly validates `z.number().int().positive()`, rejects 0, negatives, floats, and strings).
-  - *Hypothesis 2*: Transition from Proforma -> Definitive -> Payée could lead to inconsistent `financialStatus` on linked dossier or duplicate receipt numbers -> Passed (Dossier transitions from `Fact. Proforma` -> `Facturé` -> `Payé`, receipt numbers uniquely formatted `REC-2026-${id}`, payment audit history generated).
-  - *Hypothesis 3*: In-memory store fallback could fail on complex task filtering, batch imports, or multi-currency summary -> Passed (All CRUD operations, task filters by `assignedTo`/`status`, batch duplicate detection, and summary invariants verified).
-  - *Hypothesis 4*: Unprivileged roles (Client, Déclarant) could bypass financial shielding via direct tRPC calls -> Passed (`comptableProcedure` and `declarantProcedure` block unauthorized roles with deterministic 403 error).
-- **Vulnerabilities found**: None. System demonstrates high resilience, strict input validation, and exact financial/operational parity.
-- **Untested angles**: Live PostgreSQL network partition latency (simulated via in-memory store fallback).
+  - H1: Active user login -> successful session token issuance -> instant deactivation via `toggleUserStatus` -> immediate rejection on next tRPC query/mutation with 403 FORBIDDEN. (PASSED)
+  - H2: Reactivation restores access immediately with no lag or stale cache. (PASSED)
+  - H3: Unauthenticated and non-admin callers cannot create, modify, promote roles, toggle status, or inspect HR data. (PASSED)
+  - H4: Forged, expired, or malformed JWT session cookies are immediately rejected by `sdk.verifySession` & `sdk.authenticateRequest`. (PASSED)
+  - H5: Deactivated admin accounts are strictly rejected on `adminProcedure` and `protectedProcedure`. (PASSED)
+  - H6: Multi-tenant user isolation ensures deactivation of User A has zero effect on User B. (PASSED)
+- **Vulnerabilities found**: None in current session revocation and RBAC guards. All security defenses hold under adversarial testing.
+- **Untested angles**: OAuth remote provider callbacks (mocked in tests).
 
 ## Loaded Skills
-- None loaded yet
+- **Source**: N/A
+- **Local copy**: N/A
+- **Core methodology**: N/A
 
 ## Key Decisions Made
-- Created 27-test empirical stress harness in `server/__tests__/tier2_trpc_rbac_integration/m1_persistence_currency_stress.test.ts`.
-- Validated all 17 test suites (159 passing tests total).
-- Confirmed clean TypeScript check (`npm run check`) and production build (`npm run build`).
-- Verdict: APPROVE.
+- Implemented and executed 16 stress tests in `server/__tests__/challenger_session_lifecycle.test.ts` covering 4 adversarial dimensions.
+- Full test suite passed (34 test files, 387 tests, 100% success). Type check and build passed without error. Verdict: APPROVE.
 
 ## Artifact Index
-- DISPATCH.md — Incoming dispatches
-- BRIEFING.md — Memory state
-- progress.md — Liveness heartbeat
-- handoff.md — Final verdict
+- `.agents/teamwork_preview_challenger_m1_2/DISPATCH.md` — Dispatch record
+- `.agents/teamwork_preview_challenger_m1_2/progress.md` — Progress tracker
+- `.agents/teamwork_preview_challenger_m1_2/BRIEFING.md` — Situational awareness
+- `server/__tests__/challenger_session_lifecycle.test.ts` — Adversarial test suite
+- `.agents/teamwork_preview_challenger_m1_2/handoff.md` — Handoff report

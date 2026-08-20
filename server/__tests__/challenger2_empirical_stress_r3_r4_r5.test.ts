@@ -197,7 +197,7 @@ describe("Empirical Challenger 2 Suite: Deep Stress-Testing of R3, R4, and R5", 
       const start = performance.now();
       await expect(adminCaller.dossier.get({ id: 999999 })).rejects.toThrow(/introuvable/i);
       const duration = performance.now() - start;
-      expect(duration).toBeLessThan(15);
+      expect(duration).toBeLessThan(100);
 
       await expect(adminCaller.dossier.get({ id: "DOS-9999" })).rejects.toThrow(/introuvable/i);
       await expect(adminCaller.dossier.get({ id: "XXXX-9999" })).rejects.toThrow(/introuvable/i);

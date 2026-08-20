@@ -1,6 +1,7 @@
 import { and, asc, count, desc, eq, ilike, like, or, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
+import { TRPCError } from "@trpc/server";
 import { 
   Dossier, dossiers, InsertDossier, 
   User, users, InsertUser, 
@@ -19,6 +20,7 @@ import {
 import { calculateDossierState, formatDossierNumber } from "./dossierRules";
 import { generateProactiveAlerts } from "./alertsService";
 import { initialImportData } from "./initialImportData";
+import { initialUsersData } from "./initialUsersData";
 import { ENV } from "./_core/env";
 
 let _db: ReturnType<typeof drizzle> | null = null;
@@ -26,61 +28,8 @@ let _client: ReturnType<typeof postgres> | null = null;
 
 const fromSourceDate = (value?: string | null) => value ? new Date(`${value}T00:00:00.000Z`) : null;
 
-// Mémoire persistée en session
-let _memoryUsers: User[] = [
-  {
-    id: 1,
-    openId: "igs_admin_conakry",
-    name: "Ibrahima Gold Service (Admin)",
-    email: "contact@igs-logistics.gn",
-    loginMethod: "direct",
-    role: "admin",
-    clientCompany: null,
-    phone: "+224 620 00 00 00",
-    createdAt: new Date(),
-    updatedAt: new Date(),
-    lastSignedIn: new Date(),
-  },
-  {
-    id: 2,
-    openId: "declarant_conakry",
-    name: "Mamadou Diallo (Déclarant PAC)",
-    email: "declarant@igs-logistics.gn",
-    loginMethod: "direct",
-    role: "declarant",
-    clientCompany: null,
-    phone: "+224 621 11 22 33",
-    createdAt: new Date(),
-    updatedAt: new Date(),
-    lastSignedIn: new Date(),
-  },
-  {
-    id: 3,
-    openId: "comptable_conakry",
-    name: "Fatoumata Camara (Comptable)",
-    email: "finance@igs-logistics.gn",
-    loginMethod: "direct",
-    role: "comptable",
-    clientCompany: null,
-    phone: "+224 622 44 55 66",
-    createdAt: new Date(),
-    updatedAt: new Date(),
-    lastSignedIn: new Date(),
-  },
-  {
-    id: 4,
-    openId: "client_birimian",
-    name: "Guinean Birimian Gold (Portail)",
-    email: "logistique@birimian-gold.gn",
-    loginMethod: "direct",
-    role: "client",
-    clientCompany: "Guinean Birimian Gold S.A",
-    phone: "+224 623 77 88 99",
-    createdAt: new Date(),
-    updatedAt: new Date(),
-    lastSignedIn: new Date(),
-  }
-];
+// Mémoire persistée en session — 100+ Collaborateurs Guinéens & Rôles
+let _memoryUsers: User[] = initialUsersData.map(u => ({ ...u }));
 
 let _memoryReferenceItems: ReferenceItem[] = initialImportData.referenceItems.map((item, idx) => ({
   id: idx + 1,
@@ -100,6 +49,7 @@ let _memoryDossiers: Dossier[] = initialImportData.dossiers.map((source, idx) =>
   const now = new Date();
   return {
     id: idx + 1,
+    version: 1,
     dossierNumber: source.dossierNumber,
     clientDossierNumber: source.clientDossierNumber ?? null,
     client: source.client ?? null,
@@ -178,10 +128,18 @@ let _memoryHistory: DossierStatusHistory[] = [
     dossierId: 1,
     changedById: 1,
     authorName: "Système IGS",
+    userRole: "admin",
+    action: "CREATION_DOSSIER",
+    entityType: "dossier",
+    entityId: 1,
     fieldChanged: "Création Dossier",
     previousValue: null,
     newValue: "DOS-0001 importé",
+    beforeData: null,
+    afterData: JSON.stringify({ dossierNumber: "DOS-0001" }),
     comment: "Initialisation automatique depuis le manifeste maritime",
+    ipAddress: "127.0.0.1",
+    metadata: null,
     createdAt: new Date(Date.now() - 86400000 * 3),
   },
   {
@@ -189,10 +147,18 @@ let _memoryHistory: DossierStatusHistory[] = [
     dossierId: 1,
     changedById: 2,
     authorName: "Mamadou Diallo",
+    userRole: "declarant",
+    action: "SYDONIA_DECLAREE",
+    entityType: "dossier",
+    entityId: 1,
     fieldChanged: "declarationNumber",
     previousValue: "Non renseigné",
     newValue: "S 142- 27/07/2026",
+    beforeData: JSON.stringify({ declarationNumber: null }),
+    afterData: JSON.stringify({ declarationNumber: "S 142- 27/07/2026" }),
     comment: "Enregistrement de la déclaration dans Sydonia++",
+    ipAddress: "192.168.1.45",
+    metadata: null,
     createdAt: new Date(Date.now() - 86400000 * 2),
   }
 ];
@@ -452,6 +418,8 @@ export async function upsertUser(user: InsertUser): Promise<void> {
         role: user.role ?? (user.openId === ENV.ownerOpenId ? "admin" : "user"),
         clientCompany: user.clientCompany ?? null,
         phone: user.phone ?? null,
+        isActive: user.isActive ?? true,
+        sessionRevokedAt: user.sessionRevokedAt ?? null,
         lastSignedIn: user.lastSignedIn ?? new Date(),
       };
       await db.insert(users).values(values).onConflictDoUpdate({
@@ -462,6 +430,8 @@ export async function upsertUser(user: InsertUser): Promise<void> {
           role: values.role,
           clientCompany: values.clientCompany,
           phone: values.phone,
+          isActive: values.isActive,
+          sessionRevokedAt: values.sessionRevokedAt,
           lastSignedIn: values.lastSignedIn,
         },
       });
@@ -481,7 +451,7 @@ export async function upsertUser(user: InsertUser): Promise<void> {
     };
   } else {
     _memoryUsers.push({
-      id: _memoryUsers.length + 1,
+      id: _memoryUsers.length > 0 ? Math.max(..._memoryUsers.map(u => u.id)) + 1 : 1,
       openId: user.openId,
       name: user.name ?? null,
       email: user.email ?? null,
@@ -489,6 +459,8 @@ export async function upsertUser(user: InsertUser): Promise<void> {
       role: user.role ?? (user.openId === ENV.ownerOpenId ? "admin" : "user"),
       clientCompany: user.clientCompany ?? null,
       phone: user.phone ?? null,
+      isActive: user.isActive ?? true,
+      sessionRevokedAt: user.sessionRevokedAt ?? null,
       createdAt: new Date(),
       updatedAt: new Date(),
       lastSignedIn: new Date(),
@@ -496,7 +468,7 @@ export async function upsertUser(user: InsertUser): Promise<void> {
   }
 }
 
-export async function getUserByOpenId(openId: string) {
+export async function getUserByOpenId(openId: string): Promise<User | undefined> {
   const mem = _memoryUsers.find(u => u.openId === openId);
   if (mem) return mem;
   const db = await getDb();
@@ -514,14 +486,224 @@ export async function getUserByOpenId(openId: string) {
   return undefined;
 }
 
-export async function listUsers() {
+export async function getUserById(id: number): Promise<User | undefined> {
+  const mem = _memoryUsers.find(u => u.id === id);
+  if (mem) return mem;
   const db = await getDb();
   if (db) {
     try {
-      return await db.select().from(users).orderBy(asc(users.name));
+      const row = (await withDbTimeout(db.select().from(users).where(eq(users.id, id)).limit(1), 1500))[0];
+      if (row) return row;
     } catch (e) {}
   }
-  return _memoryUsers;
+  return undefined;
+}
+
+export type UserFilters = {
+  search?: string;
+  role?: string;
+  isActive?: boolean;
+  limit?: number;
+  offset?: number;
+};
+
+export async function listUsers(filters?: UserFilters): Promise<User[]> {
+  let list = [..._memoryUsers];
+
+  if (filters?.search) {
+    const s = filters.search.toLowerCase().trim();
+    list = list.filter(u =>
+      (u.name && u.name.toLowerCase().includes(s)) ||
+      (u.email && u.email.toLowerCase().includes(s)) ||
+      (u.phone && u.phone.toLowerCase().includes(s)) ||
+      (u.clientCompany && u.clientCompany.toLowerCase().includes(s)) ||
+      (u.openId && u.openId.toLowerCase().includes(s))
+    );
+  }
+
+  if (filters?.role && filters.role !== "all") {
+    list = list.filter(u => u.role === filters.role);
+  }
+
+  if (filters?.isActive !== undefined) {
+    list = list.filter(u => u.isActive === filters.isActive);
+  }
+
+  list.sort((a, b) => a.id - b.id);
+
+  if (filters?.offset !== undefined || filters?.limit !== undefined) {
+    const offset = filters.offset ?? 0;
+    const limit = filters.limit ?? list.length;
+    return list.slice(offset, offset + limit);
+  }
+
+  return list;
+}
+
+export async function createUser(data: {
+  name: string;
+  email: string;
+  phone?: string | null;
+  role: "admin" | "declarant" | "comptable" | "client" | "manager" | "user";
+  clientCompany?: string | null;
+  isActive?: boolean;
+}): Promise<User> {
+  const now = new Date();
+  const cleanEmail = data.email.toLowerCase().trim();
+  const generatedOpenId = `igs_${data.role}_${cleanEmail.replace(/[^a-z0-9]/g, "")}_${Date.now().toString(36)}`;
+
+  const newUser: User = {
+    id: _memoryUsers.length > 0 ? Math.max(..._memoryUsers.map(u => u.id)) + 1 : 1,
+    openId: generatedOpenId,
+    name: data.name.trim(),
+    email: cleanEmail,
+    loginMethod: "direct",
+    role: data.role,
+    clientCompany: data.role === "client" ? (data.clientCompany ?? null) : null,
+    phone: data.phone?.trim() ?? null,
+    isActive: data.isActive ?? true,
+    sessionRevokedAt: data.isActive === false ? now : null,
+    createdAt: now,
+    updatedAt: now,
+    lastSignedIn: now,
+  };
+
+  const db = await getDb();
+  if (db) {
+    try {
+      const inserted = await db.insert(users).values({
+        openId: newUser.openId,
+        name: newUser.name,
+        email: newUser.email,
+        loginMethod: newUser.loginMethod,
+        role: newUser.role,
+        clientCompany: newUser.clientCompany,
+        phone: newUser.phone,
+        isActive: newUser.isActive,
+        sessionRevokedAt: newUser.sessionRevokedAt,
+        createdAt: newUser.createdAt,
+        updatedAt: newUser.updatedAt,
+        lastSignedIn: newUser.lastSignedIn,
+      }).returning();
+      if (inserted[0]) {
+        _memoryUsers.push(inserted[0]);
+        return inserted[0];
+      }
+    } catch (err) {
+      console.warn("[DB] Error inserting created user in DB, falling back to memory:", err);
+    }
+  }
+
+  _memoryUsers.push(newUser);
+  return newUser;
+}
+
+export async function updateUser(
+  id: number,
+  data: Partial<{
+    name: string;
+    email: string;
+    phone: string | null;
+    role: "admin" | "declarant" | "comptable" | "client" | "manager" | "user";
+    clientCompany: string | null;
+    isActive: boolean;
+  }>
+): Promise<User> {
+  const userIdx = _memoryUsers.findIndex(u => u.id === id);
+  if (userIdx < 0) {
+    throw new Error(`Utilisateur avec ID ${id} introuvable`);
+  }
+
+  const existing = _memoryUsers[userIdx];
+  const now = new Date();
+  const updatedUser: User = {
+    ...existing,
+    name: data.name !== undefined ? data.name : existing.name,
+    email: data.email !== undefined ? data.email.toLowerCase().trim() : existing.email,
+    phone: data.phone !== undefined ? data.phone : existing.phone,
+    role: data.role !== undefined ? data.role : existing.role,
+    clientCompany: data.clientCompany !== undefined ? data.clientCompany : existing.clientCompany,
+    isActive: data.isActive !== undefined ? data.isActive : existing.isActive,
+    sessionRevokedAt:
+      data.isActive === false && existing.isActive !== false
+        ? now
+        : data.isActive === true
+        ? null
+        : existing.sessionRevokedAt,
+    updatedAt: now,
+  };
+
+  const db = await getDb();
+  if (db) {
+    try {
+      await db.update(users).set({
+        name: updatedUser.name,
+        email: updatedUser.email,
+        phone: updatedUser.phone,
+        role: updatedUser.role,
+        clientCompany: updatedUser.clientCompany,
+        isActive: updatedUser.isActive,
+        sessionRevokedAt: updatedUser.sessionRevokedAt,
+        updatedAt: updatedUser.updatedAt,
+      }).where(eq(users.id, id));
+    } catch (err) {
+      console.warn("[DB] Error updating user in DB:", err);
+    }
+  }
+
+  _memoryUsers[userIdx] = updatedUser;
+  return updatedUser;
+}
+
+export async function toggleUserStatus(id: number, isActive: boolean): Promise<User> {
+  const userIdx = _memoryUsers.findIndex(u => u.id === id);
+  if (userIdx < 0) {
+    throw new Error(`Utilisateur introuvable avec l'ID ${id}`);
+  }
+
+  const existing = _memoryUsers[userIdx];
+  const now = new Date();
+  const updatedUser: User = {
+    ...existing,
+    isActive,
+    sessionRevokedAt: !isActive ? now : null,
+    updatedAt: now,
+  };
+
+  const db = await getDb();
+  if (db) {
+    try {
+      await db.update(users).set({
+        isActive,
+        sessionRevokedAt: updatedUser.sessionRevokedAt,
+        updatedAt: now,
+      }).where(eq(users.id, id));
+    } catch (err) {
+      console.warn("[DB] Error toggling user status in DB:", err);
+    }
+  }
+
+  _memoryUsers[userIdx] = updatedUser;
+  return updatedUser;
+}
+
+export async function getHRStats() {
+  const all = _memoryUsers;
+  const totalEmployees = all.length;
+  const activeDeclarantsAtPort = all.filter(u => u.role === "declarant" && u.isActive !== false).length;
+  const activeComptables = all.filter(u => u.role === "comptable" && u.isActive !== false).length;
+  const connectedClients = all.filter(u => u.role === "client" && u.isActive !== false).length;
+  const totalActive = all.filter(u => u.isActive !== false).length;
+  const totalInactive = all.filter(u => u.isActive === false).length;
+
+  return {
+    totalEmployees,
+    activeDeclarantsAtPort,
+    activeComptables,
+    connectedClients,
+    totalActive,
+    totalInactive,
+  };
 }
 
 // ----------------- DOSSIERS -----------------
@@ -760,7 +942,15 @@ export async function getDossierByPortalCode(portalAccessCode: string) {
   return undefined;
 }
 
-export type EditableDossier = Omit<typeof dossiers.$inferInsert, "id" | "dossierNumber" | "calculatedStatus" | "calculatedPriority" | "completionRate" | "createdAt" | "updatedAt">;
+export type EditableDossier = Omit<typeof dossiers.$inferInsert, "id" | "version" | "dossierNumber" | "calculatedStatus" | "calculatedPriority" | "completionRate" | "createdAt" | "updatedAt">;
+
+export interface UpdateDossierOptions {
+  expectedVersion?: number;
+  expectedUpdatedAt?: string | Date;
+  forceOverwrite?: boolean;
+  userRole?: string;
+  ipAddress?: string;
+}
 
 export async function createDossier(input: EditableDossier, userId?: number, authorName?: string) {
   const sequence = _memoryDossiers.length + 1;
@@ -771,6 +961,7 @@ export async function createDossier(input: EditableDossier, userId?: number, aut
 
   const newDossier: Dossier = {
     id: sequence,
+    version: 1,
     dossierNumber: num,
     clientDossierNumber: input.clientDossierNumber ?? null,
     client: input.client ?? null,
@@ -817,21 +1008,26 @@ export async function createDossier(input: EditableDossier, userId?: number, aut
 
   _memoryDossiers.unshift(newDossier);
 
-  // Historique
-  await addDossierHistory({
+  // Historique & Audit Trail
+  await logAuditEvent({
     dossierId: newDossier.id,
-    changedById: userId ?? 1,
-    authorName: authorName ?? "Utilisateur",
+    userId: userId ?? 1,
+    userName: authorName ?? "Utilisateur",
+    userRole: "declarant",
+    action: "DOSSIER_CREE",
+    entityType: "dossier",
+    entityId: newDossier.id,
     fieldChanged: "Création Dossier",
     previousValue: null,
     newValue: `Dossier ${num} créé`,
+    afterData: { dossierNumber: num, client: newDossier.client, blLtaNumber: newDossier.blLtaNumber },
     comment: `Portail client: ${portalCode}`,
   });
 
   const db = await getDb();
   if (db) {
     try {
-      await db.insert(dossiers).values({ ...input, dossierNumber: num, portalAccessCode: portalCode, ...state, createdById: userId, updatedById: userId });
+      await db.insert(dossiers).values({ ...input, version: 1, dossierNumber: num, portalAccessCode: portalCode, ...state, createdById: userId, updatedById: userId });
     } catch (e) {
       console.warn("[DB] Failed to insert dossier in DB, stored in memory");
     }
@@ -840,62 +1036,151 @@ export async function createDossier(input: EditableDossier, userId?: number, aut
   return newDossier;
 }
 
-export async function updateDossier(id: number, input: Partial<EditableDossier>, userId?: number, authorName?: string) {
-  const current = await getDossier(id);
-  if (!current) throw new Error("Dossier introuvable");
-  const state = calculateDossierState({ ...current, ...input });
-  const now = new Date();
+export function formatAuditValue(val: unknown): string {
+  if (val === null || val === undefined) return "Vide";
+  if (val === "") return "Vide";
+  if (val instanceof Date) return val.toISOString();
+  return String(val);
+}
 
-  // 1. Détection des changements majeurs en mémoire (0.01ms)
-  const historyEntries: InsertDossierStatusHistory[] = [];
-  for (const [key, val] of Object.entries(input)) {
-    const oldVal = (current as any)[key];
-    if (oldVal !== val && val !== undefined) {
-      const entry: DossierStatusHistory = {
-        id: _memoryHistory.length + historyEntries.length + 1,
-        dossierId: id,
-        changedById: userId ?? 1,
-        authorName: authorName ?? "Utilisateur",
-        fieldChanged: key,
-        previousValue: oldVal ? String(oldVal) : "Vide",
-        newValue: val ? String(val) : "Vide",
-        comment: `Mise à jour ${key}`,
-        createdAt: now,
-      };
-      _memoryHistory.unshift(entry);
-      historyEntries.push(entry);
+const dossierMutexMap = new Map<number, Promise<void>>();
+
+async function runWithDossierLock<T>(dossierId: number, fn: () => Promise<T>): Promise<T> {
+  const previousLock = dossierMutexMap.get(dossierId) || Promise.resolve();
+
+  let releaseLock: () => void;
+  const currentLock = new Promise<void>((resolve) => {
+    releaseLock = resolve;
+  });
+
+  dossierMutexMap.set(dossierId, currentLock);
+
+  await previousLock.catch(() => {});
+
+  try {
+    return await fn();
+  } finally {
+    releaseLock!();
+    if (dossierMutexMap.get(dossierId) === currentLock) {
+      dossierMutexMap.delete(dossierId);
     }
   }
+}
 
-  // 2. Mise à jour instantanée du cache mémoire
-  const updated: Dossier = {
-    ...current,
-    ...input,
-    ...state,
-    updatedById: userId ?? current.updatedById,
-    updatedAt: now,
-  };
+export async function updateDossier(
+  id: number,
+  input: Partial<EditableDossier>,
+  userId?: number,
+  authorName?: string,
+  options?: UpdateDossierOptions
+) {
+  return runWithDossierLock(id, async () => {
+    const current = await getDossier(id);
+    if (!current) throw new TRPCError({ code: "NOT_FOUND", message: "Dossier introuvable" });
 
-  const memIdx = _memoryDossiers.findIndex(d => d.id === id);
-  if (memIdx >= 0) _memoryDossiers[memIdx] = updated;
+    // 1. Contrôle de Concurrence Optimiste (Optimistic Locking)
+    if (!options?.forceOverwrite) {
+      if (options?.expectedVersion !== undefined && current.version !== options.expectedVersion) {
+        throw new TRPCError({
+          code: "CONFLICT",
+          message: `Conflit d'édition simultanée : ce dossier a été modifié par un autre utilisateur (version locale: v${options.expectedVersion}, version serveur: v${current.version}). Veuillez recharger ou écraser les modifications.`,
+        });
+      }
 
-  // 3. Persistance DB parallèle et non-bloquante avec timeout
-  const db = await getDb();
-  if (db) {
-    try {
-      await withDbTimeout(
-        Promise.all([
-          db.update(dossiers).set({ ...input, ...state, updatedById: userId, updatedAt: now }).where(eq(dossiers.id, id)),
-          historyEntries.length > 0 ? db.insert(dossierStatusHistory).values(historyEntries) : Promise.resolve(),
-        ]),
-        2000
-      );
-    } catch (e) {
-      console.warn("[DB] updateDossier DB sync error or timeout, saved in memory:", e);
+      if (options?.expectedUpdatedAt !== undefined) {
+        const expectedTime = new Date(options.expectedUpdatedAt).getTime();
+        const currentTime = new Date(current.updatedAt).getTime();
+        if (!isNaN(expectedTime) && !isNaN(currentTime) && Math.abs(currentTime - expectedTime) > 1000) {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message: "Conflit d'édition simultanée : ce dossier a été modifié par un autre utilisateur. Veuillez recharger ou écraser les modifications.",
+          });
+        }
+      }
     }
-  }
-  invalidateDossiersCache();
-  return updated;
+
+    const nextVersion = (current.version || 1) + 1;
+    const state = calculateDossierState({ ...current, ...input });
+    const now = new Date();
+
+    // 2. Détection et journalisation des transitions & changements
+    const historyEntries: InsertDossierStatusHistory[] = [];
+    const actionMap: Record<string, string> = {
+      ddiGucegNumber: "DDI_MODIFIEE",
+      declarationNumber: "SYDONIA_DECLAREE",
+      bulletinNumber: "BLD_LIQUIDEE",
+      finalDeclarationNumber: "DECLARATION_DEFINITIVE_ENREGISTREE",
+      badStatus: "BAD_STATUT_MODIFIE",
+      baeStatus: "BAE_STATUT_MODIFIE",
+      goodsReleaseDate: "SORTIE_PAC_ENREGISTREE",
+      customsStatus: "STATUT_DOUANE_MODIFIE",
+      portStatus: "STATUT_PORT_MODIFIE",
+      financialStatus: "STATUT_FINANCIER_MODIFIE",
+      cargoNature: "CARGAISON_MODIFIEE",
+      transportMode: "MODE_TRANSPORT_MODIFIE",
+      eta: "ETA_MODIFIEE",
+      notes: "NOTE_MODIFIEE",
+    };
+
+    for (const [key, val] of Object.entries(input)) {
+      const oldVal = (current as any)[key];
+      if (oldVal !== val && val !== undefined) {
+        const action = actionMap[key] || `MODIFICATION_${key.toUpperCase()}`;
+        const entry: DossierStatusHistory = {
+          id: _memoryHistory.length + historyEntries.length + 1,
+          dossierId: id,
+          changedById: userId ?? 1,
+          authorName: authorName ?? "Utilisateur",
+          userRole: options?.userRole ?? "declarant",
+          action,
+          entityType: "dossier",
+          entityId: id,
+          fieldChanged: key,
+          previousValue: formatAuditValue(oldVal),
+          newValue: formatAuditValue(val),
+          beforeData: JSON.stringify({ [key]: oldVal instanceof Date ? oldVal.toISOString() : oldVal }),
+          afterData: JSON.stringify({ [key]: val instanceof Date ? val.toISOString() : val }),
+          comment: `Mise à jour ${key}`,
+          ipAddress: options?.ipAddress ?? null,
+          metadata: null,
+          createdAt: now,
+        };
+        _memoryHistory.unshift(entry);
+        historyEntries.push(entry);
+      }
+    }
+
+    // 3. Mise à jour instantanée du cache mémoire avec version incrémentée
+    const updated: Dossier = {
+      ...current,
+      ...input,
+      ...state,
+      version: nextVersion,
+      updatedById: userId ?? current.updatedById,
+      updatedAt: now,
+    };
+
+    const memIdx = _memoryDossiers.findIndex(d => d.id === id);
+    if (memIdx >= 0) _memoryDossiers[memIdx] = updated;
+
+    // 4. Persistance DB parallèle et non-bloquante avec timeout
+    const db = await getDb();
+    if (db) {
+      try {
+        await withDbTimeout(
+          Promise.all([
+            db.update(dossiers).set({ ...input, ...state, version: nextVersion, updatedById: userId, updatedAt: now }).where(eq(dossiers.id, id)),
+            historyEntries.length > 0 ? db.insert(dossierStatusHistory).values(historyEntries) : Promise.resolve(),
+          ]),
+          2000
+        );
+      } catch (e) {
+        console.warn("[DB] updateDossier DB sync error or timeout, saved in memory:", e);
+      }
+    }
+    invalidateDossiersCache();
+    return updated;
+  });
 }
 
 export async function importDossiersBatch(
@@ -988,10 +1273,12 @@ export async function importDossiersBatch(
       };
 
       const state = calculateDossierState({ ...existing, ...mergedInput });
+      const nextVer = (existing.version || 1) + 1;
       const updated: Dossier = {
         ...existing,
         ...mergedInput,
         ...state,
+        version: nextVer,
         updatedById: userId ?? existing.updatedById,
         updatedAt: now,
       };
@@ -1004,18 +1291,29 @@ export async function importDossiersBatch(
       if (cleanBL) existingMapByBL.set(cleanBL, updated);
       if (cleanClientNum) existingMapByClientRef.set(cleanClientNum, updated);
 
-      toUpdateDB.push({ id: existing.id, data: { ...mergedInput, ...state, updatedById: userId ?? 1, updatedAt: now } });
+      toUpdateDB.push({ id: existing.id, data: { ...mergedInput, ...state, version: nextVer, updatedById: userId ?? 1, updatedAt: now } });
 
-      historyBatch.push({
+      const updateHistoryEntry: DossierStatusHistory = {
+        id: _memoryHistory.length + 1,
         dossierId: existing.id,
         changedById: userId ?? 1,
         authorName: authorName ?? "Importateur Excel",
+        userRole: "declarant",
+        action: "IMPORT_BATCH_FUSION",
+        entityType: "dossier",
+        entityId: existing.id,
         fieldChanged: "Mise à jour Import",
         previousValue: existing.calculatedStatus,
         newValue: state.calculatedStatus,
+        beforeData: JSON.stringify({ calculatedStatus: existing.calculatedStatus }),
+        afterData: JSON.stringify({ calculatedStatus: state.calculatedStatus }),
         comment: `Fusion automatique (${cleanBL || cleanClientNum})`,
+        ipAddress: null,
+        metadata: null,
         createdAt: now,
-      });
+      };
+      _memoryHistory.unshift(updateHistoryEntry);
+      historyBatch.push(updateHistoryEntry);
 
       processed.push(updated);
       updatedCount++;
@@ -1027,6 +1325,7 @@ export async function importDossiersBatch(
 
       const newDossier: Dossier = {
         id: nextSequence,
+        version: 1,
         dossierNumber: num,
         clientDossierNumber: item.clientDossierNumber ?? null,
         client: item.client ?? null,
@@ -1077,6 +1376,7 @@ export async function importDossiersBatch(
 
       toInsertDB.push({
         ...item,
+        version: 1,
         dossierNumber: num,
         portalAccessCode: portalCode,
         ...state,
@@ -1086,16 +1386,27 @@ export async function importDossiersBatch(
         updatedAt: now,
       });
 
-      historyBatch.push({
+      const createHistoryEntry: DossierStatusHistory = {
+        id: _memoryHistory.length + 1,
         dossierId: newDossier.id,
         changedById: userId ?? 1,
         authorName: authorName ?? "Importateur Excel",
+        userRole: "declarant",
+        action: "DOSSIER_CREE",
+        entityType: "dossier",
+        entityId: newDossier.id,
         fieldChanged: "Création Dossier",
         previousValue: null,
         newValue: `Dossier ${num} créé`,
+        beforeData: null,
+        afterData: JSON.stringify({ dossierNumber: num, client: newDossier.client, blLtaNumber: newDossier.blLtaNumber }),
         comment: `Import batch automatique`,
+        ipAddress: null,
+        metadata: null,
         createdAt: now,
-      });
+      };
+      _memoryHistory.unshift(createHistoryEntry);
+      historyBatch.push(createHistoryEntry);
 
       processed.push(newDossier);
       createdCount++;
@@ -1180,13 +1491,19 @@ export async function createDocument(input: InsertDocument) {
   _memoryDocuments.unshift(doc);
 
   // Traçabilité & notification
-  await addDossierHistory({
+  await logAuditEvent({
     dossierId: input.dossierId,
-    changedById: input.uploadedById ?? 1,
-    authorName: input.uploaderName ?? "Opérateur IGS",
+    userId: input.uploadedById ?? 1,
+    userName: input.uploaderName ?? "Opérateur IGS",
+    userRole: "declarant",
+    action: "DOCUMENT_AJOUTE",
+    entityType: "document",
+    entityId: doc.id,
     fieldChanged: "Document",
     previousValue: null,
     newValue: `${doc.type}: ${doc.name}`,
+    afterData: { name: doc.name, type: doc.type, fileSize: doc.fileSize, mimeType: doc.mimeType },
+    metadata: { mimeType: doc.mimeType, fileSize: doc.fileSize },
     comment: `Fichier joint (${Math.round((doc.fileSize || 0) / 1024)} KB)`,
   });
 
@@ -1199,8 +1516,27 @@ export async function createDocument(input: InsertDocument) {
   return doc;
 }
 
-export async function deleteDocument(id: number) {
+export async function deleteDocument(id: number, userId?: number, authorName?: string) {
+  const targetDoc = _memoryDocuments.find(d => d.id === id);
   _memoryDocuments = _memoryDocuments.filter(d => d.id !== id);
+
+  if (targetDoc) {
+    await logAuditEvent({
+      dossierId: targetDoc.dossierId,
+      userId: userId ?? 1,
+      userName: authorName ?? "Opérateur IGS",
+      userRole: "declarant",
+      action: "DOCUMENT_SUPPRIME",
+      entityType: "document",
+      entityId: id,
+      fieldChanged: "Document",
+      previousValue: `${targetDoc.type}: ${targetDoc.name}`,
+      newValue: "Supprimé",
+      beforeData: { name: targetDoc.name, type: targetDoc.type, fileSize: targetDoc.fileSize },
+      comment: `Suppression du document ${targetDoc.name}`,
+    });
+  }
+
   const db = await getDb();
   if (db) {
     try {
@@ -1211,6 +1547,65 @@ export async function deleteDocument(id: number) {
 }
 
 // ----------------- AUDIT TRAIL / HISTORIQUE -----------------
+export interface LogAuditParams {
+  dossierId?: number | null;
+  userId?: number | null;
+  userName?: string | null;
+  userRole?: string | null;
+  action: string;
+  entityType?: string;
+  entityId?: number | null;
+  fieldChanged?: string | null;
+  previousValue?: any;
+  newValue?: any;
+  beforeData?: any;
+  afterData?: any;
+  comment?: string | null;
+  ipAddress?: string | null;
+  metadata?: any;
+  createdAt?: Date;
+}
+
+export async function logAuditEvent(params: LogAuditParams): Promise<DossierStatusHistory> {
+  const now = params.createdAt ?? new Date();
+  const beforeStr = params.beforeData ? (typeof params.beforeData === "string" ? params.beforeData : JSON.stringify(params.beforeData)) : null;
+  const afterStr = params.afterData ? (typeof params.afterData === "string" ? params.afterData : JSON.stringify(params.afterData)) : null;
+  const metaStr = params.metadata ? (typeof params.metadata === "string" ? params.metadata : JSON.stringify(params.metadata)) : null;
+
+  const entry: DossierStatusHistory = {
+    id: _memoryHistory.length + 1,
+    dossierId: params.dossierId ?? (params.entityType === "dossier" && params.entityId ? params.entityId : 0),
+    changedById: params.userId ?? null,
+    authorName: params.userName ?? "Système IGS",
+    userRole: params.userRole ?? null,
+    action: params.action,
+    entityType: params.entityType ?? "dossier",
+    entityId: params.entityId ?? params.dossierId ?? null,
+    fieldChanged: params.fieldChanged ?? params.action,
+    previousValue: params.previousValue === null || params.previousValue === undefined ? null : formatAuditValue(params.previousValue),
+    newValue: params.newValue === null || params.newValue === undefined ? null : formatAuditValue(params.newValue),
+    beforeData: beforeStr,
+    afterData: afterStr,
+    comment: params.comment ?? null,
+    ipAddress: params.ipAddress ?? null,
+    metadata: metaStr,
+    createdAt: now,
+  };
+
+  _memoryHistory.unshift(entry);
+
+  const db = await getDb();
+  if (db) {
+    try {
+      await db.insert(dossierStatusHistory).values(entry);
+    } catch (e) {
+      console.warn("[DB] Failed to insert audit log entry into DB:", e);
+    }
+  }
+
+  return entry;
+}
+
 export async function listDossierHistory(dossierId: number) {
   const db = await getDb();
   if (db) {
@@ -1218,30 +1613,27 @@ export async function listDossierHistory(dossierId: number) {
       return await db.select().from(dossierStatusHistory).where(eq(dossierStatusHistory.dossierId, dossierId)).orderBy(desc(dossierStatusHistory.createdAt));
     } catch (e) {}
   }
-  return _memoryHistory.filter(h => h.dossierId === dossierId).sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+  return _memoryHistory.filter(h => h.dossierId === dossierId || (h.entityType === "dossier" && h.entityId === dossierId)).sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
 }
 
 export async function addDossierHistory(input: InsertDossierStatusHistory) {
-  const entry: DossierStatusHistory = {
-    id: _memoryHistory.length + 1,
+  return logAuditEvent({
     dossierId: input.dossierId,
-    changedById: input.changedById ?? null,
-    authorName: input.authorName ?? "Utilisateur IGS",
+    userId: input.changedById ?? null,
+    userName: input.authorName ?? "Utilisateur IGS",
+    userRole: input.userRole ?? null,
+    action: input.action ?? input.fieldChanged ?? "STATUT_MODIFIE",
+    entityType: input.entityType ?? "dossier",
+    entityId: input.entityId ?? input.dossierId,
     fieldChanged: input.fieldChanged,
     previousValue: input.previousValue ?? null,
     newValue: input.newValue ?? null,
+    beforeData: input.beforeData ?? null,
+    afterData: input.afterData ?? null,
     comment: input.comment ?? null,
-    createdAt: new Date(),
-  };
-  _memoryHistory.unshift(entry);
-
-  const db = await getDb();
-  if (db) {
-    try {
-      await db.insert(dossierStatusHistory).values(input);
-    } catch (e) {}
-  }
-  return entry;
+    ipAddress: input.ipAddress ?? null,
+    metadata: input.metadata ?? null,
+  });
 }
 
 // ----------------- FACTURATION & FINANCE -----------------
@@ -1314,6 +1706,32 @@ export async function createInvoice(input: Omit<InsertInvoice, "invoiceNumber"> 
   // Mise à jour du statut financier du dossier
   await updateDossier(input.dossierId, { financialStatus: isPaid ? "Payé" : inv.invoiceType === "Proforma" ? "Fact. Proforma" : "Facturé" });
 
+  // Audit log pour traçabilité réglementaire
+  await logAuditEvent({
+    dossierId: input.dossierId,
+    userId: input.createdById ?? 1,
+    userName: "Service Comptabilité",
+    userRole: "comptable",
+    action: "FACTURE_CREEE",
+    entityType: "invoice",
+    entityId: inv.id,
+    fieldChanged: "Facture",
+    previousValue: null,
+    newValue: `${inv.invoiceType} N° ${invNum}`,
+    beforeData: null,
+    afterData: {
+      invoiceNumber: invNum,
+      client: inv.client,
+      amountHt,
+      amountTva,
+      amountTtc,
+      disbursementsAmount: disbursements,
+      currency: inv.currency,
+      status: inv.status,
+    },
+    comment: `Émission facture ${inv.invoiceType} de ${inv.amountTtc.toLocaleString("fr-FR")} ${inv.currency} pour ${inv.client}`,
+  });
+
   // Notification automatique de facturation
   try {
     await addNotification({
@@ -1378,6 +1796,21 @@ export async function updateInvoice(id: number, input: Partial<InsertInvoice>) {
     } else if (result.invoiceType === "Definitive" || result.status === "Émise") {
       await updateDossier(result.dossierId, { financialStatus: "Facturé" });
     }
+
+    await logAuditEvent({
+      dossierId: result.dossierId,
+      userId: 1,
+      userName: "Service Comptabilité",
+      userRole: "comptable",
+      action: "FACTURE_MODIFIEE",
+      entityType: "invoice",
+      entityId: id,
+      fieldChanged: "Statut Facture",
+      previousValue: current?.status ?? null,
+      newValue: result.status,
+      afterData: { status: result.status, invoiceType: result.invoiceType },
+      comment: `Facture ${result.invoiceNumber} mise à jour (Statut: ${result.status})`,
+    });
   }
   return result!;
 }
@@ -1451,12 +1884,27 @@ export async function recordInvoicePayment(
 
   if (invoice?.dossierId) {
     await updateDossier(invoice.dossierId, { financialStatus: "Payé" });
-    await addDossierHistory({
+    await logAuditEvent({
       dossierId: invoice.dossierId,
+      userId: data.userId ?? 1,
+      userName: "Service Comptabilité",
+      userRole: "comptable",
+      action: "PAIEMENT_ENCAISSE",
+      entityType: "payment",
+      entityId: paymentEntry.id,
       fieldChanged: "Paiement Facture",
       previousValue: "Non payée",
       newValue: `Payée (Quittance ${receiptNumber})`,
-      comment: `Mode: ${updatePayload.paymentMethod}, Réf: ${updatePayload.paymentReference}, Montant: ${finalAmount} ${invoice.currency}`,
+      beforeData: { status: "Émise", paidAt: null },
+      afterData: {
+        receiptNumber,
+        amount: finalAmount,
+        currency: invoice.currency,
+        paymentMethod: updatePayload.paymentMethod,
+        paymentReference: updatePayload.paymentReference,
+        paidAt: now,
+      },
+      comment: `Encaissement de ${finalAmount.toLocaleString("fr-FR")} ${invoice.currency} (Mode: ${updatePayload.paymentMethod}, Réf: ${updatePayload.paymentReference}, Quittance: ${receiptNumber})`,
     });
 
     try {
@@ -1500,7 +1948,12 @@ export async function listPacDisbursements(dossierId?: number) {
   return _memoryPacDisbursements;
 }
 
-export async function createPacDisbursement(input: InsertPacDisbursement) {
+export async function createPacDisbursement(
+  input: InsertPacDisbursement,
+  userId?: number,
+  authorName?: string,
+  userRole: string = "comptable"
+) {
   const now = new Date();
   const entry: PacDisbursement = {
     id: _memoryPacDisbursements.length + 1,
@@ -1512,11 +1965,34 @@ export async function createPacDisbursement(input: InsertPacDisbursement) {
     status: input.status ?? "avance",
     receiptNumber: input.receiptNumber ?? null,
     notes: input.notes ?? null,
-    createdById: input.createdById ?? 1,
+    createdById: userId ?? input.createdById ?? 1,
     createdAt: now,
     updatedAt: now,
   };
   _memoryPacDisbursements.unshift(entry);
+
+  // Traçabilité réglementaire des débours PAC
+  await logAuditEvent({
+    dossierId: input.dossierId,
+    userId: userId ?? input.createdById ?? 1,
+    userName: authorName ?? "Agent Portuaire PAC",
+    userRole: userRole,
+    action: "DEBOURS_AVANCE",
+    entityType: "disbursement",
+    entityId: entry.id,
+    fieldChanged: "Débours PAC",
+    previousValue: null,
+    newValue: `${entry.type.toUpperCase()} : ${entry.amountAdvanced.toLocaleString("fr-FR")} GNF`,
+    beforeData: null,
+    afterData: {
+      type: entry.type,
+      amountAdvanced: entry.amountAdvanced,
+      receiptNumber: entry.receiptNumber,
+      status: entry.status,
+    },
+    metadata: { receiptNumber: entry.receiptNumber, type: entry.type },
+    comment: `Avance débours ${entry.type} de ${entry.amountAdvanced.toLocaleString("fr-FR")} GNF au Port Autonome de Conakry (Quittance: ${entry.receiptNumber || "N/A"})`,
+  });
 
   const db = await getDb();
   if (db) {

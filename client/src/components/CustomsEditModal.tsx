@@ -7,8 +7,11 @@ import { CheckCircle2, FileText, Loader2, Save, ShieldAlert, Sparkles } from "lu
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
+import { ConflictResolutionModal, ConflictFieldDiff } from "@/components/ConflictResolutionModal";
+
 export interface CustomsEditDossier {
   id: number;
+  version?: number;
   dossierNumber: string;
   client?: string | null;
   blLtaNumber?: string | null;
@@ -21,6 +24,7 @@ export interface CustomsEditDossier {
   customsStatus?: string | null;
   portStatus?: string | null;
   goodsReleaseDate?: Date | string | null;
+  updatedAt?: Date | string | null;
 }
 
 interface CustomsEditModalProps {
@@ -37,6 +41,7 @@ export function CustomsEditModal({
   onSuccess,
 }: CustomsEditModalProps) {
   const utils = trpc.useUtils();
+  const [conflictModalOpen, setConflictModalOpen] = useState(false);
   const [form, setForm] = useState({
     blLtaNumber: "",
     ddiGucegNumber: "",
@@ -79,10 +84,22 @@ export function CustomsEditModal({
       utils.dashboard.get.invalidate();
       utils.task.list.invalidate();
       utils.notification.list.invalidate();
+      setConflictModalOpen(false);
       onSuccess?.();
       onClose();
     },
     onError: (err) => {
+      const isConflict =
+        (err as any)?.data?.code === "CONFLICT" ||
+        err.message?.toLowerCase().includes("conflit") ||
+        (err as any)?.shape?.data?.httpStatus === 409;
+
+      if (isConflict) {
+        setConflictModalOpen(true);
+        toast.error("Conflit d'édition simultanée : ce dossier a été modifié par un autre collaborateur.");
+        return;
+      }
+
       const msg =
         err.message?.includes("JSON") || err.message?.includes("Unexpected token")
           ? "Impossible de contacter le serveur. Veuillez réessayer."
@@ -91,27 +108,65 @@ export function CustomsEditModal({
     },
   });
 
+  const buildDataPayload = () => ({
+    blLtaNumber: form.blLtaNumber.trim() || null,
+    ddiGucegNumber: form.ddiGucegNumber.trim() || null,
+    declarationNumber: form.declarationNumber.trim() || null,
+    bulletinNumber: form.bulletinNumber.trim() || null,
+    finalDeclarationNumber: form.finalDeclarationNumber.trim() || null,
+    badStatus: form.badStatus || null,
+    baeStatus: form.baeStatus || null,
+    customsStatus: form.customsStatus || null,
+    portStatus: form.portStatus || null,
+    goodsReleaseDate: form.goodsReleaseDate
+      ? new Date(`${form.goodsReleaseDate}T00:00:00Z`)
+      : null,
+  });
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!dossier) return;
 
     updateCustomsMutation.mutate({
       id: dossier.id,
-      data: {
-        blLtaNumber: form.blLtaNumber.trim() || null,
-        ddiGucegNumber: form.ddiGucegNumber.trim() || null,
-        declarationNumber: form.declarationNumber.trim() || null,
-        bulletinNumber: form.bulletinNumber.trim() || null,
-        finalDeclarationNumber: form.finalDeclarationNumber.trim() || null,
-        badStatus: form.badStatus || null,
-        baeStatus: form.baeStatus || null,
-        customsStatus: form.customsStatus || null,
-        portStatus: form.portStatus || null,
-        goodsReleaseDate: form.goodsReleaseDate
-          ? new Date(`${form.goodsReleaseDate}T00:00:00Z`)
-          : null,
-      },
+      expectedVersion: dossier.version,
+      expectedUpdatedAt: dossier.updatedAt ?? undefined,
+      data: buildDataPayload(),
     });
+  };
+
+  const handleForceOverwrite = () => {
+    if (!dossier) return;
+    updateCustomsMutation.mutate({
+      id: dossier.id,
+      forceOverwrite: true,
+      data: buildDataPayload(),
+    });
+  };
+
+  const handleReload = () => {
+    utils.dossier.list.invalidate();
+    utils.dossier.get.invalidate();
+    setConflictModalOpen(false);
+    onClose();
+    toast.info("Données du serveur rechargées.");
+  };
+
+  const computeDiffs = (): ConflictFieldDiff[] => {
+    if (!dossier) return [];
+    const diffs: ConflictFieldDiff[] = [];
+    const payload = buildDataPayload();
+    for (const [k, v] of Object.entries(payload)) {
+      const currentServer = (dossier as any)[k];
+      if (v !== undefined && v !== currentServer) {
+        diffs.push({
+          field: k,
+          localValue: v instanceof Date ? v.toISOString().slice(0, 10) : v,
+          serverValue: currentServer instanceof Date ? currentServer.toISOString().slice(0, 10) : currentServer,
+        });
+      }
+    }
+    return diffs;
   };
 
   if (!dossier) return null;
@@ -280,6 +335,19 @@ export function CustomsEditModal({
           </DialogFooter>
         </form>
       </DialogContent>
+
+      <ConflictResolutionModal
+        isOpen={conflictModalOpen}
+        onClose={() => setConflictModalOpen(false)}
+        dossierNumber={dossier.dossierNumber}
+        serverVersion={dossier.version}
+        serverUpdatedAt={dossier.updatedAt ?? undefined}
+        diffs={computeDiffs()}
+        onReload={handleReload}
+        onForceOverwrite={handleForceOverwrite}
+        isOverwriting={updateCustomsMutation.isPending}
+      />
     </Dialog>
   );
 }
+

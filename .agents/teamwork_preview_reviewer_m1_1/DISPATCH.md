@@ -1,21 +1,12 @@
-## 2026-08-18T16:01:00Z
-You are Reviewer 1 for Milestone 1 of the IGS Guinée SaaS project.
+## 2026-08-20T13:12:58Z
 
-Working Directory: /Users/alphasalinkobarry/Downloads/igs-suivis de dossier SaaS/.agents/teamwork_preview_reviewer_m1_1
-Authoritative User Request: /Users/alphasalinkobarry/Downloads/igs-suivis de dossier SaaS/ORIGINAL_REQUEST.md
-Project Blueprint: /Users/alphasalinkobarry/Downloads/igs-suivis de dossier SaaS/PROJECT.md
-Worker Handoff: /Users/alphasalinkobarry/Downloads/igs-suivis de dossier SaaS/.agents/teamwork_preview_worker_m1/handoff.md
-Test Status: /Users/alphasalinkobarry/Downloads/igs-suivis de dossier SaaS/TEST_READY.md
-
-Objective:
-Review the Milestone 1 Backend & RBAC Implementation:
-1. Examine code in `server/_core/trpc.ts`, `drizzle/schema.ts`, `server/db.ts`, `server/routers.ts`, and `shared/types.ts`.
-2. Verify:
-   - RBAC procedure protections (`declarantProcedure`, `comptableProcedure`, `internalProcedure`).
-   - Rejection behavior with 403 FORBIDDEN when permissions are violated.
-   - Dual parity in `server/db.ts` (PostgreSQL and memory fallback).
-   - Task filtering by `assignedTo` for Mamadou Diallo and Fatoumata Camara.
-   - Invoice multi-currency support, payment recording, and receipt generation.
-3. Run tests (`npm test`) and type checking (`npm run check`).
-4. Output your verdict (APPROVE or REQUEST_CHANGES) in `handoff.md` with complete rationale.
-Send a message back to the orchestrator when completed.
+Mission:
+Perform objective and adversarial review of Milestone 1 (Module d'Administration & Gestion des 100 Employés /utilisateurs):
+1. Review schema changes (`drizzle/schema.ts`), data store (`server/db.ts`, `server/initialUsersData.ts`), auth/session revocation (`server/_core/sdk.ts`, `server/_core/trpc.ts`), tRPC user router (`server/routers.ts`), and frontend (`client/src/pages/UsersPage.tsx`, `client/src/components/DashboardLayout.tsx`, `client/src/App.tsx`, `client/src/hooks/usePermissions.ts`).
+2. Run build and tests to verify:
+   - `npm run check`
+   - `npm run test`
+   - `npm run build`
+3. Check for security vulnerabilities, edge cases, RBAC correctness, type safety, UI responsiveness, and compliance with requirements.
+4. Conclude with a clear verdict: `APPROVE` or `REQUEST_CHANGES`.
+5. Write your review report to `/Users/alphasalinkobarry/Downloads/igs-suivis de dossier SaaS/.agents/teamwork_preview_reviewer_m1_1/handoff.md` and notify the orchestrator.

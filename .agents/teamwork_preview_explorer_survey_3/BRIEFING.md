@@ -1,50 +1,43 @@
-# BRIEFING — 2026-08-19T11:25:50Z
+# BRIEFING — 2026-08-20T13:02:00Z
 
 ## Mission
-Explore R5 (Breadcrumb navigation and quick back button across sub-pages and edit screens) and Build & Test infrastructure (test setup, build scripts, lint/typecheck).
+Survey and investigate codebase for R4 (PWA & Offline Quai Mode), Navigation/Layout, and Testing/Build setup.
 
 ## 🔒 My Identity
 - Archetype: explorer
-- Roles: Teamwork explorer
-- Working directory: /Users/alphasalinkobarry/Downloads/igs-suivis de dossier SaaS/.agents/teamwork_preview_explorer_survey_3/
-- Original parent: 7e34697f-8374-458f-91db-f80cdb8a5ab3
-- Milestone: Exploration & Investigation
+- Roles: survey, investigation, synthesis
+- Working directory: /Users/alphasalinkobarry/Downloads/igs-suivis de dossier SaaS/.agents/teamwork_preview_explorer_survey_3
+- Original parent: f7bcce2f-9a8f-4812-bea3-9b914f48ebb1
+- Milestone: Survey R4 (PWA & Offline Quai Mode), Navigation, Test/Build
 
 ## 🔒 Key Constraints
-- Read-only investigation — do NOT implement changes in source code
-- Adhere to AGENTS.md rules and project conventions
-- Self-contained 5-component handoff report
+- Read-only investigation — do NOT implement
+- Follow AGENTS.md rules and project architecture
+- Produce structured survey report in survey_report.md
+- Self-contained handoff.md with 5-component structure
 
 ## Current Parent
-- Conversation ID: 7e34697f-8374-458f-91db-f80cdb8a5ab3
-- Updated: 2026-08-19T11:25:50Z
+- Conversation ID: f7bcce2f-9a8f-4812-bea3-9b914f48ebb1
+- Updated: not yet
 
 ## Investigation State
 - **Explored paths**:
-  - `package.json`
-  - `vitest.config.ts`, `vite.config.ts`, `tsconfig.json`
-  - `TEST_INFRA.md`, `TEST_READY.md`
-  - `client/src/App.tsx`
-  - `client/src/components/DashboardLayout.tsx`
-  - `client/src/components/ui/breadcrumb.tsx`
-  - `client/src/pages/Home.tsx`, `DossiersPage.tsx`, `DossierDetailPage.tsx`, `FinancesPage.tsx`, `PlanningPage.tsx`, `ControlsPage.tsx`, `ClientPortalPage.tsx`, `NotFound.tsx`
-  - `server/__tests__/` (Tier 1-4 suites, 20 test files)
-  - `client/src/__tests__/` (`challenger_fe_stress.test.ts`, `usePermissions.test.ts`)
+  - `client/src/components/DashboardLayout.tsx` (sidebar, items, role filtering, cloche popover, header)
+  - `client/src/App.tsx` and `client/src/components/ProtectedRoute.tsx` (routing & protection)
+  - `client/src/hooks/usePermissions.ts` & `client/src/_core/hooks/useAuth.ts`
+  - `client/index.html` and `client/public/` (manifest, icons, meta tags)
+  - `client/src/main.tsx` (QueryClient, tRPC client with network fallback)
+  - `package.json`, `vite.config.ts`, `vitest.config.ts`, `tsconfig.json`
+  - Test suite: 31 test files, 311 tests passed in Vitest
 - **Key findings**:
-  - `npm test` runs 20 test files, 181 tests, 100% passing.
-  - `npm run vercel-build` and `npm run build` succeed with 0 build errors.
-  - `npm run check` (`tsc --noEmit`) fails with 4 specific TypeScript errors in `DashboardLayout.tsx` (2), `ControlsPage.tsx` (1), and `DossierDetailPage.tsx` (1).
-  - Breadcrumb UI primitives exist in `client/src/components/ui/breadcrumb.tsx`.
-  - Router is Wouter (`wouter@3.3.5`).
-  - Standardized Breadcrumb & Quick Back button component specification created for R5.
-- **Unexplored areas**: None for this survey scope.
+  - `DashboardLayout.tsx` has clean extensible `allMenuItems` array; ready to add `/utilisateurs` with role `["admin"]`.
+  - PWA: No `manifest.json`, no `sw.js`, no PWA meta tags currently exist. Full architecture specified for offline Quai Conakry mode.
+  - Test & Build: `npm run check` has 0 errors; `npm run build` succeeds completely; `npm run test` executes 311 tests (all passing). `vitest.config.ts` needs `client/src/**/*.test.ts` added to `include` to auto-run client tests.
+- **Unexplored areas**: None (survey complete across all required areas).
 
 ## Key Decisions Made
-- Analyzed router hierarchy, navigation layout, page structure, and test/build infrastructure.
-- Designed standardized Breadcrumb & Quick Back component pattern for implementation.
-- Documented exact root causes and code locations for all 4 TypeScript errors.
+- Fully documented exact integration blueprint for `/utilisateurs`, PWA manifest, service worker caching tiers, online/offline status hook & banner, and test config.
 
 ## Artifact Index
-- DISPATCH.md — Initial task dispatch
-- progress.md — Liveness and progress tracking
-- handoff.md — Comprehensive handoff report
+- survey_report.md — Full investigation report (completed)
+- handoff.md — Final 5-component handoff report

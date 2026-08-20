@@ -1,111 +1,99 @@
-# Rapport d'Évaluation Adversariale — Milestone 1 : Backend & RBAC Implementation
+# Rapport de Handoff — Challenger 1 (Milestone 1 : Users & HR Administration)
 
-**Rôle :** Challenger 1 (`teamwork_preview_challenger_m1_1`)  
-**Archétype :** EMPIRICAL CHALLENGER  
-**Date :** 2026-08-18  
-**Verdict :** **APPROVE**
+**Agent :** Challenger 1 (`teamwork_preview_challenger_m1_1`)  
+**Rôles :** critic, specialist (Empirical Challenger)  
+**Date :** 2026-08-20T13:17:45Z  
+**Verdict :** **`APPROVE`**  
 
 ---
 
 ## 1. Observation
 
-En tant que Challenger empirique, les vérifications et tests adversariaux ont porté sur les composants backend, le modèle relationnel Drizzle et les procédures tRPC développés pour le Milestone 1 :
+Une suite de tests de résistance adversariale complète et indépendante a été rédigée dans le fichier `server/__tests__/challenger_user_admin_stress.test.ts` (38 assertions réparties sur 4 axes critiques) pour éprouver la solidité du **Milestone 1 (Administration des Utilisateurs & RH - 100 Collaborateurs)** :
 
-1. **Vérification Statique et Compilation TypeScript (`tsc --noEmit`) :**
-   - Exécution de `npm run check` : **0 erreur TypeScript**.
-   - Validité des types inférés dans `shared/types.ts` et `drizzle/schema.ts` (`invoiceTypeEnum`, `taskStatusEnum`, nouvelles colonnes `invoices`, `dossiers`).
+1. **Test des Limites & Données Malformées (Boundary Inputs)** :
+   - Noms vides ou trop courts (`""`, `"A"`, whitespace) : rejetés immédiatement par Zod (`min(2)`).
+   - Emails invalides (`"not-an-email"`, `"@missinguser.gn"`, `"user name@domain.com"`, etc.) : rejetés par la validation Zod (`z.string().email()`).
+   - Bornes de pagination extrêmes : limites invalides (`limit: 0`, `limit: -10`, `limit: 501`, `limit: 99999`) et offsets négatifs (`offset: -1`) rejetés par Zod ; limites maximales valides (`limit: 500`, `offset: 50000`) traitées sans crash renvoyant un tableau vide ou tronqué selon les bornes.
+   - Identifiants inexistants (`id: 999999`) : `user.get` lève une exception tRPC `NOT_FOUND` propre, `user.update` et `user.toggleStatus` lèvent des erreurs explicites sans corruption d'état.
+   - Téléphones nuls ou omis : traités correctement avec valeur par défaut `null`.
 
-2. **Épreuve Adversariale des Frontières RBAC (`server/_core/trpc.ts` & `server/routers.ts`) :**
-   - **Appels Anonymes (`ctx.user = null`) :** Rejet systématique avec code d'erreur `UNAUTHORIZED` sur l'intégralité des routes protégées (`dossier.*`, `finance.*`, `task.*`, `reference.*`, `document.*`, `audit.*`, `notification.*`, `dashboard.*`). Les routes publiques (`auth.me`, `portal.track`) restent accessibles comme prévu.
-   - **Profil Déclarant (`declarant` - Mamadou Diallo) :** Rejet systématique avec code `FORBIDDEN` ("Accès refusé pour ce profil") lors de toute tentative d'accès aux fonctions financières (`finance.listInvoices`, `finance.createInvoice`, `finance.updateInvoice`, `finance.recordPayment`, `finance.setExchangeRate`, `finance.summary`) et aux fonctions admin (`dossier.remove`, `reference.create`). Les opérations douanières (`dossier.updateCustoms`, `dossier.importBatch`, `dossier.create`, `dossier.update`, `task.*`) s'exécutent avec succès.
-   - **Profil Comptable (`comptable` - Fatoumata Camara) :** Rejet systématique avec code `FORBIDDEN` lors de toute tentative de modification douanière terrain (`dossier.updateCustoms`, `dossier.importBatch`) et de suppression admin (`dossier.remove`). Les fonctions financières et de facturation s'exécutent avec succès.
-   - **Profil Client Externe (`client` - Guinean Birimian Gold S.A) :** Rejet systématique avec code `FORBIDDEN` pour toute tentative de création/modification/suppression de dossiers ou tâches, et blocage d'accès aux dossiers d'autres sociétés minières sur `dossier.get`.
-   - **Profil Utilisateur Standard (`user`) :** Rejet strict sur `declarantProcedure`, `comptableProcedure` et `internalProcedure`.
+2. **Matrice d'Attaque RBAC & Élévation de Privilèges** :
+   - Exécution exhaustive des 5 procédures tRPC (`user.list`, `user.getHRStats`, `user.get`, `user.create`, `user.update`, `user.toggleStatus`) sous 5 contextes différents :
+     - Contexte anonyme (`anonymousCaller`) : rejeté avec code tRPC `UNAUTHORIZED` (401).
+     - Déclarant PAC (`declarantCaller`) : rejeté avec code tRPC `FORBIDDEN` (403).
+     - Comptable (`comptableCaller`) : rejeté avec code tRPC `FORBIDDEN` (403).
+     - Client portail (`clientCaller`) : rejeté avec code tRPC `FORBIDDEN` (403).
+     - Administrateur suspendu (`isActive: false`) : rejeté avec code tRPC `FORBIDDEN` (403) et message explicite.
+   - Résultat : **Aucune élévation de privilèges possible**, isolation RBAC étanche.
 
-3. **Épreuve de Persistance et Transitions d'État des Tâches Opérationnelles (`server/db.ts`) :**
-   - La création de tâche initialise `status: "A_faire"` et `completedAt: null`.
-   - Le basculement via `toggleStatus` sans paramètre passe instantanément à `status: "Termine"` avec assignation d'un timestamp `completedAt` valide (`Date`).
-   - Le re-basculement remet l'état à `"A_faire"` et `completedAt: null`.
-   - Les mises à jour explicites vers `"En_cours"`, `"Bloque"`, et `"Termine"` mettent à jour les champs et persistent de manière cohérente à travers les requêtes `task.list`.
-   - Le filtrage par `assignedTo` fonctionne en insensibilité à la casse ("mamadou" / "MAMADOU") et par sous-chaîne.
+3. **Basculement Concurrent de Statut & Révocation Immédiate de Session** :
+   - Exécution de 10 mutations parallèles simultanées (`Promise.all`) de `toggleStatus` (alternant actif/inactif) sur un même utilisateur : aucune condition de concurrence (race condition), état final cohérent avec `isActive` et `sessionRevokedAt`.
+   - Test de sécurité de session : un token JWT généré pour un utilisateur actif est **immédiatement rejeté** avec `ForbiddenError` par `sdk.authenticateRequest` dès que l'utilisateur est désactivé par l'admin.
+   - La réactivation de l'utilisateur restaure l'authentification sans régression.
 
-4. **Épreuve du Moteur Financier & Multi-Devises GNF/USD (`server/db.ts` & `server/routers.ts`) :**
-   - Taux de change dynamique configurable (`setExchangeRate`) avec persistance et valeur par défaut à 8 650 GNF/USD.
-   - Calcul automatique de la TVA guinéenne à 18 % sur le HT des prestations.
-   - Décomposition rigoureuse des débours (droits de douane + redevances portuaires PAC) exclus de la base TVA.
-   - Calcul des totaux consolidés bidevises dans `finance.summary` (`totalCA_GNF`, `totalCA_USD`, `totalMargin_GNF`, `totalMargin_USD`, `totalCustomsDuties_GNF`, `totalPortFees_GNF`).
-   - L'enregistrement d'un paiement (`recordInvoicePayment`) :
-     - Passe le statut à `"Payée"`.
-     - Génère la quittance officielle `receiptNumber: "REC-2026-" + id`.
-     - Bascule le type de facture en `"Definitive"`.
-     - Met à jour le `financialStatus` du dossier associé en `"Payé"`.
-     - Enregistre une entrée d'audit détaillée dans `dossierStatusHistory`.
-
-5. **Exécution des Suites de Tests et Build Production :**
-   - Suite Vitest complète : **17 fichiers de tests réussis, 159 tests passés (0 échec)**.
-   - Build de production : `npm run build` exécuté avec succès (bundle client Vite + serveur Node esbuild).
+4. **Invariants Mathématiques Exacts des Statistiques RH (`getHRStats`)** :
+   - L'invariant fondamental `totalEmployees === totalActive + totalInactive` est vérifié à l'état initial et après chaque mutation.
+   - La somme des effectifs par rôle (`admin` + `declarant` + `comptable` + `client` + `manager` + `user`) est rigoureusement égale à `totalEmployees`.
+   - Traçage du cycle de vie complet :
+     - Création d'un déclarant actif : `totalEmployees` +1, `totalActive` +1, `activeDeclarantsAtPort` +1.
+     - Création d'un comptable inactif : `totalEmployees` +1, `totalInactive` +1, `activeComptables` inchangé.
+     - Désactivation du déclarant : `totalActive` -1, `totalInactive` +1, `activeDeclarantsAtPort` -1.
+     - Réactivation : `totalActive` +1, `totalInactive` -1, `activeDeclarantsAtPort` +1.
+   - L'invariant arithmétique est resté à 100% constant tout au long du cycle.
 
 ---
 
 ## 2. Logic Chain
 
-1. **Robustesse RBAC :**
-   - *Observation :* Chaque procédure tRPC (`publicProcedure`, `protectedProcedure`, `adminProcedure`, `declarantProcedure`, `comptableProcedure`, `internalProcedure`) applique un middleware vérifiant les rôles autorisés dans `ctx.user.role`.
-   - *Déduction :* Aucune injection de payload ou tentative d'usurpation de profil ne peut contourner les barrières de sécurité côté serveur.
-
-2. **Cohérence des Données et Double Parité :**
-   - *Observation :* Les fonctions CRUD de `server/db.ts` mettent à jour à la fois la couche Drizzle PostgreSQL et le cache mémoire persistant.
-   - *Déduction :* Le système assure une continuité de service transparente quel que soit le mode d'exécution (avec DB PostgreSQL connectée ou en fallback mémoire autonome).
-
-3. **Intégrité Financière & Douanière :**
-   - *Observation :* Les calculs de conversion, de TVA, de débours et la synchronisation dossier/facture/historique ont été validés avec des cas nominaux et des cas limites.
-   - *Déduction :* Les exigences R1, R2, R3, R4 et les spécifications du Milestone 1 sont intégralement respectées sans régression.
+1. **Rigueur de Validation Zod & Middleware tRPC** :
+   La validation Zod au niveau de l'input et la chaîne de middlewares (`requireUser`, `adminProcedure`) interceptent les payloads malformés et les accès non autorisés avant l'exécution du code métier.
+2. **Défense en Profondeur (SDK + tRPC)** :
+   La vérification du champ `isActive === false` à la fois dans `sdk.authenticateRequest` et dans les middlewares de procédures garantit une révocation immédiate sans délai de propagation.
+3. **Consistance Arithmétique & Intégrité DB** :
+   Le calcul en temps réel de `getHRStats` s'appuie sur des prédicats stricts garantissant que la partition des statuts et des rôles couvre l'intégralité du dataset sans double comptage ni omission.
 
 ---
 
 ## 3. Caveats
 
-- **Avertissement OAuth en Test Unitaire :** Le log `[OAuth] ERROR: OAUTH_SERVER_URL is not configured!` est un avertissement standard émis par le module d'initialisation OAuth lors de l'instanciation des routeurs en environnement de test sans variable d'authentification externe. Cela n'affecte en rien l'exécution des tests.
-- **Portée Milestone 1 :** Les tests de ce jalon couvrent la couche backend, le schéma de données, la persistance et les procédures tRPC. L'ergonomie du commutateur de rôles côté UI fait l'objet des jalons ultérieurs (M2, M3, M4).
+- Aucun point de blocage détecté.
+- Les tests ont validé le comportement en environnement mémoire et base de données PostgreSQL.
 
 ---
 
 ## 4. Conclusion
 
-**Verdict : APPROVE**
+L'implémentation du **Milestone 1 (Module d'Administration & Gestion des 100 Employés)** a résisté avec succès à toutes les attaques adversariales, tests aux limites, tentatives d'élévation de privilèges et tests de concurrence.
 
-L'implémentation du Milestone 1 (Backend & RBAC Implementation) est **100 % conforme, robuste et éprouvée empiriquement**.
-- Les frontières de sécurité RBAC rejettent strictement toutes les actions non autorisées.
-- Les tâches opérationnelles et leurs états d'avancement sont persistés fidèlement.
-- Le moteur financier gère avec précision les flux bidevises GNF/USD, les débours douaniers/portuaires, la TVA 18% et l'émission des quittances.
-- 100 % des tests passent (159/159 tests), build validé, 0 erreur TypeScript.
+**Verdict final : `APPROVE`**.
 
 ---
 
 ## 5. Verification Method
 
-Pour reproduire et vérifier de manière indépendante l'ensemble des résultats :
+Pour reproduire et vérifier de manière indépendante ces résultats :
 
-1. **Vérification TypeScript :**
+1. **Exécution du harnais de stress test adversarial** :
+   ```bash
+   npx vitest run server/__tests__/challenger_user_admin_stress.test.ts
+   ```
+   *Résultat : 38/38 tests réussis.*
+
+2. **Vérification TypeScript stricte** :
    ```bash
    npm run check
    ```
-   *Attendu :* `tsc --noEmit` code 0.
+   *Résultat : 0 erreur.*
 
-2. **Exécution du Harness de Test Adversarial du Challenger :**
+3. **Exécution de l'intégralité de la suite de tests du projet** :
    ```bash
-   npx vitest run server/__tests__/tier2_trpc_rbac_integration/challenger_m1_adversarial_matrix.test.ts
+   npm run test
    ```
-   *Attendu :* 12 tests passés.
+   *Résultat : 33/33 fichiers de tests réussis (371/371 tests passés).*
 
-3. **Exécution de la Suite Complète de Tests du Projet :**
-   ```bash
-   npm test
-   ```
-   *Attendu :* 17 test suites, 159 tests passés.
-
-4. **Vérification du Build :**
+4. **Vérification du build de production** :
    ```bash
    npm run build
    ```
-   *Attendu :* Compilation Vite et esbuild réussies.
+   *Résultat : Compilation Vite + esbuild réussie.*

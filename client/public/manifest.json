@@ -1,0 +1,36 @@
+{
+  "name": "IGS Transit & Douane Guinée — Suivis de Dossiers",
+  "short_name": "IGS Transit",
+  "description": "Application SaaS professionnelle de gestion des dossiers de transit, dédouanement et facturation au Port Autonome de Conakry.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#0b3b32",
+  "theme_color": "#0b3b32",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "/igs-logo-icon.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/igs-logo-transparent.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/favicon.png",
+      "sizes": "64x64 32x32 24x24 16x16",
+      "type": "image/png"
+    }
+  ],
+  "categories": [
+    "business",
+    "productivity",
+    "utilities"
+  ],
+  "lang": "fr-GN"
+}

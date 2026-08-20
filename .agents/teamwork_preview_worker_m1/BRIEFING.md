@@ -1,60 +1,65 @@
-# BRIEFING — 2026-08-18T15:59:50Z
+# BRIEFING — 2026-08-20T13:12:30Z
 
 ## Mission
-Backend & RBAC Implementation for Milestone 1 (tRPC procedures, Drizzle schema & shared types, DB dual parity in db.ts, secure routers, tests & typecheck).
+Implement Milestone 1: Module d'Administration & Gestion des 100 Employés (/utilisateurs) with complete schema, seed, tRPC endpoints, HR stats, auth session revocation, UI with KPIs/table/modal, and 100% passing tests.
 
 ## 🔒 My Identity
 - Archetype: teamwork_preview_worker_m1
 - Roles: implementer, qa, specialist
 - Working directory: /Users/alphasalinkobarry/Downloads/igs-suivis de dossier SaaS/.agents/teamwork_preview_worker_m1
-- Original parent: 3bba92c2-33c3-493f-8daa-7cb66a8d90a8
-- Milestone: Milestone 1 - Backend & RBAC Implementation
+- Original parent: f7bcce2f-9a8f-4812-bea3-9b914f48ebb1
+- Milestone: Milestone 1 - Administration & 100 Employés
 
 ## 🔒 Key Constraints
-- Genuine implementation only, no dummy/facade implementations.
-- Implement procedure builders in `server/_core/trpc.ts`: `declarantProcedure`, `comptableProcedure`, `internalProcedure` with forbidden error message: "Accès refusé pour ce profil".
-- Add fields in `drizzle/schema.ts` & `shared/types.ts` for invoices and dossiers.
-- Dual parity in `server/db.ts` (PostgreSQL + memory mode).
-- Secure `server/routers.ts` (finance endpoints, dossier isolation/permissions, task filtering).
-- Maintain 100% passing tests and 0 TypeScript errors.
+- Genuine implementation only - NO cheating, NO hardcoding tests, real state and real behavior.
+- Use Drizzle ORM / Memory Store consistent patterns.
+- Protect all sensitive operations with `adminProcedure` or admin role checks.
+- Zero type errors (`npm run check`) and zero test failures (`npm run test`).
+- Follow project conventions (React 19, Tailwind, shadcn/ui, tRPC, Lucide icons).
 
 ## Current Parent
-- Conversation ID: 3bba92c2-33c3-493f-8daa-7cb66a8d90a8
-- Updated: 2026-08-18T15:59:50Z
+- Conversation ID: f7bcce2f-9a8f-4812-bea3-9b914f48ebb1
+- Updated: 2026-08-20T13:12:30Z
 
 ## Task Summary
-- **What to build**: RBAC procedures, schema updates, db.ts methods with PostgreSQL & Memory parity, router RBAC enforcement & multi-currency finance summary calculations, unit & integration tests.
-- **Success criteria**: All tasks in Scope 1-5 implemented, `npm run check` and `npm test` pass with 0 errors.
-- **Interface contracts**: `PROJECT.md`, `shared/types.ts`, `server/_core/trpc.ts`
-- **Code layout**: `server/`, `drizzle/`, `shared/`
+- **What to build**: Full user administration module with 100+ collaborators seed, schema updates (`isActive`, `sessionRevokedAt`), session revocation security, tRPC user router, admin frontend page `/utilisateurs` with KPI cards, filters, CRUD/status toggle modal, navigation update, and test suite.
+- **Success criteria**: All CRUD operations, session revocation on inactive user, HR stats calculation, responsive UI, `npm run check` and `npm run test` green.
+- **Interface contracts**: `PROJECT.md`, `drizzle/schema.ts`, `server/routers.ts`
+- **Code layout**: `drizzle/`, `server/`, `client/`
 
 ## Key Decisions Made
-- `server/_core/trpc.ts`: Added `declarantProcedure` (admin, manager, declarant), `comptableProcedure` (admin, manager, comptable), `internalProcedure` (admin, manager, declarant, comptable) with `"Accès refusé pour ce profil"` 403 Forbidden error.
-- `drizzle/schema.ts`: Added `invoiceTypeEnum`, added `ddiGucegNumber`, `badStatus`, `baeStatus` to `dossiers`, and `invoiceType`, `exchangeRate`, `paymentMethod`, `paymentReference`, `receiptNumber`, `customsDutiesAmount`, `portFeesAmount` to `invoices`.
-- `server/db.ts`: Full dual parity for Postgres and Memory with `listTasks` (supporting `assignedTo`, `status`, `dossierId`), `updateTaskStatus`, `toggleTaskStatus`, `updateInvoice`, `recordInvoicePayment` (with `receiptNumber: "REC-2026-" + id`, setting `status: "Payée"` and updating dossier `financialStatus: "Payé"`), and `getExchangeRate` / `setExchangeRate`.
-- `server/routers.ts`: Secured finance endpoints with `comptableProcedure`, updated `finance.summary` with dynamic bidirectional multi-currency math (GNF/USD), added `dossier.updateCustoms`, client isolation on `dossier.get`, and `task.list` filtering.
+- Extracted 111 Guinean collaborators seed into `server/initialUsersData.ts` for clean modularity and realistic Guinea logistics data (Conakry PAC, Kamsar, Boffa, Boké).
+- Enhanced `server/_core/sdk.ts` and `server/_core/trpc.ts` with fail-fast `isActive === false` rejection across all protected & role procedures.
+- Implemented `user` tRPC router guarded by `adminProcedure`.
+- Built rich responsive `UsersPage.tsx` with 4 KPI cards, multi-criteria filtering, table with live active/inactive switches, and modal with validation.
+- Registered `/utilisateurs` in `App.tsx` (guarded for `admin`) and added sidebar entry in `DashboardLayout.tsx`.
 
 ## Artifact Index
-- `.agents/teamwork_preview_worker_m1/DISPATCH.md` — Assignment instructions
-- `.agents/teamwork_preview_worker_m1/BRIEFING.md` — Agent state and working memory
-- `.agents/teamwork_preview_worker_m1/progress.md` — Progress tracker and liveness heartbeat
-- `.agents/teamwork_preview_worker_m1/handoff.md` — Final completion report
-- `server/__tests__/tier2_trpc_rbac_integration/m1_backend_rbac_complete.test.ts` — Comprehensive M1 verification tests
+- `.agents/teamwork_preview_worker_m1/DISPATCH.md` — Assignment record
+- `.agents/teamwork_preview_worker_m1/BRIEFING.md` — Agent briefing & memory
+- `.agents/teamwork_preview_worker_m1/progress.md` — Progress tracker
+- `.agents/teamwork_preview_worker_m1/handoff.md` — 5-component handoff report
 
 ## Change Tracker
 - **Files modified**:
-  - `server/_core/trpc.ts`: RBAC procedure builders
-  - `drizzle/schema.ts`: Schema columns for invoices & dossiers
-  - `server/db.ts`: Dual parity DB functions & memory initialization
-  - `server/routers.ts`: Router security, multi-currency engine, customs endpoints
-  - `server/__tests__/tier2_trpc_rbac_integration/m1_backend_rbac_complete.test.ts`: Test suite
-- **Build status**: PASS (15 test suites passed, 120 tests passed, 0 TypeScript errors)
+  - `drizzle/schema.ts` — Added `isActive` and `sessionRevokedAt` columns to `users` table
+  - `server/initialUsersData.ts` — Created 111 Guinean collaborators seed dataset
+  - `server/db.ts` — Enriched user memory store and added CRUD + HR stats helpers
+  - `server/_core/sdk.ts` — Added session revocation check for inactive users in `authenticateRequest`
+  - `server/_core/trpc.ts` — Added inactive account block in `requireUser` and role procedures
+  - `server/routers.ts` — Implemented `user` administration router with RBAC
+  - `client/src/hooks/usePermissions.ts` — Added `canManageUsers: boolean` (admin only)
+  - `client/src/components/DashboardLayout.tsx` — Added `/utilisateurs` to sidebar menu for admin
+  - `client/src/App.tsx` — Registered `/utilisateurs` route guarded by `ProtectedRoute`
+  - `client/src/pages/UsersPage.tsx` — Created complete HR & user management UI
+  - `server/__tests__/user_admin_management.test.ts` — Added comprehensive test suite
+- **Build status**: PASS (tsc + vitest: 32 files / 333 tests passing, vite build: OK)
 - **Pending issues**: None
 
 ## Quality Status
-- **Build/test result**: 100% PASS (120/120 tests)
-- **Lint status**: 0 errors
-- **Tests added/modified**: 12 new comprehensive tests in `m1_backend_rbac_complete.test.ts`
+- **Build/test result**: 32 test files passed, 333 tests passed, 0 failures
+- **Lint status**: 0 violations, 0 type errors (`tsc --noEmit` clean)
+- **Tests added/modified**: 22 new test assertions in `server/__tests__/user_admin_management.test.ts`
 
 ## Loaded Skills
-- None
+- None specified in dispatch

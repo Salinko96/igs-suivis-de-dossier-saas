@@ -1,201 +1,92 @@
-# Handoff Report — Exploration & Survey R1 (Client Portal) & R2 (Notification Bell)
+# Handoff Report — Explorer 1: Survey & Investigation for R1
 
-## 1. Observation
-
-### R1. Portail Client Externe (`/portail-client`) — Recherche Invalide et Loader Infini
-- **Fichier `client/src/pages/ClientPortalPage.tsx` (lignes 26–39, 87–107)** :
-  ```tsx
-  const [searchCode, setSearchCode] = useState("IGS-1001");
-  const [submittedCode, setSubmittedCode] = useState("IGS-1001");
-
-  const portalQuery = trpc.portal.track.useQuery(
-    { accessCodeOrNumber: submittedCode },
-    { enabled: Boolean(submittedCode.trim()) }
-  );
-
-  const handleSearch = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (searchCode.trim()) {
-      setSubmittedCode(searchCode.trim());
-    }
-  };
-  ```
-  - La requête `portal.track` hérite de l'option globale TanStack Query définie dans `client/src/main.tsx` (ligne 17: `retry: 1`).
-  - Lors d'une saisie invalide (ex: `XXXX-9999`), la requête tRPC échoue, mais TanStack Query relance automatiquement un retry en arrière-plan avec un délai de backoff exponentiel.
-  - Le bouton de soumission (ligne 88) vérifie `{portalQuery.isLoading ? <Loader2 size={15} className="animate-spin" /> : "Consulter"}` au lieu de `portalQuery.isFetching`.
-  - La zone d'affichage d'erreur (lignes 101–106) ne propose pas de boutons d'exemples cliquables pour réinjecter immédiatement une recherche valide.
-
-- **Fichier `server/routers.ts` (lignes 271–285)** :
-  ```typescript
-  portal: router({
-    track: publicProcedure
-      .input(z.object({ accessCodeOrNumber: z.string().trim().min(2) }))
-      .query(async ({ input }) => {
-        const dossier = await db.getDossierByPortalCode(input.accessCodeOrNumber);
-        if (!dossier) throw new Error("Dossier introuvable. Vérifiez le numéro de BL ou le code de suivi.");
-        const docs = await db.listDocuments(dossier.id);
-        const history = await db.listDossierHistory(dossier.id);
-        return {
-          dossier,
-          documents: docs.map(d => ({ id: d.id, name: d.name, type: d.type, createdAt: d.createdAt })),
-          timeline: history.map(h => ({ date: h.createdAt, title: h.fieldChanged, detail: h.newValue || h.comment })),
-        };
-      }),
-  }),
-  ```
-  - `throw new Error(...)` renvoie une erreur non typée au lieu d'une `TRPCError` explicite avec `code: "NOT_FOUND"`.
-
-- **Fichier `server/db.ts` (lignes 554–564)** :
-  ```typescript
-  export async function getDossierByPortalCode(portalAccessCode: string) {
-    const cleanCode = portalAccessCode.trim().toUpperCase();
-    const db = await getDb();
-    if (db) {
-      try {
-        const row = (await db.select().from(dossiers).where(eq(dossiers.portalAccessCode, cleanCode)).limit(1))[0];
-        if (row) return row;
-      } catch (e) {}
-    }
-    return _memoryDossiers.find(d => d.portalAccessCode?.toUpperCase() === cleanCode || d.dossierNumber?.toUpperCase() === cleanCode || d.blLtaNumber?.toUpperCase() === cleanCode);
-  }
-  ```
-  - `getDossierByPortalCode` ne vérifie pas `d.clientDossierNumber`. Or le critère d'acceptation R1 exige le support explicite du code `CKYSI26000340` (qui est un `clientDossierNumber` dans `initialImportData.ts`).
+**Target Module :** R1: Module d'Administration & Gestion des 100 Employés (`/utilisateurs`)  
+**Date :** 2026-08-20  
+**Auteur :** Explorer 1 (Teamwork Explorer)  
+**Chemin du rapport complet :** `/Users/alphasalinkobarry/Downloads/igs-suivis de dossier SaaS/.agents/teamwork_preview_explorer_survey_1/survey_report.md`  
 
 ---
 
-### R2. Système de Notifications (Cloche Dashboard) — « Marquer lu » et Compteur Badge
-- **Fichier `client/src/components/DashboardLayout.tsx` (lignes 180–194, 360–390, 420–465)** :
-  ```tsx
-  const notificationsQuery = trpc.notification.list.useQuery(undefined, { refetchInterval: 30000 });
-  const notifications = notificationsQuery.data || [];
-  const unreadCount = notifications.filter(n => n.isRead === 0).length;
-  
-  const markReadMutation = trpc.notification.markAsRead.useMutation({
-    onSuccess: () => notificationsQuery.refetch(),
-  });
+## 1. Observation
 
-  const markAllReadMutation = trpc.notification.markAllAsRead.useMutation({
-    onSuccess: () => {
-      toast.success("Toutes les alertes ont été marquées comme lues.");
-      notificationsQuery.refetch();
-    },
-  });
-  ```
-  - `DashboardLayout.tsx` n'utilise pas `const utils = trpc.useUtils()`.
-  - Les mutations `markAsRead` et `markAllAsRead` n'effectuent aucune mise à jour optimiste du cache React Query et n'utilisent pas `utils.notification.list.invalidate()`.
-  - Le compteur de badge rouge `unreadCount` dépend directement du résultat de la requête et ne se met pas à jour instantanément lors du clic.
+1. **Schéma de base de données (`drizzle/schema.ts:12-24`)** :
+   - Table `users` définie avec les colonnes : `id` (serial PK), `openId` (varchar(64) unique), `name` (text), `email` (varchar(320)), `loginMethod` (varchar(64)), `role` (enum: `"user" | "declarant" | "comptable" | "manager" | "client" | "admin"`), `clientCompany` (varchar(255)), `phone` (varchar(32)), `createdAt`, `updatedAt`, `lastSignedIn`.
+   - Les colonnes `isActive` (ou `status`) et `sessionRevokedAt` (pour la révocation de session) sont actuellement absentes.
+   - La table `clients` (`drizzle/schema.ts:26-39`) existe avec `name`, `contactPerson`, `email`, `phone`, `taxId`, `address`.
 
-- **Fichier `server/alertsService.ts` (lignes 15–84)** :
-  ```typescript
-  export function generateProactiveAlerts(dossiers: Dossier[]): ProactiveAlert[] {
-    const alerts: ProactiveAlert[] = [];
-    const now = new Date();
-    now.setHours(0, 0, 0, 0);
+2. **Persistance & Données en Mémoire (`server/db.ts:30-83`)** :
+   - Le tableau `_memoryUsers: User[]` contient actuellement 4 utilisateurs de démonstration (`igs_admin_conakry`, `declarant_conakry`, `comptable_conakry`, `client_birimian`).
+   - `server/db.ts` implémente `upsertUser`, `getUserByOpenId`, `listUsers`, mais aucune méthode `toggleUserStatus`, `updateUser`, `createUser` avec validation stricte, ni `getHRStats`.
 
-    let idCounter = 1;
+3. **Authentification & Session JWT (`server/_core/sdk.ts:180-232, 258-320`)** :
+   - Les jetons JWT sont générés via `jose.SignJWT` (HS256) avec durée par défaut de 1 an (`ONE_YEAR_MS`).
+   - `sdk.authenticateRequest` vérifie le JWT et récupère `user = await db.getUserByOpenId(sessionUserId)`.
+   - **Faille observée** : `sdk.authenticateRequest` ne vérifie pas `user.isActive`. Un utilisateur dont le compte est désactivé peut continuer à effectuer des requêtes tant que son cookie JWT est valide.
 
-    for (const d of dossiers) {
-      // ...
-      if (isPastEta && !isReleased && daysSinceEta > 7) {
-        alerts.push({
-          id: idCounter++,
-          dossierId: d.id,
-          // ...
-        });
-      }
-    }
-  ```
-  - Les alertes proactives générées à la volée utilisent un compteur séquentiel `idCounter++` dépendant de l'ordre d'itération du tableau `dossiers`.
-  - Lorsque des dossiers sont mis à jour (`listDossiers()` les trie par `updatedAt`), l'ordre change et les IDs des alertes sont réattribués à d'autres dossiers.
+4. **Procédures tRPC (`server/_core/trpc.ts:30-49`, `server/routers.ts:177-278`)** :
+   - `adminProcedure` est déjà implémenté et vérifie `if (ctx.user.role !== 'admin') throw FORBIDDEN`.
+   - Le routeur `auth` ne dispose que de `me`, `listUsers` (actuellement `protectedProcedure`), `login`, `loginWithPassword`, `logout`.
+   - Il n'existe pas encore de procédures dédiées `user.list` (adminProcedure filtrée), `user.create`, `user.update`, `user.toggleStatus`, `user.getHRStats`.
 
-- **Fichier `server/db.ts` (lignes 1358–1396)** :
-  ```typescript
-  const _readNotificationIds = new Set<number>();
+5. **Routage et Navigation Frontend (`client/src/App.tsx:30-97`, `client/src/components/DashboardLayout.tsx:35-43`)** :
+   - Aucune route `/utilisateurs` n'existe dans `client/src/App.tsx`.
+   - Le menu `allMenuItems` de `DashboardLayout.tsx` ne contient pas d'entrée pour la gestion des collaborateurs.
+   - `ProtectedRoute.tsx` et `usePermissions.ts` fournissent déjà le mécanisme complet de contrôle d'accès basé sur les rôles et permissions.
 
-  export async function listNotifications(limit = 40) {
-    const dossiers = await listDossiers();
-    const alerts = generateProactiveAlerts(dossiers);
-
-    return alerts.slice(0, limit).map(a => ({
-      ...a,
-      isRead: _readNotificationIds.has(a.id) ? 1 : 0,
-    }));
-  }
-
-  export async function markNotificationAsRead(id: number) {
-    _readNotificationIds.add(id);
-    // ...
-  }
-  ```
-  - Comme `idCounter` dans `alertsService.ts` n'est pas stable et déterministe, les identifiants stockés dans `_readNotificationIds` ne correspondent plus aux mêmes alertes après modification ou retri des dossiers.
+6. **État de la suite de tests (`npm test`)** :
+   - Commande exécutée : `npm test` -> 31 suites de tests, 311 tests passés avec succès (100% de réussite).
 
 ---
 
 ## 2. Logic Chain
 
-### Analyse R1 (Portail Client)
-1. **Origine du blocage/latence de recherche** :
-   - Lorsqu'un utilisateur saisit `XXXX-9999`, le hook `trpc.portal.track.useQuery` déclenche la requête.
-   - En cas de 404/erreur, le comportement par défaut de `QueryClient` (`retry: 1`) attend et retente la requête, créant une impression de blocage infini sur le loader.
-   - Si `retry: false` est configuré sur `portal.track`, l'erreur est reçue immédiatement (< 50ms).
-2. **Gestion de l'état UI et du champ de recherche** :
-   - Le bouton "Consulter" et le container de résultats doivent se baser sur `portalQuery.isFetching`. Dès que la requête échoue, `isFetching` repasse immédiatement à `false`.
-   - Le champ de recherche et le bouton doivent rester interactifs en permanence.
-   - En cas d'erreur (`portalQuery.isError`), un composant visuel avec le message d'erreur clair *« Aucun dossier trouvé pour ce code. Vérifiez le code d'accès et réessayez. »* et des badges cliquables d'exemples valides (`IGS-1001`, `CKYSI26000340`, `HLCUNG12604AUQG1`) permet une expérience utilisateur fluide.
-3. **Résolution de code dans `server/db.ts`** :
-   - `getDossierByPortalCode` doit inclure `d.clientDossierNumber?.toUpperCase() === cleanCode` pour que le code `CKYSI26000340` renvoie bien le dossier correspondant.
-   - `server/routers.ts` doit lever une `TRPCError` avec le code `"NOT_FOUND"` et le message complet.
+1. **Besoin d'Administration RH & 100 Collaborateurs** :
+   - L'exigence R1 requiert une gestion d'un effectif de 100 collaborateurs avec nom, email, téléphone (+224), rôle, entreprise cliente rattachée, statut actif/inactif et dernière activité.
+   - *Déduction* : Le schéma `users` dans `drizzle/schema.ts` et le mock/store dans `server/db.ts` doivent être étendus avec `isActive: boolean` et `sessionRevokedAt: Date | null`, et alimentés avec un dataset riche de 100+ profils opérationnels guinéens.
 
-### Analyse R2 (Notifications & Badge)
-1. **Origine de la non-mise à jour du badge et de l'état lu** :
-   - Dans `DashboardLayout.tsx`, le clic sur "Marquer lu" exécute `markReadMutation.mutate({ id })`.
-   - Faute de mutation optimiste et d'invalidation TanStack Query (`utils.notification.list.invalidate()`), l'interface attend un `refetch()` différé.
-   - Côté serveur, la méthode `generateProactiveAlerts` recalculait des IDs instables `1, 2, 3...` selon l'ordre du tableau de dossiers. Dès qu'un dossier était touché, le tri par `updatedAt` décalait les IDs, désynchronisant le `_readNotificationIds.has(a.id)`.
-2. **Solution pérenne** :
-   - Attribuer un ID déterministe et stable à chaque type d'alerte par dossier : `(dossier.id * 10) + typeIndex` (ex: `11` pour Surestaries du dossier 1, `12` pour ETA dépassée du dossier 1, `13` pour Sydonia manquant du dossier 1).
-   - Utiliser `trpc.useUtils()` dans `DashboardLayout.tsx`.
-   - Appliquer une mise à jour optimiste (`onMutate`) dans `markAsRead` et `markAllAsRead` pour passer `isRead: 1` instantanément dans le cache mémoire local, ce qui recalcule `unreadCount` à la milliseconde sans attendre le retour réseau.
-   - Invalider `utils.notification.list.invalidate()` sur `onSettled` / `onSuccess`.
+2. **Révocation Instantanée de Session** :
+   - Pour garantir qu'un compte désactivé ne puisse plus exécuter aucune action sensible :
+   - *Déduction* : `sdk.authenticateRequest` (`server/_core/sdk.ts`) et `requireUser` (`server/_core/trpc.ts`) doivent lever une exception `FORBIDDEN` / `UNAUTHORIZED` dès que `user.isActive === false`. La mutation `toggleUserStatus` doit marquer `isActive = false` et enregistrer `sessionRevokedAt = new Date()`.
+
+3. **Sécurisation Serveur tRPC** :
+   - R1 stipule que toutes les routes de gestion RH doivent être strictement réservées aux administrateurs.
+   - *Déduction* : Toutes les mutations/queries de gestion des employés (`user.list`, `user.create`, `user.update`, `user.toggleStatus`, `user.getHRStats`) doivent utiliser exclusivement `adminProcedure`.
+
+4. **Interface Utilisateur Dédiée (`/utilisateurs`)** :
+   - *Déduction* : Créer `client/src/pages/UsersPage.tsx` avec les 4 cartes KPI RH, la barre de recherche multi-critères, le tableau dynamique des 100 collaborateurs avec toggle d'état et la modale accessible de création/modification. Enregistrer la route dans `client/src/App.tsx` enveloppée par `<ProtectedRoute allowedRoles={["admin"]} />` et l'ajouter dans la barre latérale de `DashboardLayout.tsx`.
 
 ---
 
 ## 3. Caveats
-- **Persistance DB vs In-Memory** :
-  En mode développement sans base de données PostgreSQL active (`db === null`), le serveur tourne sur les structures mémoires `_memoryDossiers` et `_readNotificationIds`. Les corrections proposées fonctionnent parfaitement et de manière transparente dans les deux modes (mémoire et base de données relationnelle).
-- **Rôles et filtrage des notifications** :
-  La route `notification.list` est accessible aux utilisateurs connectés (`protectedProcedure`). Le calcul proactif génère des alertes sur l'ensemble des dossiers opérationnels actifs.
+
+- **Authentification Hybride (OAuth vs Direct/Password)** : Le système supporte à la fois le mode direct (simulateur de persona) et la connexion par mot de passe. Les 100 collaborateurs synthétiques doivent avoir des identifiants valides pour les deux modes.
+- **Rattachement Entreprises Clientes** : Seuls les utilisateurs avec le rôle `client` doivent obligatoirement être rattachés à une entreprise cliente issue de la table `clients` (`Guinean Birimian Gold S.A`, `TOPAZ Multi-Industries`, etc.). Pour les rôles internes (`admin`, `declarant`, `comptable`), `clientCompany` doit rester null.
+- **Préservation des tests existants** : L'ajout de `isActive: true` par défaut sur tous les comptes existants est impératif pour éviter toute régression sur les 311 tests existants.
 
 ---
 
 ## 4. Conclusion
 
-Les causes racines des deux anomalies sont clairement identifiées :
-1. **R1 (Portail Client)** :
-   - Configuration de retry superflue (`retry: 1` -> doit être `retry: false` sur la recherche portail).
-   - Absence de vérification du `clientDossierNumber` dans `getDossierByPortalCode`.
-   - Gestion UI de l'état d'erreur et loader à moderniser avec message d'erreur standardisé et suggestions rapides.
-2. **R2 (Notifications & Cloche)** :
-   - IDs d'alertes non déterministes dans `server/alertsService.ts`.
-   - Absence de mise à jour optimiste du cache React Query et d'utilisation de `trpc.useUtils().notification.list.invalidate()` dans `DashboardLayout.tsx`.
+L'investigation confirme la faisabilité immédiate et optimale de R1 sans risque de régression :
+1. **Database** : Ajouter `isActive` et `sessionRevokedAt` dans `drizzle/schema.ts`, enrichir `server/db.ts` avec le dataset des 100 collaborateurs et les fonctions CRUD/Stats.
+2. **Auth & Sécurité** : Bloquer les comptes inactifs dans `server/_core/sdk.ts` et `server/_core/trpc.ts`.
+3. **API tRPC** : Exposer le sous-routeur `user` (ou enrichir `auth`) avec `list`, `create`, `update`, `toggleStatus`, `getHRStats` sous `adminProcedure`.
+4. **Frontend** : Développer `client/src/pages/UsersPage.tsx`, déclarer `/utilisateurs` dans `App.tsx` et ajouter le lien Admin dans `DashboardLayout.tsx`.
 
 ---
 
 ## 5. Verification Method
 
-### 1. Commandes de test automatisées
-Exécuter la suite complète de tests de non-régression :
-```bash
-npm test
-```
-*Validation : 20 fichiers de test et 181 tests doivent passer au vert.*
-
-Ajouter des tests unitaires et d'intégration ciblés :
-- Test R1 : vérification de `portal.track` avec code invalide `XXXX-9999` (lève `NOT_FOUND` avec message attendu) et avec codes valides `IGS-1001`, `CKYSI26000340`, `HLCUNG12604AUQG1`.
-- Test R2 : vérification que `notification.markAsRead` et `notification.markAllAsRead` conservent le statut `isRead: 1` même après re-tri ou mise à jour d'un dossier.
-
-### 2. Fichiers clés à inspecter pour l'implémentation
-- `client/src/pages/ClientPortalPage.tsx`
-- `client/src/components/DashboardLayout.tsx`
-- `server/routers.ts`
-- `server/db.ts`
-- `server/alertsService.ts`
+Pour vérifier indépendamment les observations et constats du rapport :
+1. **Inspection des fichiers sources** :
+   - `view_file` sur `drizzle/schema.ts` (lignes 12 à 25).
+   - `view_file` sur `server/_core/sdk.ts` (lignes 258 à 320).
+   - `view_file` sur `server/_core/trpc.ts` (lignes 30 à 49).
+   - `view_file` sur `client/src/App.tsx` (lignes 30 à 95).
+2. **Exécution des tests du projet** :
+   ```bash
+   npm test
+   ```
+   Toutes les suites (31 fichiers, 311 tests) doivent être au statut vert.
+3. **Lecture du rapport d'investigation détaillé** :
+   Consulter `/Users/alphasalinkobarry/Downloads/igs-suivis de dossier SaaS/.agents/teamwork_preview_explorer_survey_1/survey_report.md`.

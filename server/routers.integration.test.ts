@@ -111,7 +111,13 @@ describe("intégration des procédures IGS Dossiers", () => {
     expect(created.dossierNumber).toBe("DOS-0008");
     expect(batch.total).toBe(1);
     expect(db.createDossier).toHaveBeenCalledWith({ client: "GBG", transportMode: "Maritime" }, 1, "Opérateur IGS");
-    expect(db.updateDossier).toHaveBeenCalledWith(7, { bulletinNumber: "B-7" }, 1, "Opérateur IGS");
+    expect(db.updateDossier).toHaveBeenCalledWith(
+      7,
+      { bulletinNumber: "B-7" },
+      1,
+      "Opérateur IGS",
+      expect.objectContaining({ userRole: "admin" })
+    );
     expect(removed).toEqual({ success: true });
   });
 

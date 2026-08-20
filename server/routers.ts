@@ -277,6 +277,76 @@ export const appRouter = router({
     }),
   }),
 
+  // 1.1 GESTION RH & COLLABORATEURS (MODULE D'ADMINISTRATION 100 EMPLOYÉS)
+  user: router({
+    list: adminProcedure
+      .input(
+        z.object({
+          search: z.string().trim().max(200).optional(),
+          role: z.string().optional(),
+          isActive: z.boolean().optional(),
+          limit: z.number().int().min(1).max(500).optional(),
+          offset: z.number().int().min(0).optional(),
+        }).nullish()
+      )
+      .query(async ({ input }) => db.listUsers(input || undefined)),
+
+    getHRStats: adminProcedure.query(async () => db.getHRStats()),
+
+    get: adminProcedure
+      .input(z.object({ id: z.number().int().positive() }))
+      .query(async ({ input }) => {
+        const user = await db.getUserById(input.id);
+        if (!user) {
+          throw new TRPCError({ code: "NOT_FOUND", message: `Collaborateur ${input.id} introuvable` });
+        }
+        return user;
+      }),
+
+    create: adminProcedure
+      .input(
+        z.object({
+          name: z.string().min(2, "Le nom doit comporter au moins 2 caractères"),
+          email: z.string().email("Adresse email invalide"),
+          phone: z.string().optional().nullable(),
+          role: z.enum(["admin", "declarant", "comptable", "client", "manager", "user"]),
+          clientCompany: z.string().optional().nullable(),
+          isActive: z.boolean().optional().default(true),
+        })
+      )
+      .mutation(async ({ input }) => {
+        return db.createUser(input);
+      }),
+
+    update: adminProcedure
+      .input(
+        z.object({
+          id: z.number().int().positive(),
+          name: z.string().min(2).optional(),
+          email: z.string().email().optional(),
+          phone: z.string().optional().nullable(),
+          role: z.enum(["admin", "declarant", "comptable", "client", "manager", "user"]).optional(),
+          clientCompany: z.string().optional().nullable(),
+          isActive: z.boolean().optional(),
+        })
+      )
+      .mutation(async ({ input }) => {
+        const { id, ...data } = input;
+        return db.updateUser(id, data);
+      }),
+
+    toggleStatus: adminProcedure
+      .input(
+        z.object({
+          id: z.number().int().positive(),
+          isActive: z.boolean(),
+        })
+      )
+      .mutation(async ({ input }) => {
+        return db.toggleUserStatus(input.id, input.isActive);
+      }),
+  }),
+
   // 2. RÉFÉRENTIELS LOGISTIQUES & DOUANIERS
   reference: router({
     list: protectedProcedure
@@ -345,7 +415,15 @@ export const appRouter = router({
         }
       }),
     update: internalProcedure
-      .input(z.object({ id: z.union([z.number(), z.string()]), data: dossierPayload }))
+      .input(
+        z.object({
+          id: z.union([z.number(), z.string()]),
+          expectedVersion: z.number().int().positive().optional(),
+          expectedUpdatedAt: z.union([z.date(), z.string()]).optional(),
+          forceOverwrite: z.boolean().optional(),
+          data: dossierPayload,
+        })
+      )
       .mutation(async ({ ctx, input }) => {
         try {
           const numId = Number(input.id);
@@ -353,7 +431,12 @@ export const appRouter = router({
             throw new TRPCError({ code: "BAD_REQUEST", message: `Identifiant de dossier invalide: ${input.id}` });
           }
           invalidateDashboardCache();
-          return await db.updateDossier(numId, input.data, ctx.user.id, ctx.user.name || "Opérateur");
+          return await db.updateDossier(numId, input.data, ctx.user.id, ctx.user.name || "Opérateur", {
+            expectedVersion: input.expectedVersion,
+            expectedUpdatedAt: input.expectedUpdatedAt,
+            forceOverwrite: input.forceOverwrite,
+            userRole: ctx.user.role,
+          });
         } catch (err: any) {
           if (err instanceof TRPCError) throw err;
           console.error("[tRPC dossier.update Error]", err);
@@ -367,6 +450,9 @@ export const appRouter = router({
       .input(
         z.object({
           id: z.union([z.number(), z.string()]),
+          expectedVersion: z.number().int().positive().optional(),
+          expectedUpdatedAt: z.union([z.date(), z.string()]).optional(),
+          forceOverwrite: z.boolean().optional(),
           data: dossierPayload.partial(),
         })
       )
@@ -377,7 +463,12 @@ export const appRouter = router({
             throw new TRPCError({ code: "BAD_REQUEST", message: `Identifiant de dossier invalide: ${input.id}` });
           }
           invalidateDashboardCache();
-          return await db.updateDossier(numId, input.data, ctx.user.id, ctx.user.name || "Déclarant PAC");
+          return await db.updateDossier(numId, input.data, ctx.user.id, ctx.user.name || "Déclarant PAC", {
+            expectedVersion: input.expectedVersion,
+            expectedUpdatedAt: input.expectedUpdatedAt,
+            forceOverwrite: input.forceOverwrite,
+            userRole: ctx.user.role,
+          });
         } catch (err: any) {
           if (err instanceof TRPCError) throw err;
           console.error("[tRPC dossier.updateCustoms Error]", err);
@@ -479,7 +570,7 @@ export const appRouter = router({
       }),
     remove: protectedProcedure
       .input(z.object({ id: z.number().int().positive() }))
-      .mutation(async ({ input }) => db.deleteDocument(input.id)),
+      .mutation(async ({ ctx, input }) => db.deleteDocument(input.id, ctx.user.id, ctx.user.name || "Opérateur IGS")),
   }),
 
   // 6. AUDIT TRAIL / HISTORIQUE

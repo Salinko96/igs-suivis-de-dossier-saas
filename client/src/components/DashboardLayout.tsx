@@ -25,16 +25,20 @@ import {
   PanelLeft, 
   Plus, 
   ShieldAlert, 
-  UserCheck 
+  UserCheck,
+  Users
 } from "lucide-react";
 import { CSSProperties, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useLocation } from "wouter";
 import { DashboardLayoutSkeleton } from "./DashboardLayoutSkeleton";
+import { NetworkStatusBanner } from "./NetworkStatusBanner";
+import { PWAInstallBanner } from "./PWAInstallBanner";
 
 const allMenuItems = [
   { icon: LayoutDashboard, label: "Pilotage & KPI", path: "/", roles: ["admin", "comptable", "manager"] },
   { icon: FolderKanban, label: "Tous les Dossiers", path: "/dossiers", roles: ["admin", "declarant", "comptable", "manager", "client"] },
+  { icon: Users, label: "Administration & RH", path: "/utilisateurs", roles: ["admin"] },
   { icon: CircleDollarSign, label: "Finances & Facturation", path: "/finances", roles: ["admin", "comptable", "manager"] },
   { icon: CalendarDays, label: "Planning & Échéances", path: "/planning", roles: ["admin", "declarant", "manager"] },
   { icon: ShieldAlert, label: "Contrôles Douane & PAC", path: "/controles", roles: ["admin", "declarant", "manager"] },
@@ -80,14 +84,17 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   if (loading) return <DashboardLayoutSkeleton />;
   if (!user) {
     return (
-      <div className="relative grid min-h-screen place-items-center overflow-hidden bg-[#f5f7f6] px-5 py-10">
-        <div aria-hidden="true" className="pointer-events-none absolute -right-48 -top-24 w-[42rem] mix-blend-multiply opacity-[0.05]">
-          <img src={IGS_LOGO} alt="" className="igs-logo-drift w-full" />
-        </div>
-        <div aria-hidden="true" className="pointer-events-none absolute -bottom-60 -left-56 w-[40rem] mix-blend-multiply opacity-[0.03]">
-          <img src={IGS_LOGO} alt="" className="igs-logo-drift igs-logo-drift-delayed w-full" />
-        </div>
-        <div className="relative z-10 w-full max-w-lg rounded-[2rem] border border-white/90 bg-white/95 p-8 sm:p-9 text-center shadow-[0_24px_70px_rgba(20,50,43,0.14)] backdrop-blur-md">
+      <div className="relative flex min-h-screen flex-col overflow-hidden bg-[#f5f7f6]">
+        <NetworkStatusBanner />
+        <PWAInstallBanner />
+        <div className="relative flex-1 grid place-items-center px-5 py-10">
+          <div aria-hidden="true" className="pointer-events-none absolute -right-48 -top-24 w-[42rem] mix-blend-multiply opacity-[0.05]">
+            <img src={IGS_LOGO} alt="" className="igs-logo-drift w-full" />
+          </div>
+          <div aria-hidden="true" className="pointer-events-none absolute -bottom-60 -left-56 w-[40rem] mix-blend-multiply opacity-[0.03]">
+            <img src={IGS_LOGO} alt="" className="igs-logo-drift igs-logo-drift-delayed w-full" />
+          </div>
+          <div className="relative z-10 w-full max-w-lg rounded-[2rem] border border-white/90 bg-white/95 p-8 sm:p-9 text-center shadow-[0_24px_70px_rgba(20,50,43,0.14)] backdrop-blur-md">
           <div className="mx-auto mb-4 flex h-20 items-center justify-center">
             <img src={IGS_LOGO} alt="IGS — Ibrahima Gold Service" className="h-full w-auto object-contain drop-shadow-sm transition-transform hover:scale-105" />
           </div>
@@ -155,6 +162,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               <Globe size={14} /> Accéder au portail public par code de suivi BL
             </a>
           </div>
+        </div>
         </div>
       </div>
     );
@@ -441,6 +449,8 @@ function LayoutContent({ children, setSidebarWidth }: { children: React.ReactNod
       </div>
 
       <SidebarInset className="relative isolate overflow-hidden bg-[#f5f7f6]">
+        <NetworkStatusBanner />
+        <PWAInstallBanner />
         {/* Barre supérieure permanente avec alertes et notifications proactives */}
         <header className="sticky top-0 z-40 flex h-14 items-center justify-between border-b border-[#e4ebe8] bg-white/90 px-4 sm:px-6 backdrop-blur">
           <div className="flex items-center gap-3">

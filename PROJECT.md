@@ -1,91 +1,59 @@
-# Project: IGS Guinée SaaS — Role Simulation & Operational RBAC
+# Project: IGS Transit & Douane Guinée SaaS — Enterprise 100% Ready
 
 ## Architecture
-- **Tech Stack**: React 19, Vite 7, Tailwind CSS 4, tRPC 11, Drizzle ORM, PostgreSQL (with dual memory fallback), Wouter, Zod, Vitest.
-- **Role Simulation Engine**:
-  - **Identities**:
-    - `admin`: Administrateur IGS (Full access to all 6 modules, creation, deletion, configuration)
-    - `declarant`: Déclarant PAC (Mamadou Diallo) (Focus: Planning, Contrôles Douane, Tous les Dossiers technique, Tâches Opérationnelles, Customs IDs modal; Finances hidden)
-    - `comptable`: Comptable (Fatoumata Camara) (Focus: Finances & Facturation, Pilotage & KPI financier, Tous les Dossiers facturation, Proforma/Final invoices, Débours, GNF/USD multi-currency converter, Quittances; Field customs editing hidden)
-    - `client`: Portail Client (Guinean Birimian Gold S.A) (Isolated tracking, public files, strictly no internal margins/notes)
-- **Data Flow**:
-  - Client state (`useAuth` + `usePermissions`) synchronizes with server tRPC session (`app_session_id` JWT / openId).
-  - Server middleware enforces RBAC at procedure level (`adminProcedure`, `declarantProcedure`, `comptableProcedure`, `internalProcedure`).
-  - Frontend router (`App.tsx` + `ProtectedRoute`) guards routes and auto-redirects on profile switch without full page reload.
+- **Frontend**: React 19, Vite, Tailwind CSS v4, Lucide React, Shadcn UI components, TanStack Query, Wouter routing, PWA Service Worker.
+- **Backend**: Node.js, Express, tRPC (end-to-end type safety), Jose JWT session auth, Drizzle ORM.
+- **Database**: Supabase PostgreSQL + in-memory resilient data store in `server/db.ts`.
 
 ## Feature Inventory
 | # | Feature | Description | Milestone | Source |
 |---|---------|-------------|-----------|--------|
-| 1 | RBAC Middleware & tRPC Procedures | Implement `declarantProcedure`, `comptableProcedure`, `internalProcedure` and protect tRPC routers | M1: RBAC & Core Backend | R1 / Survey E2 |
-| 2 | Schema & DB Persistence (Tasks, Invoices, Exchange Rate) | Extend Drizzle schema & `server/db.ts` for tasks filters, invoice lifecycle, débours breakdown, currency rates | M1: RBAC & Core Backend | R1, R2, R3 / Survey E2 |
-| 3 | Frontend RBAC Hooks & Protected Routes | Create `usePermissions.ts` and `ProtectedRoute.tsx`, protect `App.tsx` routes, auto-redirect on profile switch | M2: Role Simulator UX & RBAC Frontend | R1, R4 / Survey E1 |
-| 4 | Dynamic Navigation & Header Simulator UX | Filter sidebar items dynamically, adapt badges, hide non-authorized action buttons, instant profile switch | M2: Role Simulator UX & RBAC Frontend | R1, R4 / Survey E1 |
-| 5 | Déclarant PAC Operational Tasks & Persistence | Interactive operational task checklist with immediate DB toggle, filter by Mamadou Diallo in Planning & Dossier views | M3: Déclarant PAC Profile | R2 / Survey E1, E2 |
-| 6 | Customs Identifiers Editing & Transit Validation | Quick-edit modal (`CustomsEditModal`) for BL/LTA, DDI GUCEG, Sydonia World, BLD, BAD, BAE, status calculation | M3: Déclarant PAC Profile | R2 / Survey E1, E2 |
-| 7 | Strict Financial Shielding for Déclarant & Client | Hide finances tab, financial statuses, revenue, and gross margins from Déclarant and Client views | M3: Déclarant PAC Profile | R2 / Survey E1 |
-| 8 | Multi-Currency GNF / USD Engine & Rate Setting | Dynamic bidirectional conversion GNF ↔ USD, configurable exchange rate (default 8,650 GNF/USD), consolidated summary | M4: Comptable Profile & Finance | R3 / Survey E1, E2 |
-| 9 | Invoicing Lifecycle, Débours & Quittances | Proforma and final invoices, detailed customs outlays (débours douane + PAC), payment recording, printable receipt / quittance | M4: Comptable Profile & Finance | R3 / Survey E1, E2 |
-| 10 | Field Customs Actions Shielding for Comptable | Restrict terrain and customs editing actions from Comptable profile | M4: Comptable Profile & Finance | R3 / Survey E1 |
-| 11 | Comprehensive 4-Tier Test Suite & Quality Gate | Unit tests, RBAC integration tests, route guard tests, E2E lifecycle scenarios, `npm test`, `npm run check`, `npm run build` | M5: E2E Verification & Hardening | Testing / Survey E3 |
+| 1 | Users DB Schema & Seed | Add `isActive`, `sessionRevokedAt` to `users` table; seed 111 realistic Guinean collaborator profiles | M1 | ORIGINAL_REQUEST R1 |
+| 2 | Session Revocation & Auth Security | Immediate rejection of inactive users in `sdk.authenticateRequest` and `requireUser` | M1 | ORIGINAL_REQUEST R1 |
+| 3 | HR & User Admin tRPC Routes | Create `user.list`, `user.create`, `user.update`, `user.toggleStatus`, `user.getHRStats` under `adminProcedure` | M1 | ORIGINAL_REQUEST R1 |
+| 4 | Admin User Management UI (`/utilisateurs`) | Dedicated interface with 4 KPI cards, filterable 100-employee table, status toggle, create/edit modal | M1 | ORIGINAL_REQUEST R1 |
+| 5 | Sidebar & Route Guards | Add menu item in `DashboardLayout.tsx` for admin, route guard in `App.tsx`, `canManageUsers` in `usePermissions.ts` | M1 | ORIGINAL_REQUEST R1 |
+| 6 | Optimistic Locking Schema & Backend | Add `version` to `dossiers`, check `expectedVersion`/`expectedUpdatedAt` in `updateDossier`, throw `TRPCError CONFLICT` | M2 | ORIGINAL_REQUEST R2 |
+| 7 | Conflict Detection & Resolution UI | Create `ConflictResolutionModal` with side-by-side diff preview, merge options and fresh reload | M2 | ORIGINAL_REQUEST R2 |
+| 8 | Audit Trail DB Schema & Service | Enrich audit log model (`action`, `entityType`, `entityId`, `userRole`, before/after data snapshots, metadata) and `logAuditEvent` service | M3 | ORIGINAL_REQUEST R3 |
+| 9 | Comprehensive Action Logging | Log customs transitions (DDI, SYDONIA, BLD, BAD, BAE, Sortie PAC) and financial operations (`createInvoice`, `recordInvoicePayment`, `createPacDisbursement`) | M3 | ORIGINAL_REQUEST R3 |
+| 10 | Dossier Audit History View | Complete audit history timeline on `/dossiers/[id]` with timestamp, actor name, action badge, and detailed field diffs | M3 | ORIGINAL_REQUEST R3 |
+| 11 | PWA Manifest & App Icons | High-res icons, theme color `#0b3b32`, standalone display, meta tags in `index.html` | M4 | ORIGINAL_REQUEST R4 |
+| 12 | Service Worker & Offline Cache Strategy | `sw.js` with Cache-First static assets and Network-First cache fallback for tRPC dossier data on Conakry docks | M4 | ORIGINAL_REQUEST R4 |
+| 13 | Network Status Indicator & PWA Install Banner | `useOnlineStatus` hook, `NetworkStatusBanner`, `PWAInstallBanner` with `beforeinstallprompt` support | M4 | ORIGINAL_REQUEST R4 |
+| 14 | E2E & Full Regression Verification | Comprehensive automated unit, integration, and E2E tests for all 4 enterprise modules, build validation | M5 | ORIGINAL_REQUEST Criteria |
 
 ## Milestones
 | # | Name | Scope | Dependencies | Status |
 |---|------|-------|-------------|--------|
-| M1 | Backend RBAC, Schema & Data Persistence | `server/_core/trpc.ts`, `drizzle/schema.ts`, `server/db.ts`, `server/routers.ts`, `shared/types.ts` | none | DONE |
-| M2 | Frontend RBAC, Navigation & Role Simulator UX | `client/src/hooks/usePermissions.ts`, `client/src/components/ProtectedRoute.tsx`, `client/src/App.tsx`, `client/src/components/DashboardLayout.tsx` | M1 | IN_PROGRESS |
-| M3 | Déclarant PAC (Mamadou Diallo) Operational Profile | `client/src/components/CustomsEditModal.tsx`, `client/src/pages/PlanningPage.tsx`, `client/src/pages/ControlsPage.tsx`, `client/src/pages/DossierDetailPage.tsx`, `client/src/pages/DossiersPage.tsx` | M1, M2 | PLANNED |
-| M4 | Comptable (Fatoumata Camara) Multi-Currency & Invoicing | `client/src/pages/FinancesPage.tsx`, `client/src/pages/DossierDetailPage.tsx`, `server/routers.ts` (finance), `server/db.ts` | M1, M2 | PLANNED |
-| M5 | E2E Testing Suite (Tiers 1-4) & Quality Assurance | `server/__tests__/tier1_*`, `tier2_*`, `tier3_*`, `tier4_*`, full test pass, typecheck, build validation | M1, M2, M3, M4 | PLANNED |
+| M1 | Module d'Administration & Gestion des 100 Employés | Schema `users`, 111 collaborators seed, `adminProcedure` tRPC routes, session revocation, `/utilisateurs` page, sidebar integration | none | DONE |
+| M2 | Détection des Conflits d'Édition Simultanée | Column `version` on `dossiers`, tRPC `expectedVersion` check, `TRPCError CONFLICT`, `ConflictResolutionModal`, merge/reload logic | none | DONE |
+| M3 | Journal d'Audit & Traçabilité Réglementaire | Audit schema with `action`/`entityType`/`userRole`, `logAuditEvent` helper, customs & financial event logging, `/dossiers/[id]` timeline | none | DONE |
+| M4 | Mode Mobile & PWA Installable pour Agents sur le Quai | `manifest.json`, `sw.js` cache-first & network-first, `NetworkStatusBanner`, `PWAInstallBanner`, `useOnlineStatus` | none | PLANNED |
+| M5 | Final E2E Test Verification & Hardening | Pass 100% test suite, adversarial tests, TypeScript check (`npm run check`), build (`npm run build`) | M1, M2, M3, M4 | PLANNED |
 
 ## Interface Contracts
-### `server/_core/trpc.ts` ↔ `server/routers.ts`
-- Procedures:
-  - `declarantProcedure`: allows `admin`, `manager`, `declarant`
-  - `comptableProcedure`: allows `admin`, `manager`, `comptable`
-  - `internalProcedure`: allows `admin`, `manager`, `declarant`, `comptable`
-  - Rejection: throws `TRPCError({ code: "FORBIDDEN", message: "Accès refusé pour ce profil" })`
+### User Admin ↔ Client / Nav
+- `user.list`: `adminProcedure.input({ search?: string, role?: Role, isActive?: boolean, limit?: number, offset?: number }) => { users: User[], total: number }`
+- `user.getHRStats`: `adminProcedure.query() => { totalEmployees: number, activeDeclarantsAtPort: number, activeComptables: number, connectedClients: number, totalActive: number, totalInactive: number }`
+- `user.toggleStatus`: `adminProcedure.input({ id: number, isActive: boolean }) => { success: boolean, user: User }`
 
-### `task` Router & DB
-- `task.list({ assignedTo?: string; status?: string })` -> returns `DossierTask[]`
-- `task.toggleStatus({ id: number, status?: "A_faire" | "En_cours" | "Termine" | "Bloque" })` -> updates task & persists `completedAt`
+### Dossier Concurrency ↔ Frontend
+- `dossier.update`: `internalProcedure.input({ id: number | string, expectedVersion?: number, expectedUpdatedAt?: string | Date, forceOverwrite?: boolean, data: Partial<Dossier> }) => Dossier`
+- On mismatch: throws `TRPCError({ code: "CONFLICT", message: "Conflit d'édition simultanée..." })`
 
-### `finance` Router & DB
-- `finance.getExchangeRate()` -> returns `{ rate: number, currencyPair: "USD/GNF", lastUpdated: string }`
-- `finance.setExchangeRate({ rate: number })` -> updates exchange rate (comptable & admin only)
-- `finance.createInvoice(data)` & `finance.updateInvoice(id, data)` -> manages proforma vs definitive, TVA 18%, débours
-- `finance.recordPayment({ id: number, paymentMethod: string, paymentReference: string, paidAmount: number })` -> records payment, sets status `Payée`, generates `receiptNumber`
-
-### `client/src/hooks/usePermissions.ts` ↔ Frontend Components
-- Returns:
-  ```ts
-  {
-    role: "admin" | "declarant" | "comptable" | "client" | "manager",
-    isAdmin: boolean,
-    isDeclarant: boolean,
-    isComptable: boolean,
-    isClient: boolean,
-    canViewFinances: boolean,
-    canViewControls: boolean,
-    canViewPlanning: boolean,
-    canEditCustoms: boolean,
-    canManageInvoices: boolean,
-    canCreateDossier: boolean,
-    canDeleteDossier: boolean,
-    defaultRoute: string,
-  }
-  ```
+### Audit Trail ↔ Dossier Detail
+- `audit.list`: `protectedProcedure.input({ dossierId: number }) => AuditLogItem[]`
+- Audit log entry: `{ id: number, dossierId: number, userId: number, userName: string, userRole: string, action: string, entityType: string, entityId: number, fieldChanged?: string, previousValue?: string, newValue?: string, comment?: string, createdAt: Date }`
 
 ## Code Layout
-- `client/src/hooks/usePermissions.ts` — Centralized RBAC capabilities
-- `client/src/components/ProtectedRoute.tsx` — Route-level RBAC wrapper
-- `client/src/components/CustomsEditModal.tsx` — Fast customs identification modal
-- `client/src/components/DashboardLayout.tsx` — Dynamic sidebar & profile switcher
-- `client/src/pages/FinancesPage.tsx` — Multi-currency invoices, débours, quittance printing
-- `client/src/pages/PlanningPage.tsx` — Operational tasks checklist
-- `client/src/pages/ControlsPage.tsx` — Customs controls & quick regularisation
-- `client/src/pages/DossierDetailPage.tsx` — Conditioned tabs based on permissions
-- `server/_core/trpc.ts` — RBAC procedure definitions
-- `server/routers.ts` — tRPC endpoints & permissions
-- `server/db.ts` — Database queries & memory fallback
-- `drizzle/schema.ts` — Drizzle PostgreSQL schema
-- `server/__tests__/` — 4-Tier Vitest test suites
+- `drizzle/schema.ts` — PostgreSQL table definitions (`users`, `dossiers`, `audit_logs` / `dossier_status_history`, etc.)
+- `server/db.ts` — Data access layer, in-memory store, seed data
+- `server/routers.ts` — tRPC procedures (`user`, `dossier`, `audit`, `invoice`, `auth`)
+- `server/_core/sdk.ts` & `server/_core/trpc.ts` — Auth context and session validation
+- `client/src/App.tsx` — Routing and protected routes
+- `client/src/components/DashboardLayout.tsx` — Main sidebar and header navigation
+- `client/src/pages/UsersPage.tsx` — Collaborator administration and HR stats
+- `client/src/components/ConflictResolutionModal.tsx` — Concurrency conflict diff and merge modal
+- `client/src/components/NetworkStatusBanner.tsx` & `PWAInstallBanner.tsx` — PWA & offline support
+- `client/public/manifest.json` & `client/public/sw.js` — PWA manifest and Service Worker

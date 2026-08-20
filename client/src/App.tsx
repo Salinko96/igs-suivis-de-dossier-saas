@@ -5,11 +5,14 @@ import { Route, Switch } from "wouter";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { ProtectedRoute } from "./components/ProtectedRoute";
 import { ThemeProvider } from "./contexts/ThemeContext";
+import NetworkStatusBanner from "./components/NetworkStatusBanner";
+import PWAInstallBanner from "./components/PWAInstallBanner";
 
 import Home from "./pages/Home";
 
 const DossiersPage = lazy(() => import("./pages/DossiersPage"));
 const DossierDetailPage = lazy(() => import("./pages/DossierDetailPage"));
+const UsersPage = lazy(() => import("./pages/UsersPage"));
 const FinancesPage = lazy(() => import("./pages/FinancesPage"));
 const PlanningPage = lazy(() => import("./pages/PlanningPage"));
 const ControlsPage = lazy(() => import("./pages/ControlsPage"));
@@ -37,6 +40,17 @@ function Router() {
             <ProtectedRoute
               component={Home}
               allowedRoles={["admin", "comptable", "manager"]}
+            />
+          )}
+        </Route>
+
+        {/* Module d'Administration & Gestion RH (Admin uniquement) */}
+        <Route path="/utilisateurs">
+          {() => (
+            <ProtectedRoute
+              component={UsersPage}
+              allowedRoles={["admin"]}
+              fallbackPath="/"
             />
           )}
         </Route>
@@ -102,6 +116,8 @@ export default function App() {
       <ThemeProvider defaultTheme="light">
         <TooltipProvider>
           <Toaster richColors position="top-right" />
+          <NetworkStatusBanner />
+          <PWAInstallBanner />
           <Router />
         </TooltipProvider>
       </ThemeProvider>
