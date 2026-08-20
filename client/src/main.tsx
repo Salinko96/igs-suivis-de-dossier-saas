@@ -11,8 +11,8 @@ import "./index.css";
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      staleTime: 1000 * 60 * 3, // 3 minutes de cache mémoire (navigation instantanée sans rechargement)
-      gcTime: 1000 * 60 * 15,    // 15 minutes de rétention
+      staleTime: 1000 * 60 * 5, // 5 minutes de cache mémoire (navigation instantanée sans refetch au changement d'onglet)
+      gcTime: 1000 * 60 * 15,    // 15 minutes de rétention garbage collector
       refetchOnWindowFocus: false, // Pas de requêtes réseau inutiles à chaque focus
       retry: 1,
     },

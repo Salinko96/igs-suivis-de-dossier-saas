@@ -552,6 +552,39 @@ export async function listUsers(filters?: UserFilters): Promise<User[]> {
   return list;
 }
 
+export async function listUsersPaginated(filters: {
+  page?: number;
+  limit?: number;
+  role?: string;
+  status?: string;
+  search?: string;
+}) {
+  const page = Math.max(1, filters.page ?? 1);
+  const limit = Math.min(100, Math.max(1, filters.limit ?? 25));
+  
+  const isActive = filters.status === "active" ? true : filters.status === "inactive" ? false : undefined;
+  
+  const allFiltered = await listUsers({
+    role: filters.role,
+    isActive,
+    search: filters.search,
+  });
+
+  const total = allFiltered.length;
+  const totalPages = Math.ceil(total / limit) || 1;
+  const startIndex = (page - 1) * limit;
+  const items = allFiltered.slice(startIndex, startIndex + limit);
+
+  return {
+    items,
+    total,
+    page,
+    limit,
+    totalPages,
+    hasMore: page < totalPages,
+  };
+}
+
 export async function createUser(data: {
   name: string;
   email: string;
@@ -784,6 +817,26 @@ export async function listDossiers(filters: DossierFilters = {}) {
     );
   }
   return list.sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime());
+}
+
+export async function listDossiersPaginated(filters: DossierFilters & { page?: number; limit?: number }) {
+  const page = Math.max(1, filters.page ?? 1);
+  const limit = Math.min(100, Math.max(1, filters.limit ?? 25));
+
+  const allFiltered = await listDossiers(filters);
+  const total = allFiltered.length;
+  const totalPages = Math.ceil(total / limit) || 1;
+  const startIndex = (page - 1) * limit;
+  const items = allFiltered.slice(startIndex, startIndex + limit);
+
+  return {
+    items,
+    total,
+    page,
+    limit,
+    totalPages,
+    hasMore: page < totalPages,
+  };
 }
 
 export async function getDossier(idOrIdentifier: number | string) {
@@ -1945,6 +1998,50 @@ export async function listInvoices(dossierId?: number) {
   return list.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
 }
 
+export async function listInvoicesPaginated(filters: {
+  page?: number;
+  limit?: number;
+  status?: string;
+  reconciliationStatus?: string;
+  search?: string;
+  dossierId?: number;
+}) {
+  const page = Math.max(1, filters.page ?? 1);
+  const limit = Math.min(100, Math.max(1, filters.limit ?? 25));
+
+  let all = await listInvoices(filters.dossierId);
+
+  if (filters.status && filters.status !== "all") {
+    all = all.filter(i => i.status === filters.status);
+  }
+  if (filters.reconciliationStatus && filters.reconciliationStatus !== "all") {
+    all = all.filter(i => i.reconciliationStatus === filters.reconciliationStatus);
+  }
+  if (filters.search) {
+    const s = filters.search.toLowerCase().trim();
+    all = all.filter(i => 
+      i.invoiceNumber.toLowerCase().includes(s) ||
+      i.client.toLowerCase().includes(s) ||
+      (i.receiptNumber && i.receiptNumber.toLowerCase().includes(s)) ||
+      (i.paymentReference && i.paymentReference.toLowerCase().includes(s))
+    );
+  }
+
+  const total = all.length;
+  const totalPages = Math.ceil(total / limit) || 1;
+  const startIndex = (page - 1) * limit;
+  const items = all.slice(startIndex, startIndex + limit);
+
+  return {
+    items,
+    total,
+    page,
+    limit,
+    totalPages,
+    hasMore: page < totalPages,
+  };
+}
+
 export async function createInvoice(input: Omit<InsertInvoice, "invoiceNumber"> & { invoiceNumber?: string }) {
   const sequence = _memoryInvoices.length + 1;
   const invNum = input.invoiceNumber || `FAC-${new Date().getFullYear()}-${String(sequence).padStart(4, "0")}`;
@@ -2039,6 +2136,7 @@ export async function createInvoice(input: Omit<InsertInvoice, "invoiceNumber"> 
       await db.insert(invoices).values({ ...input, invoiceNumber: invNum, disbursementsAmount: disbursements, amountHt, amountTva, amountTtc, receiptNumber: inv.receiptNumber, paidAt: inv.paidAt });
     } catch (e) {}
   }
+  invalidateFinanceCache();
   return inv;
 }
 
@@ -2101,6 +2199,7 @@ export async function updateInvoice(id: number, input: Partial<InsertInvoice>) {
       comment: `Facture ${result.invoiceNumber} mise à jour (Statut: ${result.status})`,
     });
   }
+  invalidateFinanceCache();
   return result!;
 }
 
@@ -2208,6 +2307,7 @@ export async function recordInvoicePayment(
     } catch (e) {}
   }
 
+  invalidateFinanceCache();
   return invoice!;
 }
 
@@ -2329,12 +2429,51 @@ export async function reconcileInvoice(
     comment: `Rapprochement bancaire 3-voies mis à jour : ${input.reconciliationStatus} (Réf: ${input.reconciliationRef || "N/A"})`,
   });
 
+  invalidateFinanceCache();
   return _memoryInvoices[idx];
 }
 
+interface CacheEntry<T> {
+  data: T;
+  timestamp: number;
+}
+
+const _heavyAggregateCache = new Map<string, CacheEntry<any>>();
+const AGGREGATE_CACHE_TTL_MS = 60 * 1000; // 60s TTL
+
+export function getCachedAggregate<T>(key: string): T | null {
+  const entry = _heavyAggregateCache.get(key);
+  if (!entry) return null;
+  if (Date.now() - entry.timestamp > AGGREGATE_CACHE_TTL_MS) {
+    _heavyAggregateCache.delete(key);
+    return null;
+  }
+  return entry.data as T;
+}
+
+export function setCachedAggregate<T>(key: string, data: T): void {
+  _heavyAggregateCache.set(key, { data, timestamp: Date.now() });
+}
+
+export function invalidateFinanceCache(): void {
+  _heavyAggregateCache.delete("finance_profitability");
+  _heavyAggregateCache.delete("finance_treasury_flow");
+  _heavyAggregateCache.delete("finance_summary");
+}
+
+export function invalidateDashboardCache(): void {
+  _heavyAggregateCache.delete("dashboard_metrics");
+}
+
+export function invalidateUsersCache(): void {
+  _heavyAggregateCache.delete("hr_stats");
+}
+
 export async function listUnbilledRegularizedDossiers(daysThreshold: number = 3) {
-  const allDossiers = await listDossiers();
-  const allInvoices = await listInvoices();
+  const [allDossiers, allInvoices] = await Promise.all([
+    listDossiers(),
+    listInvoices(),
+  ]);
   const now = new Date();
 
   return allDossiers.filter(d => {
@@ -2350,10 +2489,16 @@ export async function listUnbilledRegularizedDossiers(daysThreshold: number = 3)
 }
 
 export async function getProfitabilityMetrics() {
-  const allInvoices = await listInvoices();
-  const allDossiers = await listDossiers();
-  const allDebours = await listPacDisbursements();
-  const { rate } = await getExchangeRate();
+  const cached = getCachedAggregate<any>("finance_profitability");
+  if (cached) return cached;
+
+  const [allInvoices, allDossiers, allDebours, { rate }, unbilledDossiers] = await Promise.all([
+    listInvoices(),
+    listDossiers(),
+    listPacDisbursements(),
+    getExchangeRate(),
+    listUnbilledRegularizedDossiers(3),
+  ]);
 
   const clientMap = new Map<string, {
     client: string;
@@ -2411,9 +2556,7 @@ export async function getProfitabilityMetrics() {
   const deboursToCARatioPct = totalInvoicedGNF > 0 ? Math.round((totalAdvancedDeboursGNF / totalInvoicedGNF) * 100) : 0;
   const isRiskAlert = deboursToCARatioPct > 150;
 
-  const unbilledDossiers = await listUnbilledRegularizedDossiers(3);
-
-  return {
+  const result = {
     marginsByClient,
     totalInvoicedGNF,
     totalPaidGNF,
@@ -2433,12 +2576,20 @@ export async function getProfitabilityMetrics() {
     })),
     exchangeRate: rate,
   };
+
+  setCachedAggregate("finance_profitability", result);
+  return result;
 }
 
 export async function getTreasuryFlow() {
-  const { rate } = await getExchangeRate();
-  const allInvoices = await listInvoices();
-  const allDebours = await listPacDisbursements();
+  const cached = getCachedAggregate<any>("finance_treasury_flow");
+  if (cached) return cached;
+
+  const [{ rate }, allInvoices, allDebours] = await Promise.all([
+    getExchangeRate(),
+    listInvoices(),
+    listPacDisbursements(),
+  ]);
 
   const monthlyMap = new Map<string, {
     month: string;

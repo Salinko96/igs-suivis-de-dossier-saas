@@ -327,6 +327,18 @@ export const appRouter = router({
       )
       .query(async ({ input }) => db.listUsers(input || undefined)),
 
+    listPaginated: adminProcedure
+      .input(
+        z.object({
+          page: z.number().int().positive().default(1),
+          limit: z.number().int().positive().max(100).default(25),
+          role: z.string().optional(),
+          status: z.string().optional(),
+          search: z.string().trim().max(200).optional(),
+        }).nullish()
+      )
+      .query(async ({ input }) => db.listUsersPaginated(input || {})),
+
     getHRStats: adminProcedure.query(async () => db.getHRStats()),
 
     get: adminProcedure
@@ -408,6 +420,30 @@ export const appRouter = router({
           filters.responsible = ctx.user.name.split(" ")[0]; // Matching flexible
         }
         return db.listDossiers(filters);
+      }),
+    listPaginated: protectedProcedure
+      .input(
+        z.object({
+          page: z.number().int().positive().default(1),
+          limit: z.number().int().positive().max(100).default(25),
+          status: optionalText,
+          priority: optionalText,
+          client: optionalText,
+          responsible: optionalText,
+          transportMode: optionalText,
+          search: optionalText,
+          myDossiersOnly: z.boolean().optional(),
+        }).nullish()
+      )
+      .query(async ({ ctx, input }) => {
+        const filters: any = { ...(input || {}) };
+        if (ctx.user?.role === "client" && ctx.user?.clientCompany) {
+          filters.currentUserCompany = ctx.user.clientCompany;
+        }
+        if (filters.myDossiersOnly && ctx.user?.name) {
+          filters.responsible = ctx.user.name.split(" ")[0];
+        }
+        return db.listDossiersPaginated(filters);
       }),
     get: protectedProcedure
       .input(z.object({ id: z.union([z.number(), z.string()]) }))
@@ -835,6 +871,25 @@ export const appRouter = router({
     listInvoices: comptableProcedure
       .input(z.object({ dossierId: z.number().optional() }).nullish())
       .query(async ({ input }) => db.listInvoices(input?.dossierId)),
+    listInvoicesPaginated: comptableProcedure
+      .input(
+        z.object({
+          page: z.number().int().positive().default(1),
+          limit: z.number().int().positive().max(100).default(25),
+          status: optionalText,
+          reconciliationStatus: optionalText,
+          search: optionalText,
+          dossierId: z.number().optional(),
+        }).nullish()
+      )
+      .query(async ({ input }) => db.listInvoicesPaginated({
+        page: input?.page,
+        limit: input?.limit,
+        status: input?.status || undefined,
+        reconciliationStatus: input?.reconciliationStatus || undefined,
+        search: input?.search || undefined,
+        dossierId: input?.dossierId || undefined,
+      })),
     createInvoice: comptableProcedure
       .input(
         z.object({
@@ -1000,9 +1055,14 @@ export const appRouter = router({
       .input(z.object({ rate: z.number().int().positive() }))
       .mutation(async ({ input }) => db.setExchangeRate(input.rate)),
     summary: comptableProcedure.query(async () => {
-      const allInvoices = await db.listInvoices();
-      const allDossiers = await db.listDossiers();
-      const { rate } = await db.getExchangeRate();
+      const cached = db.getCachedAggregate<any>("finance_summary");
+      if (cached) return cached;
+
+      const [allInvoices, allDossiers, { rate }] = await Promise.all([
+        db.listInvoices(),
+        db.listDossiers(),
+        db.getExchangeRate(),
+      ]);
       
       const totalCA_GNF = allInvoices.reduce((sum, i) => sum + (i.currency === "USD" ? i.amountTtc * rate : i.amountTtc), 0);
       const totalCA_USD = allInvoices.reduce((sum, i) => sum + (i.currency === "USD" ? i.amountTtc : Math.round(i.amountTtc / rate)), 0);
@@ -1015,7 +1075,7 @@ export const appRouter = router({
       const paidInvoices = allInvoices.filter(i => i.status === "Payée").length;
       const totalDemurrageRisk = allDossiers.filter(d => d.eta && !d.goodsReleaseDate && (new Date().getTime() - d.eta.getTime()) > 86400000 * 7).length;
 
-      return {
+      const result = {
         totalCA_GNF,
         totalCA_USD,
         totalMargin_GNF,
@@ -1029,6 +1089,9 @@ export const appRouter = router({
         exchangeRate: rate,
         invoices: allInvoices,
       };
+
+      db.setCachedAggregate("finance_summary", result);
+      return result;
     }),
   }),
 

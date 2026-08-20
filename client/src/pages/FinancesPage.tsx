@@ -14,6 +14,7 @@ import { useFinanceRealtime } from "@/hooks/useFinanceRealtime";
 import {
   AlertCircle,
   AlertTriangle,
+  ArrowLeft,
   ArrowRight,
   ArrowUpRight,
   Banknote,
@@ -21,6 +22,7 @@ import {
   Calendar,
   CheckCircle,
   CheckCircle2,
+  ChevronLeft,
   ChevronRight,
   Coins,
   CreditCard,
@@ -43,6 +45,7 @@ import {
   RefreshCw,
   RotateCcw,
   Scale,
+  Search,
   ShieldAlert,
   SlidersHorizontal,
   TrendingDown,
@@ -75,15 +78,44 @@ export default function FinancesPage() {
   const currentUser = meQuery.data;
   const isAdminOrComptable = currentUser?.role === "admin" || currentUser?.role === "comptable" || currentUser?.role === "manager";
 
-  const summaryQuery = trpc.finance.summary.useQuery();
-  const invoicesQuery = trpc.finance.listInvoices.useQuery({});
-  const dossiersQuery = trpc.dossier.list.useQuery({});
-  const profitabilityQuery = trpc.finance.profitability.useQuery();
-  const treasuryFlowQuery = trpc.finance.treasuryFlow.useQuery();
-  const ratesHistoryQuery = trpc.finance.exchangeRatesHistory.useQuery();
-
   // Sub-Navigation Tabs
   const [activeTab, setActiveTab] = useState<"invoices" | "profitability" | "treasury" | "rates">("invoices");
+
+  // Invoices Server Pagination & Filters
+  const [invoicePage, setInvoicePage] = useState(1);
+  const [invoiceLimit, setInvoiceLimit] = useState(25);
+  const [invoiceSearch, setInvoiceSearch] = useState("");
+  const [invoiceStatusFilter, setInvoiceStatusFilter] = useState("all");
+  const [invoiceReconcileFilter, setInvoiceReconcileFilter] = useState("all");
+
+  const summaryQuery = trpc.finance.summary.useQuery();
+  const invoicesPaginatedQuery = trpc.finance.listInvoicesPaginated.useQuery({
+    page: invoicePage,
+    limit: invoiceLimit,
+    search: invoiceSearch.trim() || undefined,
+    status: invoiceStatusFilter !== "all" ? invoiceStatusFilter : undefined,
+    reconciliationStatus: invoiceReconcileFilter !== "all" ? invoiceReconcileFilter : undefined,
+  });
+
+  const dossiersQuery = trpc.dossier.list.useQuery(undefined, {
+    staleTime: 1000 * 60 * 5,
+  });
+
+  // Lazy queries for secondary tabs
+  const profitabilityQuery = trpc.finance.profitability.useQuery(undefined, {
+    enabled: activeTab === "profitability" || activeTab === "invoices",
+    staleTime: 1000 * 60 * 5,
+  });
+
+  const treasuryFlowQuery = trpc.finance.treasuryFlow.useQuery(undefined, {
+    enabled: activeTab === "treasury",
+    staleTime: 1000 * 60 * 5,
+  });
+
+  const ratesHistoryQuery = trpc.finance.exchangeRatesHistory.useQuery(undefined, {
+    enabled: activeTab === "rates",
+    staleTime: 1000 * 60 * 5,
+  });
 
   // Multi-Currency Switcher State
   const [displayCurrency, setDisplayCurrency] = useState<"GNF" | "USD">("GNF");
@@ -116,7 +148,7 @@ export default function FinancesPage() {
   const [invoiceDueDate, setInvoiceDueDate] = useState("");
   const [invoiceNotes, setInvoiceNotes] = useState("");
 
-  // Payment Recording Modal & Proof Upload State
+  // Payment Recording Modal State
   const [paymentModalOpen, setPaymentModalOpen] = useState(false);
   const [payingInvoice, setPayingInvoice] = useState<any | null>(null);
   const [paymentMethod, setPaymentMethod] = useState("Virement bancaire Ecobank / Vistabank");
@@ -124,17 +156,13 @@ export default function FinancesPage() {
   const [paidAmount, setPaidAmount] = useState<number | undefined>();
   const [proofFile, setProofFile] = useState<File | null>(null);
   const [proofBase64, setProofBase64] = useState<string | null>(null);
-  const [isUploadingProof, setIsUploadingProof] = useState(false);
 
   const activeRate = summaryQuery.data?.exchangeRate || 8650;
 
   // Mutations
-  const uploadProofMutation = trpc.finance.uploadProof.useMutation();
-  const saveInvoicePdfMutation = trpc.finance.saveInvoicePdf.useMutation();
-
   const syncRateMutation = trpc.finance.syncExchangeRate.useMutation({
     onSuccess: (res) => {
-      toast.success(`Taux de change synchronisé avec succès : 1 USD = ${res.rate.toLocaleString("fr-FR")} GNF (${res.provider})`);
+      toast.success(`Taux synchronisé : 1 USD = ${res.rate.toLocaleString("fr-FR")} GNF (${res.provider})`);
       ratesHistoryQuery.refetch();
       summaryQuery.refetch();
       profitabilityQuery.refetch();
@@ -146,7 +174,7 @@ export default function FinancesPage() {
 
   const overrideRateMutation = trpc.finance.overrideExchangeRate.useMutation({
     onSuccess: (res) => {
-      toast.success(`Dérogation de taux enregistrée : 1 USD = ${res.rate.toLocaleString("fr-FR")} GNF`);
+      toast.success(`Dérogation enregistrée : 1 USD = ${res.rate.toLocaleString("fr-FR")} GNF`);
       setRateModalOpen(false);
       setOverrideReason("");
       ratesHistoryQuery.refetch();
@@ -160,15 +188,15 @@ export default function FinancesPage() {
 
   const reconcileMutation = trpc.finance.reconcile.useMutation({
     onSuccess: (res) => {
-      toast.success(`Rapprochement 3-voies validé pour la facture ${res.invoiceNumber} !`);
+      toast.success(`Rapprochement validé pour la facture ${res.invoiceNumber} !`);
       setReconcileModalOpen(false);
       setReconcilingInvoice(null);
-      invoicesQuery.refetch();
+      invoicesPaginatedQuery.refetch();
       summaryQuery.refetch();
       profitabilityQuery.refetch();
     },
     onError: (err) => {
-      toast.error(`Erreur de rapprochement : ${err.message}`);
+      toast.error(`Erreur rapprochement : ${err.message}`);
     },
   });
 
@@ -176,7 +204,7 @@ export default function FinancesPage() {
     onSuccess: (created) => {
       toast.success(`Facture ${created.invoiceNumber} générée avec succès !`);
       setCreateOpen(false);
-      invoicesQuery.refetch();
+      invoicesPaginatedQuery.refetch();
       summaryQuery.refetch();
       profitabilityQuery.refetch();
       utils.dossier.list.invalidate();
@@ -191,7 +219,7 @@ export default function FinancesPage() {
       toast.success(`Paiement enregistré ! Quittance ${res.receiptNumber || ""} générée.`);
       setPaymentModalOpen(false);
       setPayingInvoice(null);
-      invoicesQuery.refetch();
+      invoicesPaginatedQuery.refetch();
       summaryQuery.refetch();
       profitabilityQuery.refetch();
       utils.dossier.list.invalidate();
@@ -217,6 +245,9 @@ export default function FinancesPage() {
   };
 
   const profitability = profitabilityQuery.data;
+  const paginatedInvoices = invoicesPaginatedQuery.data?.items || [];
+  const totalInvoicesCount = invoicesPaginatedQuery.data?.total || 0;
+  const totalPages = invoicesPaginatedQuery.data?.totalPages || 1;
 
   const formatMoney = (amountInOriginalGnf: number, originalCurrency: string = "GNF") => {
     if (displayCurrency === "USD") {
@@ -434,73 +465,6 @@ export default function FinancesPage() {
     }, 400);
   };
 
-  const isAnyLoading = summaryQuery.isLoading || invoicesQuery.isLoading;
-  const isAnyError = summaryQuery.isError || invoicesQuery.isError;
-  const firstError = summaryQuery.error || invoicesQuery.error;
-
-  if (isAnyLoading) {
-    return (
-      <DashboardLayout>
-        <div className="space-y-6 pb-12">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div className="space-y-2">
-              <Skeleton className="h-4 w-40 rounded-lg" />
-              <Skeleton className="h-8 w-72 rounded-xl" />
-              <Skeleton className="h-4 w-96 rounded-lg" />
-            </div>
-            <div className="flex gap-2">
-              <Skeleton className="h-9 w-36 rounded-xl" />
-              <Skeleton className="h-9 w-24 rounded-xl" />
-            </div>
-          </div>
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            {Array.from({ length: 4 }).map((_, i) => (
-              <Skeleton key={i} className="h-28 rounded-2xl" />
-            ))}
-          </div>
-          <Skeleton className="h-96 rounded-2xl" />
-        </div>
-      </DashboardLayout>
-    );
-  }
-
-  if (isAnyError) {
-    return (
-      <DashboardLayout>
-        <div className="mx-auto max-w-xl py-12 text-center">
-          <div className="rounded-3xl border border-red-100 bg-white p-8 shadow-sm">
-            <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-red-50 text-red-600">
-              <AlertCircle className="h-7 w-7" />
-            </div>
-            <h2 className="mt-4 font-[Georgia] text-xl font-bold text-[#1b2f29]">
-              Impossible de charger le module financier
-            </h2>
-            <p className="mt-2 text-xs text-[#667772]">
-              Une erreur est survenue lors de la récupération des factures et du journal de caisse.
-            </p>
-            {firstError?.message && (
-              <p className="mt-3 font-mono text-[11px] text-red-700 bg-red-50 p-2 rounded-xl">
-                {firstError.message}
-              </p>
-            )}
-            <div className="mt-6 flex justify-center gap-3">
-              <Button
-                variant="outline"
-                onClick={() => {
-                  summaryQuery.refetch();
-                  invoicesQuery.refetch();
-                }}
-                className="rounded-xl border-[#dfe8e4] text-[#2b4c42] hover:bg-[#edf5f1] text-xs"
-              >
-                <RotateCcw size={14} className="mr-1.5" /> Réessayer
-              </Button>
-            </div>
-          </div>
-        </div>
-      </DashboardLayout>
-    );
-  }
-
   return (
     <DashboardLayout>
       <div className="space-y-6 pb-12">
@@ -600,7 +564,7 @@ export default function FinancesPage() {
                 <Button
                   disabled={!isAdminOrComptable}
                   title={!isAdminOrComptable ? "Réservé aux administrateurs et comptables" : "Créer une nouvelle facture"}
-                  className="h-9 rounded-xl bg-[#0b3b32] text-white hover:bg-[#164d41] text-xs shadow-sm disabled:opacity-50"
+                  className="h-9 rounded-xl bg-[#0b3b32] text-white hover:bg-[#164d41] text-xs shadow-sm disabled:opacity-50 font-semibold"
                 >
                   {isAdminOrComptable ? <Plus size={15} className="mr-1.5" /> : <Lock size={13} className="mr-1.5" />}
                   Émettre une Facture
@@ -786,7 +750,6 @@ export default function FinancesPage() {
               </DialogDescription>
             </DialogHeader>
             <div className="space-y-4 py-2">
-              {/* Option 1 : Synchronisation Automatique API */}
               <div className="rounded-2xl bg-emerald-50 p-3.5 border border-emerald-200/60 flex items-center justify-between">
                 <div>
                   <p className="font-bold text-xs text-emerald-950">Synchronisation Taux Officiel</p>
@@ -803,7 +766,6 @@ export default function FinancesPage() {
                 </Button>
               </div>
 
-              {/* Option 2 : Dérogation Manuelle Exceptionnelle */}
               <div className="space-y-2.5 border-t border-gray-100 pt-3">
                 <span className="text-xs font-bold text-gray-800 uppercase tracking-wider block">
                   Dérogation Manuelle Exceptionnelle
@@ -936,7 +898,7 @@ export default function FinancesPage() {
           </DialogContent>
         </Dialog>
 
-        {/* 4 Cartes KPI Principales Dynamiques & Cliquables */}
+        {/* 4 Cartes KPI Principales Dynamiques & Cliquables avec Skeletons Granulaires */}
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <Card
             role="button"
@@ -950,9 +912,13 @@ export default function FinancesPage() {
                 <Wallet size={16} />
               </div>
             </div>
-            <p className="mt-3 font-[Georgia] text-2xl font-bold text-[#102c26]">
-              {formatMoney(data.totalCA_GNF)}
-            </p>
+            {summaryQuery.isLoading ? (
+              <Skeleton className="mt-3 h-8 w-36 rounded-lg" />
+            ) : (
+              <p className="mt-3 font-[Georgia] text-2xl font-bold text-[#102c26]">
+                {formatMoney(data.totalCA_GNF)}
+              </p>
+            )}
             <div className="mt-1 flex items-center justify-between">
               <span className="text-[11px] text-emerald-700 font-medium">Facturation transit & dédouanement</span>
               <span className="text-[10px] font-semibold text-emerald-800 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -973,9 +939,13 @@ export default function FinancesPage() {
                 <TrendingUp size={16} />
               </div>
             </div>
-            <p className="mt-3 font-[Georgia] text-2xl font-bold text-[#102c26]">
-              {formatMoney(data.totalMargin_GNF)}
-            </p>
+            {summaryQuery.isLoading ? (
+              <Skeleton className="mt-3 h-8 w-32 rounded-lg" />
+            ) : (
+              <p className="mt-3 font-[Georgia] text-2xl font-bold text-[#102c26]">
+                {formatMoney(data.totalMargin_GNF)}
+              </p>
+            )}
             <div className="mt-1 flex items-center justify-between">
               <span className="text-[11px] text-amber-800 font-medium">Marge nette opérationnelle IGS</span>
               <span className="text-[10px] font-semibold text-amber-800 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -996,9 +966,13 @@ export default function FinancesPage() {
                 <Receipt size={16} />
               </div>
             </div>
-            <p className="mt-3 font-[Georgia] text-2xl font-bold text-[#102c26]">
-              {formatMoney(data.totalDisbursements_GNF)}
-            </p>
+            {summaryQuery.isLoading ? (
+              <Skeleton className="mt-3 h-8 w-36 rounded-lg" />
+            ) : (
+              <p className="mt-3 font-[Georgia] text-2xl font-bold text-[#102c26]">
+                {formatMoney(data.totalDisbursements_GNF)}
+              </p>
+            )}
             <div className="mt-1 flex items-center justify-between">
               <span className="text-[11px] text-blue-700 font-medium">Trésor public, PAC & acconage</span>
               <span className="text-[10px] font-semibold text-blue-800 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -1019,9 +993,13 @@ export default function FinancesPage() {
                 <AlertTriangle size={16} />
               </div>
             </div>
-            <p className="mt-3 font-[Georgia] text-2xl font-bold text-rose-700">
-              {data.totalDemurrageRisk} <span className="text-sm font-normal text-muted-foreground">dossier(s)</span>
-            </p>
+            {summaryQuery.isLoading ? (
+              <Skeleton className="mt-3 h-8 w-24 rounded-lg" />
+            ) : (
+              <p className="mt-3 font-[Georgia] text-2xl font-bold text-rose-700">
+                {data.totalDemurrageRisk} <span className="text-sm font-normal text-muted-foreground">dossier(s)</span>
+              </p>
+            )}
             <div className="mt-1 flex items-center justify-between">
               <span className="text-[11px] text-rose-700 font-medium">&gt; 7 jours séjour quai Conakry</span>
               <span className="text-[10px] font-semibold text-rose-800 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -1054,10 +1032,10 @@ export default function FinancesPage() {
           ))}
         </div>
 
-        {/* ONGLET 1 : FACTURES & RAPPROCHEMENT 3-VOIES */}
+        {/* ONGLET 1 : FACTURES & RAPPROCHEMENT 3-VOIES AVEC PAGINATION SERVEUR */}
         {activeTab === "invoices" && (
           <Card className="border-0 bg-white shadow-[0_8px_24px_rgba(20,50,43,0.05)]">
-            <div className="p-5 border-b border-gray-100 flex items-center justify-between">
+            <div className="p-5 border-b border-gray-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div>
                 <h2 className="font-[Georgia] text-lg font-semibold text-[#102c26]">
                   Journal de Facturation & Rapprochement 3-Voies
@@ -1066,9 +1044,50 @@ export default function FinancesPage() {
                   Suivi du cycle complet : Dossier ↔ Facture ↔ Relevé Bancaire avec quittance officielle.
                 </p>
               </div>
-              <Badge variant="outline" className="border-emerald-800 text-emerald-900 text-xs">
-                {invoicesQuery.data?.length || 0} facture(s)
-              </Badge>
+
+              {/* Filtres & Recherche Serveur */}
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="relative">
+                  <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
+                  <Input
+                    placeholder="Recherche facture, client..."
+                    value={invoiceSearch}
+                    onChange={(e) => {
+                      setInvoiceSearch(e.target.value);
+                      setInvoicePage(1);
+                    }}
+                    className="h-8 pl-8 text-xs rounded-xl w-48 bg-gray-50 border-gray-200"
+                  />
+                </div>
+
+                <select
+                  value={invoiceStatusFilter}
+                  onChange={(e) => {
+                    setInvoiceStatusFilter(e.target.value);
+                    setInvoicePage(1);
+                  }}
+                  className="h-8 rounded-xl border border-gray-200 bg-gray-50 px-2.5 text-xs text-gray-700"
+                >
+                  <option value="all">Tous les statuts</option>
+                  <option value="Proforma">Proforma</option>
+                  <option value="Émise">Émise</option>
+                  <option value="Payée">Payée</option>
+                </select>
+
+                <select
+                  value={invoiceReconcileFilter}
+                  onChange={(e) => {
+                    setInvoiceReconcileFilter(e.target.value);
+                    setInvoicePage(1);
+                  }}
+                  className="h-8 rounded-xl border border-gray-200 bg-gray-50 px-2.5 text-xs text-gray-700"
+                >
+                  <option value="all">Tous rapprochements</option>
+                  <option value="rapproche">Rapproché</option>
+                  <option value="partiel">Partiel</option>
+                  <option value="non_rapproche">Non rapproché</option>
+                </select>
+              </div>
             </div>
 
             <div className="overflow-x-auto">
@@ -1087,14 +1106,22 @@ export default function FinancesPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
-                  {invoicesQuery.data?.length === 0 ? (
+                  {invoicesPaginatedQuery.isLoading ? (
+                    Array.from({ length: 5 }).map((_, idx) => (
+                      <tr key={idx} className="animate-pulse">
+                        <td colSpan={9} className="p-4">
+                          <Skeleton className="h-6 w-full rounded-md" />
+                        </td>
+                      </tr>
+                    ))
+                  ) : paginatedInvoices.length === 0 ? (
                     <tr>
                       <td colSpan={9} className="p-8 text-center text-muted-foreground">
-                        Aucune facture enregistrée pour le moment.
+                        Aucune facture ne correspond à ces critères.
                       </td>
                     </tr>
                   ) : (
-                    invoicesQuery.data?.map(inv => {
+                    paginatedInvoices.map(inv => {
                       const isPaid = inv.status === "Payée";
                       const grandTotal = inv.amountTtc + (inv.disbursementsAmount || 0);
                       const isReconciled = inv.reconciliationStatus === "rapproche";
@@ -1191,6 +1218,51 @@ export default function FinancesPage() {
                 </tbody>
               </table>
             </div>
+
+            {/* Pagination Controls */}
+            <div className="p-4 border-t border-gray-100 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-gray-600">
+              <div className="flex items-center gap-2">
+                <span>Afficher</span>
+                <select
+                  value={invoiceLimit}
+                  onChange={(e) => {
+                    setInvoiceLimit(Number(e.target.value));
+                    setInvoicePage(1);
+                  }}
+                  className="h-7 rounded-lg border border-gray-200 bg-white px-2 text-xs font-semibold"
+                >
+                  <option value={10}>10</option>
+                  <option value={25}>25</option>
+                  <option value={50}>50</option>
+                  <option value={100}>100</option>
+                </select>
+                <span>sur un total de <strong>{totalInvoicesCount}</strong> factures</span>
+              </div>
+
+              <div className="flex items-center gap-1.5">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setInvoicePage(p => Math.max(1, p - 1))}
+                  disabled={invoicePage <= 1 || invoicesPaginatedQuery.isLoading}
+                  className="h-7 text-xs px-2.5 rounded-lg border-gray-200"
+                >
+                  <ChevronLeft size={13} className="mr-1" /> Précédent
+                </Button>
+                <span className="px-3 py-1 font-semibold text-gray-800">
+                  Page {invoicePage} / {totalPages}
+                </span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setInvoicePage(p => Math.min(totalPages, p + 1))}
+                  disabled={invoicePage >= totalPages || invoicesPaginatedQuery.isLoading}
+                  className="h-7 text-xs px-2.5 rounded-lg border-gray-200"
+                >
+                  Suivant <ChevronRight size={13} className="ml-1" />
+                </Button>
+              </div>
+            </div>
           </Card>
         )}
 
@@ -1253,7 +1325,7 @@ export default function FinancesPage() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100">
-                    {profitability?.marginsByClient?.map((item) => (
+                    {profitability?.marginsByClient?.map((item: any) => (
                       <tr key={item.client} className="hover:bg-gray-50/50 transition">
                         <td className="p-3.5 pl-5 font-bold text-emerald-950">{item.client}</td>
                         <td className="p-3.5 text-gray-600">{item.dossiersCount} dossier(s)</td>
@@ -1288,7 +1360,6 @@ export default function FinancesPage() {
         {/* ONGLET 3 : TRÉSORERIE & DÉBOURS PAC */}
         {activeTab === "treasury" && (
           <div className="space-y-6">
-            {/* Indicateur de Risque : Ratio Débours / CA */}
             <Card className="border-0 bg-white p-5 shadow-sm">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div>
@@ -1319,7 +1390,6 @@ export default function FinancesPage() {
                 </div>
               </div>
 
-              {/* Jauge Visuelle */}
               <div className="mt-4 w-full bg-gray-100 h-3 rounded-full overflow-hidden">
                 <div
                   className={`h-full rounded-full transition-all duration-500 ${
@@ -1334,7 +1404,6 @@ export default function FinancesPage() {
               </div>
             </Card>
 
-            {/* Graphique d'Évolution Mensuelle Recharts */}
             <Card className="border-0 bg-white p-5 shadow-sm">
               <div className="mb-4">
                 <h3 className="font-[Georgia] text-lg font-bold text-[#102c26]">
@@ -1346,21 +1415,25 @@ export default function FinancesPage() {
               </div>
 
               <div className="h-72 w-full">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={treasuryFlowQuery.data || []} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                    <XAxis dataKey="month" tick={{ fontSize: 11 }} />
-                    <YAxis tick={{ fontSize: 11 }} tickFormatter={(val) => `${Math.round(val / 1000000)}M`} />
-                    <Tooltip
-                      formatter={(val: any) => [`${Number(val).toLocaleString("fr-FR")} GNF`, ""]}
-                      contentStyle={{ borderRadius: "12px", fontSize: "11px" }}
-                    />
-                    <Legend wrapperStyle={{ fontSize: "11px", paddingTop: "10px" }} />
-                    <Bar dataKey="facture" name="CA Facturé" fill="#0b3b32" radius={[4, 4, 0, 0]} />
-                    <Bar dataKey="encaisse" name="CA Encaissé" fill="#10b981" radius={[4, 4, 0, 0]} />
-                    <Bar dataKey="deboursAvances" name="Débours Avancés PAC" fill="#f59e0b" radius={[4, 4, 0, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
+                {treasuryFlowQuery.isLoading ? (
+                  <Skeleton className="h-full w-full rounded-2xl" />
+                ) : (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={treasuryFlowQuery.data || []} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                      <XAxis dataKey="month" tick={{ fontSize: 11 }} />
+                      <YAxis tick={{ fontSize: 11 }} tickFormatter={(val) => `${Math.round(val / 1000000)}M`} />
+                      <Tooltip
+                        formatter={(val: any) => [`${Number(val).toLocaleString("fr-FR")} GNF`, ""]}
+                        contentStyle={{ borderRadius: "12px", fontSize: "11px" }}
+                      />
+                      <Legend wrapperStyle={{ fontSize: "11px", paddingTop: "10px" }} />
+                      <Bar dataKey="facture" name="CA Facturé" fill="#0b3b32" radius={[4, 4, 0, 0]} />
+                      <Bar dataKey="encaisse" name="CA Encaissé" fill="#10b981" radius={[4, 4, 0, 0]} />
+                      <Bar dataKey="deboursAvances" name="Débours Avancés PAC" fill="#f59e0b" radius={[4, 4, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                )}
               </div>
             </Card>
           </div>
@@ -1402,24 +1475,34 @@ export default function FinancesPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
-                  {ratesHistoryQuery.data?.map((rate) => (
-                    <tr key={rate.id} className="hover:bg-gray-50/50 transition">
-                      <td className="p-3.5 pl-5 font-bold text-gray-900">{rate.date}</td>
-                      <td className="p-3.5 font-mono text-emerald-900 font-semibold">{rate.sourceCurrency} / {rate.targetCurrency}</td>
-                      <td className="p-3.5 font-bold text-emerald-950 text-sm">
-                        1 {rate.sourceCurrency} = {rate.rate.toLocaleString("fr-FR")} GNF
-                      </td>
-                      <td className="p-3.5 text-gray-700">{rate.provider}</td>
-                      <td className="p-3.5">
-                        <Badge className={rate.isManualOverride ? "bg-amber-100 text-amber-900" : "bg-emerald-100 text-emerald-900"}>
-                          {rate.isManualOverride ? "Dérogation Manuelle" : "Officiel Automatique"}
-                        </Badge>
-                      </td>
-                      <td className="p-3.5 pr-5 text-gray-600 italic">
-                        {rate.overrideReason || "—"}
-                      </td>
-                    </tr>
-                  ))}
+                  {ratesHistoryQuery.isLoading ? (
+                    Array.from({ length: 4 }).map((_, idx) => (
+                      <tr key={idx} className="animate-pulse">
+                        <td colSpan={6} className="p-4">
+                          <Skeleton className="h-6 w-full rounded-md" />
+                        </td>
+                      </tr>
+                    ))
+                  ) : (
+                    ratesHistoryQuery.data?.map((rate) => (
+                      <tr key={rate.id} className="hover:bg-gray-50/50 transition">
+                        <td className="p-3.5 pl-5 font-bold text-gray-900">{rate.date}</td>
+                        <td className="p-3.5 font-mono text-emerald-900 font-semibold">{rate.sourceCurrency} / {rate.targetCurrency}</td>
+                        <td className="p-3.5 font-bold text-emerald-950 text-sm">
+                          1 {rate.sourceCurrency} = {rate.rate.toLocaleString("fr-FR")} GNF
+                        </td>
+                        <td className="p-3.5 text-gray-700">{rate.provider}</td>
+                        <td className="p-3.5">
+                          <Badge className={rate.isManualOverride ? "bg-amber-100 text-amber-900" : "bg-emerald-100 text-emerald-900"}>
+                            {rate.isManualOverride ? "Dérogation Manuelle" : "Officiel Automatique"}
+                          </Badge>
+                        </td>
+                        <td className="p-3.5 pr-5 text-gray-600 italic">
+                          {rate.overrideReason || "—"}
+                        </td>
+                      </tr>
+                    ))
+                  )}
                 </tbody>
               </table>
             </div>

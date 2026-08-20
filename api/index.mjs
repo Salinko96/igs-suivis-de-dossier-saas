@@ -4928,6 +4928,28 @@ async function listUsers(filters) {
   }
   return list;
 }
+async function listUsersPaginated(filters) {
+  const page = Math.max(1, filters.page ?? 1);
+  const limit = Math.min(100, Math.max(1, filters.limit ?? 25));
+  const isActive = filters.status === "active" ? true : filters.status === "inactive" ? false : void 0;
+  const allFiltered = await listUsers({
+    role: filters.role,
+    isActive,
+    search: filters.search
+  });
+  const total = allFiltered.length;
+  const totalPages = Math.ceil(total / limit) || 1;
+  const startIndex = (page - 1) * limit;
+  const items = allFiltered.slice(startIndex, startIndex + limit);
+  return {
+    items,
+    total,
+    page,
+    limit,
+    totalPages,
+    hasMore: page < totalPages
+  };
+}
 async function createUser(data) {
   const now = /* @__PURE__ */ new Date();
   const cleanEmail = data.email.toLowerCase().trim();
@@ -5100,6 +5122,23 @@ async function listDossiers(filters = {}) {
     );
   }
   return list.sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime());
+}
+async function listDossiersPaginated(filters) {
+  const page = Math.max(1, filters.page ?? 1);
+  const limit = Math.min(100, Math.max(1, filters.limit ?? 25));
+  const allFiltered = await listDossiers(filters);
+  const total = allFiltered.length;
+  const totalPages = Math.ceil(total / limit) || 1;
+  const startIndex = (page - 1) * limit;
+  const items = allFiltered.slice(startIndex, startIndex + limit);
+  return {
+    items,
+    total,
+    page,
+    limit,
+    totalPages,
+    hasMore: page < totalPages
+  };
 }
 async function getDossier(idOrIdentifier) {
   const rawStr = String(idOrIdentifier).trim();
@@ -6018,6 +6057,35 @@ async function listInvoices(dossierId) {
   if (dossierId) list = list.filter((i) => i.dossierId === dossierId);
   return list.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
 }
+async function listInvoicesPaginated(filters) {
+  const page = Math.max(1, filters.page ?? 1);
+  const limit = Math.min(100, Math.max(1, filters.limit ?? 25));
+  let all = await listInvoices(filters.dossierId);
+  if (filters.status && filters.status !== "all") {
+    all = all.filter((i) => i.status === filters.status);
+  }
+  if (filters.reconciliationStatus && filters.reconciliationStatus !== "all") {
+    all = all.filter((i) => i.reconciliationStatus === filters.reconciliationStatus);
+  }
+  if (filters.search) {
+    const s = filters.search.toLowerCase().trim();
+    all = all.filter(
+      (i) => i.invoiceNumber.toLowerCase().includes(s) || i.client.toLowerCase().includes(s) || i.receiptNumber && i.receiptNumber.toLowerCase().includes(s) || i.paymentReference && i.paymentReference.toLowerCase().includes(s)
+    );
+  }
+  const total = all.length;
+  const totalPages = Math.ceil(total / limit) || 1;
+  const startIndex = (page - 1) * limit;
+  const items = all.slice(startIndex, startIndex + limit);
+  return {
+    items,
+    total,
+    page,
+    limit,
+    totalPages,
+    hasMore: page < totalPages
+  };
+}
 async function createInvoice(input) {
   const sequence = _memoryInvoices.length + 1;
   const invNum = input.invoiceNumber || `FAC-${(/* @__PURE__ */ new Date()).getFullYear()}-${String(sequence).padStart(4, "0")}`;
@@ -6106,6 +6174,7 @@ async function createInvoice(input) {
     } catch (e) {
     }
   }
+  invalidateFinanceCache();
   return inv;
 }
 async function updateInvoice(id, input) {
@@ -6163,6 +6232,7 @@ async function updateInvoice(id, input) {
       comment: `Facture ${result.invoiceNumber} mise \xE0 jour (Statut: ${result.status})`
     });
   }
+  invalidateFinanceCache();
   return result;
 }
 async function recordInvoicePayment(id, data) {
@@ -6252,6 +6322,7 @@ async function recordInvoicePayment(id, data) {
     } catch (e) {
     }
   }
+  invalidateFinanceCache();
   return invoice;
 }
 async function listInvoicePayments(invoiceId) {
@@ -6348,11 +6419,33 @@ async function reconcileInvoice(invoiceId, input) {
     newValue: input.reconciliationStatus,
     comment: `Rapprochement bancaire 3-voies mis \xE0 jour : ${input.reconciliationStatus} (R\xE9f: ${input.reconciliationRef || "N/A"})`
   });
+  invalidateFinanceCache();
   return _memoryInvoices[idx];
 }
+var _heavyAggregateCache = /* @__PURE__ */ new Map();
+var AGGREGATE_CACHE_TTL_MS = 60 * 1e3;
+function getCachedAggregate(key) {
+  const entry = _heavyAggregateCache.get(key);
+  if (!entry) return null;
+  if (Date.now() - entry.timestamp > AGGREGATE_CACHE_TTL_MS) {
+    _heavyAggregateCache.delete(key);
+    return null;
+  }
+  return entry.data;
+}
+function setCachedAggregate(key, data) {
+  _heavyAggregateCache.set(key, { data, timestamp: Date.now() });
+}
+function invalidateFinanceCache() {
+  _heavyAggregateCache.delete("finance_profitability");
+  _heavyAggregateCache.delete("finance_treasury_flow");
+  _heavyAggregateCache.delete("finance_summary");
+}
 async function listUnbilledRegularizedDossiers(daysThreshold = 3) {
-  const allDossiers = await listDossiers();
-  const allInvoices = await listInvoices();
+  const [allDossiers, allInvoices] = await Promise.all([
+    listDossiers(),
+    listInvoices()
+  ]);
   const now = /* @__PURE__ */ new Date();
   return allDossiers.filter((d) => {
     if (d.calculatedStatus !== "R\xE9gularis\xE9" && !d.goodsReleaseDate) return false;
@@ -6365,10 +6458,15 @@ async function listUnbilledRegularizedDossiers(daysThreshold = 3) {
   });
 }
 async function getProfitabilityMetrics() {
-  const allInvoices = await listInvoices();
-  const allDossiers = await listDossiers();
-  const allDebours = await listPacDisbursements();
-  const { rate } = await getExchangeRate();
+  const cached = getCachedAggregate("finance_profitability");
+  if (cached) return cached;
+  const [allInvoices, allDossiers, allDebours, { rate }, unbilledDossiers] = await Promise.all([
+    listInvoices(),
+    listDossiers(),
+    listPacDisbursements(),
+    getExchangeRate(),
+    listUnbilledRegularizedDossiers(3)
+  ]);
   const clientMap = /* @__PURE__ */ new Map();
   allInvoices.forEach((i) => {
     const client = i.client || "Client IGS";
@@ -6406,8 +6504,7 @@ async function getProfitabilityMetrics() {
   const unrecoveredDeboursGNF = Math.max(0, totalAdvancedDeboursGNF - totalReimbursedDeboursGNF);
   const deboursToCARatioPct = totalInvoicedGNF > 0 ? Math.round(totalAdvancedDeboursGNF / totalInvoicedGNF * 100) : 0;
   const isRiskAlert = deboursToCARatioPct > 150;
-  const unbilledDossiers = await listUnbilledRegularizedDossiers(3);
-  return {
+  const result = {
     marginsByClient,
     totalInvoicedGNF,
     totalPaidGNF,
@@ -6427,11 +6524,17 @@ async function getProfitabilityMetrics() {
     })),
     exchangeRate: rate
   };
+  setCachedAggregate("finance_profitability", result);
+  return result;
 }
 async function getTreasuryFlow() {
-  const { rate } = await getExchangeRate();
-  const allInvoices = await listInvoices();
-  const allDebours = await listPacDisbursements();
+  const cached = getCachedAggregate("finance_treasury_flow");
+  if (cached) return cached;
+  const [{ rate }, allInvoices, allDebours] = await Promise.all([
+    getExchangeRate(),
+    listInvoices(),
+    listPacDisbursements()
+  ]);
   const monthlyMap = /* @__PURE__ */ new Map();
   allInvoices.forEach((i) => {
     const key = new Intl.DateTimeFormat("fr-FR", { month: "short", year: "2-digit", timeZone: "UTC" }).format(i.createdAt);
@@ -7829,6 +7932,15 @@ var appRouter = router({
         offset: z2.number().int().min(0).optional()
       }).nullish()
     ).query(async ({ input }) => listUsers(input || void 0)),
+    listPaginated: adminProcedure.input(
+      z2.object({
+        page: z2.number().int().positive().default(1),
+        limit: z2.number().int().positive().max(100).default(25),
+        role: z2.string().optional(),
+        status: z2.string().optional(),
+        search: z2.string().trim().max(200).optional()
+      }).nullish()
+    ).query(async ({ input }) => listUsersPaginated(input || {})),
     getHRStats: adminProcedure.query(async () => getHRStats()),
     get: adminProcedure.input(z2.object({ id: z2.number().int().positive() })).query(async ({ input }) => {
       const user = await getUserById(input.id);
@@ -7888,6 +8000,28 @@ var appRouter = router({
         filters.responsible = ctx.user.name.split(" ")[0];
       }
       return listDossiers(filters);
+    }),
+    listPaginated: protectedProcedure.input(
+      z2.object({
+        page: z2.number().int().positive().default(1),
+        limit: z2.number().int().positive().max(100).default(25),
+        status: optionalText,
+        priority: optionalText,
+        client: optionalText,
+        responsible: optionalText,
+        transportMode: optionalText,
+        search: optionalText,
+        myDossiersOnly: z2.boolean().optional()
+      }).nullish()
+    ).query(async ({ ctx, input }) => {
+      const filters = { ...input || {} };
+      if (ctx.user?.role === "client" && ctx.user?.clientCompany) {
+        filters.currentUserCompany = ctx.user.clientCompany;
+      }
+      if (filters.myDossiersOnly && ctx.user?.name) {
+        filters.responsible = ctx.user.name.split(" ")[0];
+      }
+      return listDossiersPaginated(filters);
     }),
     get: protectedProcedure.input(z2.object({ id: z2.union([z2.number(), z2.string()]) })).query(async ({ ctx, input }) => {
       try {
@@ -8253,6 +8387,23 @@ var appRouter = router({
   // 7. MODULE FINANCIER & FACTURATION
   finance: router({
     listInvoices: comptableProcedure.input(z2.object({ dossierId: z2.number().optional() }).nullish()).query(async ({ input }) => listInvoices(input?.dossierId)),
+    listInvoicesPaginated: comptableProcedure.input(
+      z2.object({
+        page: z2.number().int().positive().default(1),
+        limit: z2.number().int().positive().max(100).default(25),
+        status: optionalText,
+        reconciliationStatus: optionalText,
+        search: optionalText,
+        dossierId: z2.number().optional()
+      }).nullish()
+    ).query(async ({ input }) => listInvoicesPaginated({
+      page: input?.page,
+      limit: input?.limit,
+      status: input?.status || void 0,
+      reconciliationStatus: input?.reconciliationStatus || void 0,
+      search: input?.search || void 0,
+      dossierId: input?.dossierId || void 0
+    })),
     createInvoice: comptableProcedure.input(
       z2.object({
         dossierId: z2.number().int().positive(),
@@ -8396,9 +8547,13 @@ var appRouter = router({
     getExchangeRate: internalProcedure.query(async () => getExchangeRate()),
     setExchangeRate: comptableProcedure.input(z2.object({ rate: z2.number().int().positive() })).mutation(async ({ input }) => setExchangeRate(input.rate)),
     summary: comptableProcedure.query(async () => {
-      const allInvoices = await listInvoices();
-      const allDossiers = await listDossiers();
-      const { rate } = await getExchangeRate();
+      const cached = getCachedAggregate("finance_summary");
+      if (cached) return cached;
+      const [allInvoices, allDossiers, { rate }] = await Promise.all([
+        listInvoices(),
+        listDossiers(),
+        getExchangeRate()
+      ]);
       const totalCA_GNF = allInvoices.reduce((sum, i) => sum + (i.currency === "USD" ? i.amountTtc * rate : i.amountTtc), 0);
       const totalCA_USD = allInvoices.reduce((sum, i) => sum + (i.currency === "USD" ? i.amountTtc : Math.round(i.amountTtc / rate)), 0);
       const totalMargin_GNF = allInvoices.reduce((sum, i) => sum + (i.currency === "USD" ? (i.estimatedMargin || 0) * rate : i.estimatedMargin || 0), 0);
@@ -8409,7 +8564,7 @@ var appRouter = router({
       const pendingInvoices = allInvoices.filter((i) => i.status !== "Pay\xE9e").length;
       const paidInvoices = allInvoices.filter((i) => i.status === "Pay\xE9e").length;
       const totalDemurrageRisk = allDossiers.filter((d) => d.eta && !d.goodsReleaseDate && (/* @__PURE__ */ new Date()).getTime() - d.eta.getTime() > 864e5 * 7).length;
-      return {
+      const result = {
         totalCA_GNF,
         totalCA_USD,
         totalMargin_GNF,
@@ -8423,6 +8578,8 @@ var appRouter = router({
         exchangeRate: rate,
         invoices: allInvoices
       };
+      setCachedAggregate("finance_summary", result);
+      return result;
     })
   }),
   // 8. TÂCHES & COLLABORATION D'ÉQUIPE
