@@ -137,7 +137,7 @@ var decodeOAuthState = (state) => {
 import { parse as parseCookieHeader2 } from "cookie";
 
 // server/db.ts
-import { and, asc, desc, eq, like, or } from "drizzle-orm";
+import { and, asc, desc, eq, ilike, like, or, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 
@@ -3136,9 +3136,24 @@ async function getDossier(idOrIdentifier) {
   const isValidNum = !isNaN(numId) && Number.isInteger(numId) && numId > 0;
   const formattedNum = isValidNum ? formatDossierNumber(numId) : null;
   const upperStr = rawStr.toUpperCase();
+  const lowerStr = rawStr.toLowerCase();
+  let derivedId = null;
+  const igsMatch = upperStr.match(/^IGS-(\d+)$/i);
+  if (igsMatch) {
+    const rawNum = parseInt(igsMatch[1], 10);
+    derivedId = rawNum >= 1e3 ? rawNum - 1e3 : rawNum;
+  }
+  const dosMatch = upperStr.match(/^DOS-(\d+)$/i);
+  if (dosMatch) {
+    derivedId = parseInt(dosMatch[1], 10);
+  }
   if (isValidNum) {
     const memoryById = _memoryDossiers.find((d) => d.id === numId);
     if (memoryById) return memoryById;
+  }
+  if (derivedId && derivedId > 0) {
+    const memoryByDerived = _memoryDossiers.find((d) => d.id === derivedId);
+    if (memoryByDerived) return memoryByDerived;
   }
   if (formattedNum) {
     const memoryByFormatted = _memoryDossiers.find((d) => d.dossierNumber?.toUpperCase() === formattedNum.toUpperCase());
@@ -3149,6 +3164,8 @@ async function getDossier(idOrIdentifier) {
     if (d.portalAccessCode?.toUpperCase() === upperStr) return true;
     if (d.blLtaNumber?.toUpperCase() === upperStr) return true;
     if (d.clientDossierNumber?.toUpperCase() === upperStr) return true;
+    const portalCode = `IGS-${1e3 + d.id}`;
+    if (portalCode.toUpperCase() === upperStr) return true;
     return false;
   });
   if (memoryByMatch) return memoryByMatch;
@@ -3159,15 +3176,23 @@ async function getDossier(idOrIdentifier) {
         const rowById = (await withDbTimeout(db.select().from(dossiers).where(eq(dossiers.id, numId)).limit(1), 1500))[0];
         if (rowById) return rowById;
       }
+      if (derivedId && derivedId > 0) {
+        const rowByDerived = (await withDbTimeout(db.select().from(dossiers).where(eq(dossiers.id, derivedId)).limit(1), 1500))[0];
+        if (rowByDerived) return rowByDerived;
+      }
       if (formattedNum) {
         const rowByFormatted = (await withDbTimeout(db.select().from(dossiers).where(eq(dossiers.dossierNumber, formattedNum)).limit(1), 1500))[0];
         if (rowByFormatted) return rowByFormatted;
       }
       const conditions = [
-        eq(dossiers.dossierNumber, upperStr),
-        eq(dossiers.portalAccessCode, upperStr),
-        eq(dossiers.blLtaNumber, upperStr),
-        eq(dossiers.clientDossierNumber, upperStr)
+        ilike(dossiers.dossierNumber, upperStr),
+        ilike(dossiers.portalAccessCode, upperStr),
+        ilike(dossiers.blLtaNumber, upperStr),
+        ilike(dossiers.clientDossierNumber, upperStr),
+        sql`LOWER(TRIM(${dossiers.portalAccessCode})) = ${lowerStr}`,
+        sql`LOWER(TRIM(${dossiers.dossierNumber})) = ${lowerStr}`,
+        sql`LOWER(TRIM(${dossiers.blLtaNumber})) = ${lowerStr}`,
+        sql`LOWER(TRIM(${dossiers.clientDossierNumber})) = ${lowerStr}`
       ];
       const row = (await withDbTimeout(db.select().from(dossiers).where(or(...conditions)).limit(1), 1500))[0];
       if (row) return row;
@@ -3178,26 +3203,67 @@ async function getDossier(idOrIdentifier) {
   return void 0;
 }
 async function getDossierByPortalCode(portalAccessCode) {
-  const cleanCode = portalAccessCode.trim().toUpperCase();
+  const rawStr = String(portalAccessCode || "").trim();
+  if (!rawStr) return void 0;
+  const upperStr = rawStr.toUpperCase();
+  const lowerStr = rawStr.toLowerCase();
+  let derivedId = null;
+  const igsMatch = upperStr.match(/^IGS-(\d+)$/i);
+  if (igsMatch) {
+    const rawNum = parseInt(igsMatch[1], 10);
+    derivedId = rawNum >= 1e3 ? rawNum - 1e3 : rawNum;
+  }
+  const dosMatch = upperStr.match(/^DOS-(\d+)$/i);
+  if (dosMatch) {
+    derivedId = parseInt(dosMatch[1], 10);
+  }
+  if (/^\d+$/.test(rawStr)) {
+    const rawNum = parseInt(rawStr, 10);
+    derivedId = rawNum >= 1e3 ? rawNum - 1e3 : rawNum;
+  }
+  const memoryMatch = _memoryDossiers.find((d) => {
+    if (d.portalAccessCode?.trim().toUpperCase() === upperStr) return true;
+    if (d.dossierNumber?.trim().toUpperCase() === upperStr) return true;
+    if (d.blLtaNumber?.trim().toUpperCase() === upperStr) return true;
+    if (d.clientDossierNumber?.trim().toUpperCase() === upperStr) return true;
+    const generatedPortalCode = `IGS-${1e3 + d.id}`;
+    if (generatedPortalCode.toUpperCase() === upperStr) return true;
+    if (derivedId && d.id === derivedId) return true;
+    if (d.portalAccessCode?.trim().toLowerCase() === lowerStr) return true;
+    if (d.dossierNumber?.trim().toLowerCase() === lowerStr) return true;
+    if (d.blLtaNumber?.trim().toLowerCase() === lowerStr) return true;
+    if (d.clientDossierNumber?.trim().toLowerCase() === lowerStr) return true;
+    return false;
+  });
+  if (memoryMatch) return memoryMatch;
   const db = await getDb();
   if (db) {
     try {
-      const row = (await db.select().from(dossiers).where(
-        or(
-          eq(dossiers.portalAccessCode, cleanCode),
-          eq(dossiers.dossierNumber, cleanCode),
-          eq(dossiers.blLtaNumber, cleanCode),
-          eq(dossiers.clientDossierNumber, cleanCode)
-        )
-      ).limit(1))[0];
+      const conditions = [
+        ilike(dossiers.portalAccessCode, upperStr),
+        ilike(dossiers.portalAccessCode, `%${upperStr}%`),
+        ilike(dossiers.dossierNumber, upperStr),
+        ilike(dossiers.blLtaNumber, upperStr),
+        ilike(dossiers.clientDossierNumber, upperStr),
+        sql`LOWER(TRIM(${dossiers.portalAccessCode})) = ${lowerStr}`,
+        sql`LOWER(TRIM(${dossiers.dossierNumber})) = ${lowerStr}`,
+        sql`LOWER(TRIM(${dossiers.blLtaNumber})) = ${lowerStr}`,
+        sql`LOWER(TRIM(${dossiers.clientDossierNumber})) = ${lowerStr}`
+      ];
+      if (derivedId && derivedId > 0) {
+        conditions.push(eq(dossiers.id, derivedId));
+        conditions.push(eq(dossiers.dossierNumber, formatDossierNumber(derivedId)));
+      }
+      const row = (await withDbTimeout(
+        db.select().from(dossiers).where(or(...conditions)).limit(1),
+        2e3
+      ))[0];
       if (row) return row;
     } catch (e) {
       console.error("[DB] getDossierByPortalCode database query error:", e);
     }
   }
-  return _memoryDossiers.find(
-    (d) => d.portalAccessCode?.toUpperCase() === cleanCode || d.dossierNumber?.toUpperCase() === cleanCode || d.blLtaNumber?.toUpperCase() === cleanCode || d.clientDossierNumber?.toUpperCase() === cleanCode
-  );
+  return void 0;
 }
 async function createDossier(input, userId, authorName) {
   const sequence = _memoryDossiers.length + 1;

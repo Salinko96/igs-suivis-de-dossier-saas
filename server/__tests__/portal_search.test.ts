@@ -64,6 +64,7 @@ describe("R1 - Client Portal Search & Tracking Suite (portal.track)", () => {
     it("handles lowercase portal access code 'igs-1001'", async () => {
       const res = await publicCaller.portal.track({ accessCodeOrNumber: "igs-1001" });
       expect(res.dossier.dossierNumber).toBe("DOS-0001");
+      expect(res.dossier.portalAccessCode).toBe("IGS-1001");
     });
 
     it("handles leading and trailing whitespace '   IGS-1001   '", async () => {
@@ -71,8 +72,18 @@ describe("R1 - Client Portal Search & Tracking Suite (portal.track)", () => {
       expect(res.dossier.dossierNumber).toBe("DOS-0001");
     });
 
+    it("handles lowercase and whitespace client ref '  ckysi26000340  '", async () => {
+      const res = await publicCaller.portal.track({ accessCodeOrNumber: "  ckysi26000340  " });
+      expect(res.dossier.dossierNumber).toBe("DOS-0001");
+    });
+
     it("handles lowercase BL number 'hlcung12604auqg1'", async () => {
       const res = await publicCaller.portal.track({ accessCodeOrNumber: "hlcung12604auqg1" });
+      expect(res.dossier.dossierNumber).toBe("DOS-0001");
+    });
+
+    it("handles numeric portal code '1001'", async () => {
+      const res = await publicCaller.portal.track({ accessCodeOrNumber: "1001" });
       expect(res.dossier.dossierNumber).toBe("DOS-0001");
     });
   });
