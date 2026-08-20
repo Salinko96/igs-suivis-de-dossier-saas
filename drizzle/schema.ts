@@ -162,7 +162,11 @@ export const invoices = pgTable("invoices", {
   pdfUrl: text("pdfUrl"), // URL Supabase Storage du PDF généré
   dueDate: timestamp("dueDate"),
   paidAt: timestamp("paidAt"),
+  reconciliationStatus: varchar("reconciliationStatus", { length: 32 }).default("non_rapproche"), // non_rapproche, partiel, rapproche
+  reconciliationDate: timestamp("reconciliationDate"),
+  reconciliationRef: varchar("reconciliationRef", { length: 120 }),
   notes: text("notes"),
+  rateLockedAt: timestamp("rateLockedAt"),
   createdById: integer("createdById"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().notNull(),
@@ -171,6 +175,7 @@ export const invoices = pgTable("invoices", {
   index("invoices_dossier_idx").on(table.dossierId),
   index("invoices_client_idx").on(table.client),
   index("invoices_status_idx").on(table.status),
+  index("invoices_reconciliation_idx").on(table.reconciliationStatus),
 ]);
 
 export const invoicePayments = pgTable("invoice_payments", {
@@ -209,12 +214,20 @@ export const pacDisbursements = pgTable("pac_disbursements", {
 
 export const exchangeRates = pgTable("exchange_rates", {
   id: serial("id").primaryKey(),
+  date: varchar("date", { length: 10 }), // Format YYYY-MM-DD
   sourceCurrency: varchar("sourceCurrency", { length: 8 }).notNull().default("USD"),
   targetCurrency: varchar("targetCurrency", { length: 8 }).notNull().default("GNF"),
   rate: integer("rate").notNull().default(8650),
-  updatedById: integer("updatedById"),
+  provider: varchar("provider", { length: 64 }).default("BCRG"), // BCRG, exchangerate.host, Manuel
+  isManualOverride: boolean("isManualOverride").default(false).notNull(),
+  overrideReason: text("overrideReason"),
+  createdById: integer("createdById"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().notNull(),
-});
+}, table => [
+  index("exchange_rates_date_idx").on(table.date),
+  index("exchange_rates_currency_idx").on(table.sourceCurrency, table.targetCurrency),
+]);
 
 export const dossierTasks = pgTable("dossier_tasks", {
   id: serial("id").primaryKey(),

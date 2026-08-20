@@ -18,6 +18,12 @@ import { uploadDossierCloudFile } from "./cloudStorageService";
 import { sendDossierWhatsAppAlert, sendDossierEmailAlert } from "./alertsService";
 import { validateStatusTransition, calculateDemurrageRisk } from "./dossierRules";
 import { runDemurrageReminderJob } from "./cronDemurrageReminders";
+import { 
+  fetchLiveExchangeRate, 
+  syncDailyExchangeRate, 
+  overrideExchangeRate, 
+  getExchangeRatesHistory 
+} from "./exchangeRateService";
 
 const optionalText = z.string().trim().max(2000).optional().nullable();
 const optionalDate = z.date().optional().nullable();
@@ -161,6 +167,11 @@ function buildDashboard(dossiers: Awaited<ReturnType<typeof db.listDossiers>>) {
     .map(([label, count]) => ({ label, count }))
     .sort((a, b) => b.count - a.count);
 
+  const unbilledRegularized = dossiers.filter(dossier => {
+    if (dossier.calculatedStatus !== "Régularisé" && !dossier.goodsReleaseDate) return false;
+    return dossier.financialStatus !== "Payé" && dossier.financialStatus !== "Facturé";
+  }).length;
+
   return {
     metrics: {
       total,
@@ -173,6 +184,7 @@ function buildDashboard(dossiers: Awaited<ReturnType<typeof db.listDossiers>>) {
       releasedShare: total ? Math.round((released / total) * 1000) / 10 : 0,
       averageEtaToRelease,
       missingEta: dossiers.filter(dossier => !dossier.eta).length,
+      unbilledRegularized,
     },
     priority,
     monthlyEta,
@@ -186,6 +198,7 @@ function buildDashboard(dossiers: Awaited<ReturnType<typeof db.listDossiers>>) {
       missingBulletins: dossiers.filter(dossier => isMissing(dossier.bulletinNumber)).length,
       missingRelease: dossiers.filter(dossier => !dossier.goodsReleaseDate).length,
       incomplete: dossiers.filter(dossier => dossier.calculatedStatus === "À régulariser").length,
+      unbilledRegularized,
     },
     clients: Array.from(byClient.entries())
       .map(([client, values]) => ({ client, ...values }))
@@ -947,6 +960,41 @@ export const appRouter = router({
           return { success: false, error: e.message };
         }
       }),
+    reconcile: comptableProcedure
+      .input(
+        z.object({
+          invoiceId: z.number().int().positive(),
+          reconciliationStatus: z.enum(["non_rapproche", "partiel", "rapproche"]),
+          reconciliationRef: optionalText,
+          notes: optionalText,
+        })
+      )
+      .mutation(async ({ ctx, input }) => {
+        return db.reconcileInvoice(input.invoiceId, {
+          ...input,
+          userId: ctx.user.id,
+          userName: ctx.user.name || "Comptable",
+        });
+      }),
+    profitability: comptableProcedure.query(async () => db.getProfitabilityMetrics()),
+    treasuryFlow: comptableProcedure.query(async () => db.getTreasuryFlow()),
+    exchangeRatesHistory: comptableProcedure.query(async () => getExchangeRatesHistory()),
+    overrideExchangeRate: comptableProcedure
+      .input(
+        z.object({
+          rate: z.number().int().positive(),
+          sourceCurrency: z.string().default("USD"),
+          overrideReason: z.string().min(5, "Une justification détaillée (minimum 5 caractères) est requise."),
+        })
+      )
+      .mutation(async ({ ctx, input }) => {
+        return overrideExchangeRate({
+          ...input,
+          userId: ctx.user.id,
+          userName: ctx.user.name || "Comptable",
+        });
+      }),
+    syncExchangeRate: comptableProcedure.mutation(async () => syncDailyExchangeRate()),
     getExchangeRate: internalProcedure.query(async () => db.getExchangeRate()),
     setExchangeRate: comptableProcedure
       .input(z.object({ rate: z.number().int().positive() }))

@@ -7,7 +7,9 @@ import { trpc } from "@/lib/trpc";
 import {
   AlertTriangle,
   ArrowRight,
+  Banknote,
   CheckCircle2,
+  CircleDollarSign,
   ClipboardCheck,
   Clock3,
   ExternalLink,
@@ -469,6 +471,12 @@ function DashboardContent() {
                   value: quality.missingRelease,
                   icon: Clock3,
                   url: "/dossiers?vigilance=sortie_manquante",
+                },
+                {
+                  label: "Régularisés non facturés",
+                  value: (quality as any).unbilledRegularized ?? 0,
+                  icon: Banknote,
+                  url: "/finances?tab=unbilled",
                 },
               ].map(item => (
                 <div

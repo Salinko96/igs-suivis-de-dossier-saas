@@ -194,6 +194,10 @@ let _memoryInvoices: Invoice[] = [
     dueDate: new Date(Date.now() + 86400000 * 15),
     paidAt: null,
     notes: "Facture transit maritime 4 conteneurs 20 pieds",
+    reconciliationStatus: "rapproche",
+    reconciliationDate: new Date(),
+    reconciliationRef: "VIR-2026-0812",
+    rateLockedAt: new Date(),
     clientId: null,
     pdfUrl: null,
     createdById: 3,
@@ -1242,6 +1246,10 @@ export async function createDossier(input: EditableDossier, userId?: number, aut
       console.warn("[DB] Failed to insert dossier in DB, stored in memory");
     }
   }
+
+  // Génération automatique d'une entrée pro-forma dans le module finances
+  await ensureProformaInvoiceForDossier(newDossier);
+
   invalidateDossiersCache();
   return newDossier;
 }
@@ -1847,25 +1855,92 @@ export async function addDossierHistory(input: InsertDossierStatusHistory) {
 }
 
 // ----------------- FACTURATION & FINANCE -----------------
+export async function ensureProformaInvoiceForDossier(dossier: Dossier): Promise<Invoice> {
+  const existing = _memoryInvoices.find(i => i.dossierId === dossier.id);
+  if (existing) return existing;
+
+  const sequence = _memoryInvoices.length + 1;
+  const invNum = `PRO-${new Date().getFullYear()}-${String(sequence).padStart(4, "0")}`;
+  const now = dossier.createdAt || new Date();
+  
+  const isLarge = Boolean(dossier.container && (dossier.container.includes("04") || dossier.container.includes("06") || dossier.container.includes("40")));
+  const isBulk = Boolean(dossier.bulk);
+  
+  const amountHt = isLarge ? 25000000 : isBulk ? 35000000 : 18500000;
+  const amountTva = Math.round(amountHt * 0.18);
+  const amountTtc = amountHt + amountTva;
+  
+  const customs = isLarge ? 45000000 : isBulk ? 60000000 : 30000000;
+  const port = isLarge ? 12000000 : isBulk ? 15000000 : 8000000;
+  const disbursements = customs + port;
+  const estimatedMargin = Math.round(amountHt * 0.28);
+
+  const inv: Invoice = {
+    id: sequence,
+    dossierId: dossier.id,
+    invoiceNumber: invNum,
+    client: dossier.client || "Client IGS",
+    currency: "GNF",
+    invoiceType: "Proforma",
+    exchangeRate: _currentExchangeRate,
+    amountHt,
+    amountTva,
+    amountTtc,
+    disbursementsAmount: disbursements,
+    customsDutiesAmount: customs,
+    portFeesAmount: port,
+    storageAndDemurrageFees: 0,
+    estimatedMargin,
+    paymentMethod: null,
+    paymentReference: null,
+    receiptNumber: null,
+    status: "Proforma",
+    pdfUrl: null,
+    clientId: dossier.clientId ?? null,
+    dueDate: new Date(now.getTime() + 86400000 * 30),
+    paidAt: null,
+    reconciliationStatus: "non_rapproche",
+    reconciliationDate: null,
+    reconciliationRef: null,
+    rateLockedAt: now,
+    notes: `Facture Pro-Forma générée automatiquement à l'ouverture du dossier ${dossier.dossierNumber}`,
+    createdById: 1,
+    createdAt: now,
+    updatedAt: now,
+  };
+
+  _memoryInvoices.push(inv);
+
+  // Enregistrer une avance débours provisionnelle PAC si pas déjà fait
+  if (!_memoryPacDisbursements.some(p => p.dossierId === dossier.id)) {
+    _memoryPacDisbursements.push({
+      id: _memoryPacDisbursements.length + 1,
+      dossierId: dossier.id,
+      invoiceId: inv.id,
+      type: "douane",
+      amountAdvanced: customs,
+      amountReimbursed: 0,
+      status: "avance",
+      receiptNumber: null,
+      notes: `Provision débours douane ${dossier.dossierNumber}`,
+      createdById: 1,
+      createdAt: now,
+      updatedAt: now,
+    });
+  }
+
+  return inv;
+}
+
 export async function listInvoices(dossierId?: number) {
-  let list = [..._memoryInvoices];
-  if (list.length === 0) {
-    const db = await getDb();
-    if (db) {
-      try {
-        const rows = await withDbTimeout(
-          db.select().from(invoices).where(dossierId ? eq(invoices.dossierId, dossierId) : undefined).orderBy(desc(invoices.createdAt)),
-          1500
-        );
-        if (rows.length > 0) {
-          _memoryInvoices = rows;
-          list = [...rows];
-        }
-      } catch (e) {
-        console.warn("[DB] Error or timeout querying invoices from DB, using fallback");
-      }
+  // Synchroniser les dossiers n'ayant pas encore de pro-forma
+  for (const d of _memoryDossiers) {
+    if (!_memoryInvoices.some(i => i.dossierId === d.id)) {
+      await ensureProformaInvoiceForDossier(d);
     }
   }
+
+  let list = [..._memoryInvoices];
   if (dossierId) list = list.filter(i => i.dossierId === dossierId);
   return list.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
 }
@@ -1906,6 +1981,10 @@ export async function createInvoice(input: Omit<InsertInvoice, "invoiceNumber"> 
     clientId: input.clientId ?? null,
     dueDate: input.dueDate ?? new Date(Date.now() + 86400000 * 30),
     paidAt: isPaid ? (input.paidAt ?? now) : null,
+    reconciliationStatus: (input as any).reconciliationStatus ?? (isPaid ? "rapproche" : "non_rapproche"),
+    reconciliationDate: isPaid ? now : null,
+    reconciliationRef: (input as any).reconciliationRef ?? (isPaid ? input.paymentReference : null),
+    rateLockedAt: now,
     notes: input.notes ?? null,
     createdById: input.createdById ?? 1,
     createdAt: now,
@@ -2211,6 +2290,184 @@ export async function createPacDisbursement(
     } catch (e) {}
   }
   return entry;
+}
+
+export async function reconcileInvoice(
+  invoiceId: number,
+  input: {
+    reconciliationStatus: "non_rapproche" | "partiel" | "rapproche";
+    reconciliationRef?: string | null;
+    notes?: string | null;
+    userId?: number;
+    userName?: string;
+  }
+) {
+  const idx = _memoryInvoices.findIndex(i => i.id === invoiceId);
+  if (idx < 0) throw new Error(`Facture #${invoiceId} introuvable`);
+  const current = _memoryInvoices[idx];
+  const now = new Date();
+
+  _memoryInvoices[idx] = {
+    ...current,
+    reconciliationStatus: input.reconciliationStatus,
+    reconciliationDate: input.reconciliationStatus !== "non_rapproche" ? now : null,
+    reconciliationRef: input.reconciliationRef || current.reconciliationRef || null,
+    updatedAt: now,
+  };
+
+  await logAuditEvent({
+    dossierId: current.dossierId,
+    userId: input.userId || 1,
+    userName: input.userName || "Service Comptabilité",
+    userRole: "comptable",
+    action: "RAPPROCHEMENT_FACTURE",
+    entityType: "invoice",
+    entityId: invoiceId,
+    fieldChanged: "Rapprochement Bancaire",
+    previousValue: current.reconciliationStatus || "non_rapproche",
+    newValue: input.reconciliationStatus,
+    comment: `Rapprochement bancaire 3-voies mis à jour : ${input.reconciliationStatus} (Réf: ${input.reconciliationRef || "N/A"})`,
+  });
+
+  return _memoryInvoices[idx];
+}
+
+export async function listUnbilledRegularizedDossiers(daysThreshold: number = 3) {
+  const allDossiers = await listDossiers();
+  const allInvoices = await listInvoices();
+  const now = new Date();
+
+  return allDossiers.filter(d => {
+    if (d.calculatedStatus !== "Régularisé" && !d.goodsReleaseDate) return false;
+    const refDate = d.goodsReleaseDate || d.updatedAt || d.createdAt;
+    const elapsedDays = Math.floor((now.getTime() - new Date(refDate).getTime()) / 86400000);
+    if (elapsedDays < daysThreshold) return false;
+
+    const relatedInvoices = allInvoices.filter(i => i.dossierId === d.id);
+    const hasDefinitiveInvoice = relatedInvoices.some(i => i.invoiceType === "Definitive" || i.status === "Payée" || i.status === "Émise");
+    return !hasDefinitiveInvoice;
+  });
+}
+
+export async function getProfitabilityMetrics() {
+  const allInvoices = await listInvoices();
+  const allDossiers = await listDossiers();
+  const allDebours = await listPacDisbursements();
+  const { rate } = await getExchangeRate();
+
+  const clientMap = new Map<string, {
+    client: string;
+    invoicedAmountGNF: number;
+    disbursementsGNF: number;
+    marginGNF: number;
+    marginRatePct: number;
+    dossiersCount: number;
+    invoicesCount: number;
+  }>();
+
+  allInvoices.forEach(i => {
+    const client = i.client || "Client IGS";
+    const cur = clientMap.get(client) || {
+      client,
+      invoicedAmountGNF: 0,
+      disbursementsGNF: 0,
+      marginGNF: 0,
+      marginRatePct: 0,
+      dossiersCount: 0,
+      invoicesCount: 0,
+    };
+
+    const ttc = i.currency === "USD" ? i.amountTtc * rate : i.amountTtc;
+    const deb = i.currency === "USD" ? (i.disbursementsAmount || 0) * rate : (i.disbursementsAmount || 0);
+    const margin = i.currency === "USD" ? (i.estimatedMargin || 0) * rate : (i.estimatedMargin || 0);
+
+    cur.invoicedAmountGNF += ttc;
+    cur.disbursementsGNF += deb;
+    cur.marginGNF += margin;
+    cur.invoicesCount += 1;
+
+    clientMap.set(client, cur);
+  });
+
+  const marginsByClient = Array.from(clientMap.values()).map(c => {
+    const marginRatePct = c.invoicedAmountGNF > 0
+      ? Math.round(((c.invoicedAmountGNF - c.disbursementsGNF) / c.invoicedAmountGNF) * 1000) / 10
+      : 0;
+    const clientDossiers = allDossiers.filter(d => d.client === c.client);
+    return {
+      ...c,
+      marginRatePct,
+      dossiersCount: clientDossiers.length,
+    };
+  }).sort((a, b) => b.invoicedAmountGNF - a.invoicedAmountGNF);
+
+  const totalInvoicedGNF = allInvoices.reduce((s, i) => s + (i.currency === "USD" ? i.amountTtc * rate : i.amountTtc), 0);
+  const totalPaidGNF = allInvoices.filter(i => i.status === "Payée").reduce((s, i) => s + (i.currency === "USD" ? i.amountTtc * rate : i.amountTtc), 0);
+  
+  const totalAdvancedDeboursGNF = allDebours.reduce((s, d) => s + d.amountAdvanced, 0);
+  const totalReimbursedDeboursGNF = allDebours.reduce((s, d) => s + d.amountReimbursed, 0);
+  const unrecoveredDeboursGNF = Math.max(0, totalAdvancedDeboursGNF - totalReimbursedDeboursGNF);
+
+  const deboursToCARatioPct = totalInvoicedGNF > 0 ? Math.round((totalAdvancedDeboursGNF / totalInvoicedGNF) * 100) : 0;
+  const isRiskAlert = deboursToCARatioPct > 150;
+
+  const unbilledDossiers = await listUnbilledRegularizedDossiers(3);
+
+  return {
+    marginsByClient,
+    totalInvoicedGNF,
+    totalPaidGNF,
+    totalAdvancedDeboursGNF,
+    totalReimbursedDeboursGNF,
+    unrecoveredDeboursGNF,
+    deboursToCARatioPct,
+    isRiskAlert,
+    unbilledDossiersCount: unbilledDossiers.length,
+    unbilledDossiers: unbilledDossiers.map(d => ({
+      id: d.id,
+      dossierNumber: d.dossierNumber,
+      client: d.client,
+      blLtaNumber: d.blLtaNumber,
+      goodsReleaseDate: d.goodsReleaseDate,
+      calculatedStatus: d.calculatedStatus,
+    })),
+    exchangeRate: rate,
+  };
+}
+
+export async function getTreasuryFlow() {
+  const { rate } = await getExchangeRate();
+  const allInvoices = await listInvoices();
+  const allDebours = await listPacDisbursements();
+
+  const monthlyMap = new Map<string, {
+    month: string;
+    facture: number;
+    encaisse: number;
+    deboursAvances: number;
+    deboursRecouvres: number;
+  }>();
+
+  allInvoices.forEach(i => {
+    const key = new Intl.DateTimeFormat("fr-FR", { month: "short", year: "2-digit", timeZone: "UTC" }).format(i.createdAt);
+    const cur = monthlyMap.get(key) || { month: key, facture: 0, encaisse: 0, deboursAvances: 0, deboursRecouvres: 0 };
+    const ttc = i.currency === "USD" ? i.amountTtc * rate : i.amountTtc;
+    cur.facture += ttc;
+    if (i.status === "Payée") {
+      cur.encaisse += ttc;
+    }
+    monthlyMap.set(key, cur);
+  });
+
+  allDebours.forEach(d => {
+    const key = new Intl.DateTimeFormat("fr-FR", { month: "short", year: "2-digit", timeZone: "UTC" }).format(d.createdAt);
+    const cur = monthlyMap.get(key) || { month: key, facture: 0, encaisse: 0, deboursAvances: 0, deboursRecouvres: 0 };
+    cur.deboursAvances += d.amountAdvanced;
+    cur.deboursRecouvres += d.amountReimbursed;
+    monthlyMap.set(key, cur);
+  });
+
+  return Array.from(monthlyMap.values());
 }
 
 export async function getExchangeRate() {

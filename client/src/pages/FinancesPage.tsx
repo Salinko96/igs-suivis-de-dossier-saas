@@ -7,41 +7,67 @@ import { Card } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
 import { trpc } from "@/lib/trpc";
 import { useFinanceRealtime } from "@/hooks/useFinanceRealtime";
 import {
   AlertCircle,
   AlertTriangle,
+  ArrowRight,
+  ArrowUpRight,
   Banknote,
+  Building2,
+  Calendar,
   CheckCircle,
   CheckCircle2,
+  ChevronRight,
   Coins,
   CreditCard,
   Download,
   Edit,
+  ExternalLink,
   Eye,
   FileCheck,
   FileText,
   FileUp,
+  History,
+  Info,
+  LineChart,
   Loader2,
   Lock,
+  PieChart,
   Plus,
   Printer,
   Receipt,
   RefreshCw,
   RotateCcw,
+  Scale,
   ShieldAlert,
   SlidersHorizontal,
+  TrendingDown,
   TrendingUp,
   Upload,
   Wallet,
+  Zap,
 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
+import {
+  Area,
+  AreaChart,
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Cell,
+  Legend,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
 
 export default function FinancesPage() {
-  // Synchronisation Supabase Realtime (WebSockets multi-postes)
   useFinanceRealtime();
 
   const utils = trpc.useUtils();
@@ -52,6 +78,12 @@ export default function FinancesPage() {
   const summaryQuery = trpc.finance.summary.useQuery();
   const invoicesQuery = trpc.finance.listInvoices.useQuery({});
   const dossiersQuery = trpc.dossier.list.useQuery({});
+  const profitabilityQuery = trpc.finance.profitability.useQuery();
+  const treasuryFlowQuery = trpc.finance.treasuryFlow.useQuery();
+  const ratesHistoryQuery = trpc.finance.exchangeRatesHistory.useQuery();
+
+  // Sub-Navigation Tabs
+  const [activeTab, setActiveTab] = useState<"invoices" | "profitability" | "treasury" | "rates">("invoices");
 
   // Multi-Currency Switcher State
   const [displayCurrency, setDisplayCurrency] = useState<"GNF" | "USD">("GNF");
@@ -62,6 +94,14 @@ export default function FinancesPage() {
   // Exchange Rate Modal State
   const [rateModalOpen, setRateModalOpen] = useState(false);
   const [newExchangeRate, setNewExchangeRate] = useState(8650);
+  const [overrideReason, setOverrideReason] = useState("");
+
+  // 3-Way Reconciliation Modal State
+  const [reconcileModalOpen, setReconcileModalOpen] = useState(false);
+  const [reconcilingInvoice, setReconcilingInvoice] = useState<any | null>(null);
+  const [reconciliationStatus, setReconciliationStatus] = useState<"non_rapproche" | "partiel" | "rapproche">("rapproche");
+  const [reconciliationRef, setReconciliationRef] = useState("");
+  const [reconciliationNotes, setReconciliationNotes] = useState("");
 
   // Create Invoice Modal State
   const [createOpen, setCreateOpen] = useState(false);
@@ -92,16 +132,43 @@ export default function FinancesPage() {
   const uploadProofMutation = trpc.finance.uploadProof.useMutation();
   const saveInvoicePdfMutation = trpc.finance.saveInvoicePdf.useMutation();
 
-  // Mutations
-  const setExchangeRateMutation = trpc.finance.setExchangeRate.useMutation({
+  const syncRateMutation = trpc.finance.syncExchangeRate.useMutation({
     onSuccess: (res) => {
-      toast.success(`Taux de change mis à jour : 1 USD = ${res.rate.toLocaleString("fr-FR")} GNF`);
-      setRateModalOpen(false);
+      toast.success(`Taux de change synchronisé avec succès : 1 USD = ${res.rate.toLocaleString("fr-FR")} GNF (${res.provider})`);
+      ratesHistoryQuery.refetch();
       summaryQuery.refetch();
-      invoicesQuery.refetch();
+      profitabilityQuery.refetch();
     },
     onError: (err) => {
-      toast.error(`Erreur mise à jour taux : ${err.message}`);
+      toast.error(`Erreur synchronisation : ${err.message}`);
+    },
+  });
+
+  const overrideRateMutation = trpc.finance.overrideExchangeRate.useMutation({
+    onSuccess: (res) => {
+      toast.success(`Dérogation de taux enregistrée : 1 USD = ${res.rate.toLocaleString("fr-FR")} GNF`);
+      setRateModalOpen(false);
+      setOverrideReason("");
+      ratesHistoryQuery.refetch();
+      summaryQuery.refetch();
+      profitabilityQuery.refetch();
+    },
+    onError: (err) => {
+      toast.error(`Erreur dérogation : ${err.message}`);
+    },
+  });
+
+  const reconcileMutation = trpc.finance.reconcile.useMutation({
+    onSuccess: (res) => {
+      toast.success(`Rapprochement 3-voies validé pour la facture ${res.invoiceNumber} !`);
+      setReconcileModalOpen(false);
+      setReconcilingInvoice(null);
+      invoicesQuery.refetch();
+      summaryQuery.refetch();
+      profitabilityQuery.refetch();
+    },
+    onError: (err) => {
+      toast.error(`Erreur de rapprochement : ${err.message}`);
     },
   });
 
@@ -111,6 +178,7 @@ export default function FinancesPage() {
       setCreateOpen(false);
       invoicesQuery.refetch();
       summaryQuery.refetch();
+      profitabilityQuery.refetch();
       utils.dossier.list.invalidate();
     },
     onError: (err) => {
@@ -125,6 +193,7 @@ export default function FinancesPage() {
       setPayingInvoice(null);
       invoicesQuery.refetch();
       summaryQuery.refetch();
+      profitabilityQuery.refetch();
       utils.dossier.list.invalidate();
     },
     onError: (err) => {
@@ -147,6 +216,8 @@ export default function FinancesPage() {
     invoices: [],
   };
 
+  const profitability = profitabilityQuery.data;
+
   const formatMoney = (amountInOriginalGnf: number, originalCurrency: string = "GNF") => {
     if (displayCurrency === "USD") {
       const inUsd = originalCurrency === "USD" ? amountInOriginalGnf : amountInOriginalGnf / activeRate;
@@ -158,9 +229,9 @@ export default function FinancesPage() {
   };
 
   const computedTva = Math.round(invoiceAmountHt * 0.18);
-  const computedTotalDisbursements = Number(invoiceCustomsDuties || 0) + Number(invoicePortFees || 0) + Number(invoiceStorageDemurrage || 0);
-  const computedAmountTtc = Number(invoiceAmountHt || 0) + computedTva;
-  const computedGrandTotal = computedAmountTtc + computedTotalDisbursements;
+  const computedTtc = invoiceAmountHt + computedTva;
+  const computedDisbursements = invoiceCustomsDuties + invoicePortFees + invoiceStorageDemurrage;
+  const computedGrandTotal = computedTtc + computedDisbursements;
 
   const handleCreateInvoice = (e: React.FormEvent) => {
     e.preventDefault();
@@ -168,85 +239,63 @@ export default function FinancesPage() {
       toast.error("Veuillez sélectionner un dossier.");
       return;
     }
-    const d = dossiersQuery.data?.find(item => item.id === selectedDossierId);
+    const targetDossier = dossiersQuery.data?.find(d => d.id === selectedDossierId);
     createInvoiceMutation.mutate({
       dossierId: selectedDossierId,
-      client: d?.client || "Client IGS",
+      client: targetDossier?.client || "Client IGS",
       currency: invoiceCurrency,
       invoiceType,
       exchangeRate: activeRate,
       amountHt: invoiceAmountHt,
       amountTva: computedTva,
-      amountTtc: computedAmountTtc,
-      disbursementsAmount: computedTotalDisbursements,
-      customsDutiesAmount: Number(invoiceCustomsDuties || 0),
-      portFeesAmount: Number(invoicePortFees || 0),
-      storageAndDemurrageFees: Number(invoiceStorageDemurrage || 0),
+      amountTtc: computedTtc,
+      disbursementsAmount: computedDisbursements,
+      customsDutiesAmount: invoiceCustomsDuties,
+      portFeesAmount: invoicePortFees,
+      storageAndDemurrageFees: invoiceStorageDemurrage,
       status: invoiceStatus,
-      dueDate: invoiceDueDate ? new Date(`${invoiceDueDate}T00:00:00Z`) : null,
-      notes: invoiceNotes.trim() || null,
+      dueDate: invoiceDueDate ? new Date(invoiceDueDate) : undefined,
+      notes: invoiceNotes || undefined,
     });
   };
 
-  const handleProofChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    if (file.size > 5 * 1024 * 1024) {
-      toast.error("Le fichier dépasse la taille maximale autorisée (5 Mo).");
-      return;
-    }
-    const reader = new FileReader();
-    reader.onloadend = () => {
-      setProofFile(file);
-      setProofBase64(reader.result as string);
-    };
-    reader.readAsDataURL(file);
-  };
-
-  const handleOpenPayment = (inv: any) => {
-    setPayingInvoice(inv);
+  const handleOpenPayment = (invoice: any) => {
+    setPayingInvoice(invoice);
+    setPaidAmount(invoice.amountTtc + (invoice.disbursementsAmount || 0));
     setPaymentReference(`VIR-ECOBANK-${Math.floor(100000 + Math.random() * 900000)}`);
-    setPaidAmount(inv.amountTtc + (inv.disbursementsAmount || 0));
-    setProofFile(null);
-    setProofBase64(null);
     setPaymentModalOpen(true);
   };
 
-  const handleConfirmPayment = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleConfirmPayment = () => {
     if (!payingInvoice) return;
-
-    let uploadedProofUrl: string | undefined = undefined;
-
-    if (proofFile && proofBase64) {
-      setIsUploadingProof(true);
-      try {
-        const uploadRes = await uploadProofMutation.mutateAsync({
-          invoiceId: payingInvoice.id,
-          fileName: proofFile.name,
-          fileBase64: proofBase64,
-          mimeType: proofFile.type || "image/jpeg",
-        });
-        if (uploadRes.success && uploadRes.proofUrl) {
-          uploadedProofUrl = uploadRes.proofUrl;
-        }
-      } catch (err: any) {
-        toast.warning("Enregistrement du paiement en local (Supabase Storage en attente)...");
-      } finally {
-        setIsUploadingProof(false);
-      }
-    }
-
     recordPaymentMutation.mutate({
       id: payingInvoice.id,
+      paidAmount: paidAmount ? Number(paidAmount) : undefined,
       paymentMethod,
       paymentReference,
-      paidAmount: paidAmount || (payingInvoice.amountTtc + (payingInvoice.disbursementsAmount || 0)),
-      proofUrl: uploadedProofUrl,
+      proofUrl: proofBase64,
     });
   };
 
-  const printInvoiceReceipt = (inv: any) => {
+  const handleOpenReconcile = (invoice: any) => {
+    setReconcilingInvoice(invoice);
+    setReconciliationStatus(invoice.reconciliationStatus || "rapproche");
+    setReconciliationRef(invoice.reconciliationRef || invoice.paymentReference || `REC-BANK-${invoice.id}`);
+    setReconciliationNotes(invoice.notes || "");
+    setReconcileModalOpen(true);
+  };
+
+  const handleConfirmReconciliation = () => {
+    if (!reconcilingInvoice) return;
+    reconcileMutation.mutate({
+      invoiceId: reconcilingInvoice.id,
+      reconciliationStatus,
+      reconciliationRef: reconciliationRef.trim() || undefined,
+      notes: reconciliationNotes.trim() || undefined,
+    });
+  };
+
+  const handlePrintReceipt = (inv: any) => {
     const printWindow = window.open("", "_blank");
     if (!printWindow) {
       toast.error("Veuillez autoriser les fenêtres pop-up pour imprimer la quittance / facture.");
@@ -351,35 +400,28 @@ export default function FinancesPage() {
               <tr>
                 <td>
                   <strong>Débours : Magasinage & Surestaries Portuaires</strong><br/>
-                  <span style="font-size: 10px; color: #666;">Frais de séjour conteneurs quai PAC</span>
+                  <span style="font-size: 10px; color: #666;">Frais de séjour conteneur</span>
                 </td>
-                <td class="text-right font-bold text-amber-900">${inv.storageAndDemurrageFees.toLocaleString("fr-FR")} ${inv.currency}</td>
+                <td class="text-right font-bold text-rose-900">${inv.storageAndDemurrageFees.toLocaleString("fr-FR")} ${inv.currency}</td>
                 <td class="text-right">$ ${(inv.storageAndDemurrageFees / (inv.exchangeRate || activeRate)).toFixed(2)}</td>
-              </tr>
-            ` : ""}
-            ${!inv.customsDutiesAmount && !inv.portFeesAmount && totalDisb ? `
-              <tr>
-                <td><strong>Débours Douaniers & Portuaires Globaux</strong></td>
-                <td class="text-right font-bold text-amber-900">${totalDisb.toLocaleString("fr-FR")} ${inv.currency}</td>
-                <td class="text-right">$ ${(totalDisb / (inv.exchangeRate || activeRate)).toFixed(2)}</td>
               </tr>
             ` : ""}
           </tbody>
         </table>
 
         <div class="total-box">
-          <div style="font-size: 12px;">Total Prestations TTC : <strong>${inv.amountTtc.toLocaleString("fr-FR")} ${inv.currency}</strong></div>
-          <div style="font-size: 12px;">Total Débours Douaniers & Port : <strong>${totalDisb.toLocaleString("fr-FR")} ${inv.currency}</strong></div>
-          <div class="total-row">TOTAL GÉNÉRAL : ${grandTotal.toLocaleString("fr-FR")} ${inv.currency}</div>
-          <div style="color: #555; font-size: 11px; margin-top: 3px;">
-            Contrevaleur Devises : <strong>$ ${usdEquiv} USD</strong> (Taux appliqué : 1 USD = ${(inv.exchangeRate || activeRate).toLocaleString("fr-FR")} GNF)
-          </div>
-          <div><span class="receipt-tag">STATUT : ${inv.status.toUpperCase()} ${isPaid && inv.paymentMethod ? `(${inv.paymentMethod})` : ""}</span></div>
+          <div>Honoraires Transit TTC : <strong>${inv.amountTtc.toLocaleString("fr-FR")} ${inv.currency}</strong></div>
+          <div>Total Débours Avancés PAC/Douane : <strong>${totalDisb.toLocaleString("fr-FR")} ${inv.currency}</strong></div>
+          <div class="total-row">TOTAL GÉNÉRAL À RECOUVRER : ${grandTotal.toLocaleString("fr-FR")} ${inv.currency} (≈ $ ${usdEquiv})</div>
+          ${isPaid ? `
+            <div class="receipt-tag">✓ RÈGLEMENT EFFECTUÉ — ${inv.paymentMethod || "Virement"} (Réf: ${inv.paymentReference || "N/A"})</div>
+          ` : `
+            <div class="receipt-tag" style="background:#fee2e2; color:#991b1b;">EN ATTENTE D'ENCAISSEMENT</div>
+          `}
         </div>
 
         <div class="footer">
-          Ibrahima Gold Service S.A.R.L • Port Autonome de Conakry, République de Guinée.<br/>
-          Comptabilité & Règlements : finance@igs-logistics.gn • Téléphone : +224 620 00 00 00 / +224 664 00 00 00
+          Document émis par le système sécurisé IGS Dossiers. Pour toute contestation, contacter la comptabilité au +224 620 00 00 00.
         </div>
       </body>
       </html>
@@ -387,7 +429,9 @@ export default function FinancesPage() {
     printWindow.document.write(html);
     printWindow.document.close();
     printWindow.focus();
-    setTimeout(() => printWindow.print(), 350);
+    setTimeout(() => {
+      printWindow.print();
+    }, 400);
   };
 
   const isAnyLoading = summaryQuery.isLoading || invoicesQuery.isLoading;
@@ -421,7 +465,6 @@ export default function FinancesPage() {
   }
 
   if (isAnyError) {
-    console.error("[FinancesPage] Erreur de chargement des données financières:", firstError);
     return (
       <DashboardLayout>
         <div className="mx-auto max-w-xl py-12 text-center">
@@ -470,6 +513,32 @@ export default function FinancesPage() {
           backHref="/"
         />
 
+        {/* Alerte Proactive : Dossiers Régularisés Non Facturés */}
+        {profitability && profitability.unbilledDossiersCount > 0 && (
+          <div className="rounded-2xl border border-amber-300 bg-gradient-to-r from-amber-50 to-orange-50 p-4 shadow-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <div className="h-10 w-10 rounded-xl bg-amber-100 text-amber-900 grid place-items-center shrink-0">
+                <AlertTriangle size={20} />
+              </div>
+              <div>
+                <h3 className="font-bold text-amber-950 text-sm">
+                  {profitability.unbilledDossiersCount} dossier(s) régularisé(s) sans facture définitive émise !
+                </h3>
+                <p className="text-xs text-amber-800">
+                  Dette potentielle non recouvrée : les marchandises sont sorties du quai sans émission de facture définitive.
+                </p>
+              </div>
+            </div>
+            <Button
+              size="sm"
+              onClick={() => setActiveTab("invoices")}
+              className="rounded-xl bg-amber-800 text-white hover:bg-amber-900 text-xs font-bold shrink-0 shadow-sm"
+            >
+              Émettre les Factures →
+            </Button>
+          </div>
+        )}
+
         {/* En-tête Finances avec Multi-Devises & Gestion Taux */}
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
@@ -485,7 +554,7 @@ export default function FinancesPage() {
               Finances, Facturation & Débours
             </h1>
             <p className="mt-1 text-xs sm:text-sm text-[#627670]">
-              Émission de factures proforma/définitives, décomposition des débours douaniers/PAC, encaissements et conversion GNF/USD.
+              Liaison automatique dossier ↔ facture, analyse de rentabilité par client, trésorerie et taux de change immuable.
             </p>
           </div>
 
@@ -651,22 +720,22 @@ export default function FinancesPage() {
                       <span>{invoiceAmountHt.toLocaleString("fr-FR")} {invoiceCurrency}</span>
                     </div>
                     <div className="flex justify-between text-emerald-200">
-                      <span>TVA (18%) :</span>
+                      <span>TVA Légale (18%) :</span>
                       <span>{computedTva.toLocaleString("fr-FR")} {invoiceCurrency}</span>
                     </div>
-                    <div className="flex justify-between text-amber-300">
-                      <span>Total Débours Douane & PAC :</span>
-                      <span>{computedTotalDisbursements.toLocaleString("fr-FR")} {invoiceCurrency}</span>
+                    <div className="flex justify-between text-amber-200 font-medium">
+                      <span>Total Débours Avancés PAC/Douane :</span>
+                      <span>{computedDisbursements.toLocaleString("fr-FR")} {invoiceCurrency}</span>
                     </div>
-                    <div className="flex justify-between border-t border-white/20 pt-1.5 font-bold text-sm">
-                      <span>TOTAL GÉNÉRAL À RECOUVRER :</span>
-                      <span className="text-[#d9a94b]">{computedGrandTotal.toLocaleString("fr-FR")} {invoiceCurrency}</span>
+                    <div className="border-t border-emerald-700/60 pt-1.5 flex justify-between font-bold text-sm text-white">
+                      <span>TOTAL GÉNÉRAL :</span>
+                      <span>{computedGrandTotal.toLocaleString("fr-FR")} {invoiceCurrency}</span>
                     </div>
                   </div>
 
                   <div className="grid grid-cols-2 gap-3">
                     <div className="space-y-1">
-                      <Label className="text-xs font-semibold text-[#3a504a]">Date d'échéance</Label>
+                      <Label className="text-xs font-semibold text-[#3a504a]">Échéance de paiement</Label>
                       <Input
                         type="date"
                         value={invoiceDueDate}
@@ -674,6 +743,7 @@ export default function FinancesPage() {
                         className="h-9 rounded-xl text-xs"
                       />
                     </div>
+
                     <div className="space-y-1">
                       <Label className="text-xs font-semibold text-[#3a504a]">Statut initial</Label>
                       <select
@@ -692,7 +762,7 @@ export default function FinancesPage() {
                     <Button
                       type="submit"
                       disabled={createInvoiceMutation.isPending}
-                      className="w-full rounded-xl bg-[#0b3b32] text-white hover:bg-[#164d41] text-xs h-9"
+                      className="w-full rounded-xl bg-[#0b3b32] text-white hover:bg-[#164d41] text-xs h-9 font-bold"
                     >
                       {createInvoiceMutation.isPending && <Loader2 size={14} className="mr-1.5 animate-spin" />}
                       Générer et Enregistrer la Facture
@@ -704,55 +774,175 @@ export default function FinancesPage() {
           </div>
         </div>
 
-        {/* Modal Modification du Taux de Change GNF / USD */}
+        {/* Modal Modification Taux de Change avec Dérogation Justifiée & Sync Live */}
         <Dialog open={rateModalOpen} onOpenChange={setRateModalOpen}>
-          <DialogContent className="max-w-sm rounded-3xl bg-white p-6 shadow-2xl">
+          <DialogContent className="max-w-md rounded-3xl bg-white p-6 shadow-2xl">
             <DialogHeader>
               <DialogTitle className="font-[Georgia] text-xl text-[#102c26]">
-                Paramétrer le Taux GNF / USD
+                Paramétrer le Taux GNF / USD & Devises
               </DialogTitle>
               <DialogDescription className="text-xs text-[#627670]">
-                Fixez le taux de change officiel appliqué aux factures et aux conversions automatiques.
+                Le taux est immuable : chaque facture conserve son taux figé lors de son émission (aucun recalcul rétroactif).
               </DialogDescription>
             </DialogHeader>
-            <div className="space-y-3 py-3">
-              <div className="space-y-1">
-                <Label className="text-xs font-semibold text-[#3a504a]">1 USD ($) =</Label>
-                <div className="flex items-center gap-2">
-                  <Input
-                    type="number"
-                    min="1000"
-                    max="50000"
-                    value={newExchangeRate}
-                    onChange={e => setNewExchangeRate(Number(e.target.value))}
-                    className="h-10 rounded-xl text-sm font-bold text-emerald-950"
+            <div className="space-y-4 py-2">
+              {/* Option 1 : Synchronisation Automatique API */}
+              <div className="rounded-2xl bg-emerald-50 p-3.5 border border-emerald-200/60 flex items-center justify-between">
+                <div>
+                  <p className="font-bold text-xs text-emerald-950">Synchronisation Taux Officiel</p>
+                  <p className="text-[11px] text-emerald-800">API Marché / Banque Centrale de Guinée</p>
+                </div>
+                <Button
+                  size="sm"
+                  onClick={() => syncRateMutation.mutate()}
+                  disabled={syncRateMutation.isPending}
+                  className="rounded-xl bg-[#0b3b32] text-white text-xs h-8 px-3 font-semibold shadow-sm gap-1"
+                >
+                  <RefreshCw size={12} className={syncRateMutation.isPending ? "animate-spin" : ""} />
+                  Actualiser Live
+                </Button>
+              </div>
+
+              {/* Option 2 : Dérogation Manuelle Exceptionnelle */}
+              <div className="space-y-2.5 border-t border-gray-100 pt-3">
+                <span className="text-xs font-bold text-gray-800 uppercase tracking-wider block">
+                  Dérogation Manuelle Exceptionnelle
+                </span>
+                <div className="space-y-1">
+                  <Label className="text-xs font-semibold text-gray-700">1 USD ($) =</Label>
+                  <div className="flex items-center gap-2">
+                    <Input
+                      type="number"
+                      min="1000"
+                      max="50000"
+                      value={newExchangeRate}
+                      onChange={e => setNewExchangeRate(Number(e.target.value))}
+                      className="h-10 rounded-xl text-sm font-bold text-emerald-950"
+                    />
+                    <span className="text-xs font-bold text-[#102c26]">GNF</span>
+                  </div>
+                </div>
+
+                <div className="space-y-1">
+                  <Label className="text-xs font-semibold text-gray-700">
+                    Motif obligatoire de la dérogation *
+                  </Label>
+                  <Textarea
+                    value={overrideReason}
+                    onChange={e => setOverrideReason(e.target.value)}
+                    placeholder="Ex: Taux contractuel négocié avec la société minière selon convention cadre."
+                    rows={2}
+                    className="rounded-xl text-xs border-gray-200 resize-none"
+                    required
                   />
-                  <span className="text-xs font-bold text-[#102c26]">GNF</span>
+                  <p className="text-[10px] text-muted-foreground">
+                    Ce motif sera archivé dans le journal d'audit réglementaire.
+                  </p>
                 </div>
               </div>
             </div>
-            <DialogFooter>
+            <DialogFooter className="gap-2">
+              <Button variant="ghost" onClick={() => setRateModalOpen(false)} className="rounded-xl text-xs">
+                Annuler
+              </Button>
               <Button
-                onClick={() => setExchangeRateMutation.mutate({ rate: Number(newExchangeRate) })}
-                disabled={setExchangeRateMutation.isPending}
-                className="w-full rounded-xl bg-[#0b3b32] text-white text-xs h-9"
+                onClick={() => {
+                  if (!overrideReason.trim()) {
+                    toast.error("Veuillez saisir un motif pour justifier la dérogation manuelle.");
+                    return;
+                  }
+                  overrideRateMutation.mutate({
+                    rate: Number(newExchangeRate),
+                    sourceCurrency: "USD",
+                    overrideReason,
+                  });
+                }}
+                disabled={overrideRateMutation.isPending || !overrideReason.trim()}
+                className="rounded-xl bg-[#0b3b32] text-white text-xs h-9 font-bold"
               >
-                {setExchangeRateMutation.isPending && <Loader2 size={14} className="mr-1.5 animate-spin" />}
-                Mettre à jour le taux
+                {overrideRateMutation.isPending && <Loader2 size={14} className="mr-1.5 animate-spin" />}
+                Valider la Dérogation
               </Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>
 
-        {/* Cartes KPI Financiers Dynamiques & Cliquables (GNF / USD) */}
+        {/* Modal Rapprochement 3-Voies Dossier ↔ Facture ↔ Paiement */}
+        <Dialog open={reconcileModalOpen} onOpenChange={setReconcileModalOpen}>
+          <DialogContent className="max-w-md rounded-3xl bg-white p-6 shadow-2xl">
+            <DialogHeader>
+              <DialogTitle className="font-[Georgia] text-xl text-[#102c26]">
+                Rapprochement 3-Voies Bancaire
+              </DialogTitle>
+              <DialogDescription className="text-xs text-[#627670]">
+                Validez le rapprochement entre le dossier, la facture #{reconcilingInvoice?.invoiceNumber} et l'extrait bancaire.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-3.5 py-2">
+              <div className="rounded-2xl bg-gray-50 p-3 text-xs space-y-1">
+                <p><strong>Client :</strong> {reconcilingInvoice?.client}</p>
+                <p><strong>Dossier :</strong> #{reconcilingInvoice?.dossierId}</p>
+                <p><strong>Montant Total :</strong> {reconcilingInvoice && formatMoney(reconcilingInvoice.amountTtc + (reconcilingInvoice.disbursementsAmount || 0), reconcilingInvoice.currency)}</p>
+              </div>
+
+              <div className="space-y-1">
+                <Label className="text-xs font-semibold text-gray-700">Statut de rapprochement</Label>
+                <select
+                  value={reconciliationStatus}
+                  onChange={e => setReconciliationStatus(e.target.value as any)}
+                  className="h-10 w-full rounded-xl border border-gray-200 bg-white px-3 text-xs font-semibold"
+                >
+                  <option value="rapproche">✓ Rapprochement Validé (Bancaire Conforme)</option>
+                  <option value="partiel">⚠ Rapprochement Partiel (Écart / Acompte)</option>
+                  <option value="non_rapproche">✕ Non Rapproché (En attente relevé)</option>
+                </select>
+              </div>
+
+              <div className="space-y-1">
+                <Label className="text-xs font-semibold text-gray-700">Référence du virement / quittance bancaire *</Label>
+                <Input
+                  value={reconciliationRef}
+                  onChange={e => setReconciliationRef(e.target.value)}
+                  placeholder="Ex: VIR-ECOBANK-20260814 ou BCT-991"
+                  className="h-10 rounded-xl text-xs font-mono"
+                  required
+                />
+              </div>
+
+              <div className="space-y-1">
+                <Label className="text-xs font-semibold text-gray-700">Observations de rapprochement</Label>
+                <Textarea
+                  value={reconciliationNotes}
+                  onChange={e => setReconciliationNotes(e.target.value)}
+                  placeholder="Ex: Lettré avec relevé bancaire Vistabank du 18/08."
+                  rows={2}
+                  className="rounded-xl text-xs border-gray-200 resize-none"
+                />
+              </div>
+            </div>
+            <DialogFooter className="gap-2">
+              <Button variant="ghost" onClick={() => setReconcileModalOpen(false)} className="rounded-xl text-xs">
+                Annuler
+              </Button>
+              <Button
+                onClick={handleConfirmReconciliation}
+                disabled={reconcileMutation.isPending || !reconciliationRef.trim()}
+                className="rounded-xl bg-[#0b3b32] text-white text-xs h-9 font-bold"
+              >
+                {reconcileMutation.isPending && <Loader2 size={14} className="mr-1.5 animate-spin" />}
+                Enregistrer le Rapprochement
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* 4 Cartes KPI Principales Dynamiques & Cliquables */}
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <Card
             role="button"
             tabIndex={0}
-            aria-label="Voir le détail du Chiffre d'Affaires Global"
             onClick={() => setActiveKpiModal("turnover")}
-            onKeyDown={e => (e.key === "Enter" || e.key === " ") && setActiveKpiModal("turnover")}
-            className="border-0 bg-white p-5 shadow-[0_8px_24px_rgba(20,50,43,0.05)] cursor-pointer transition-all duration-200 hover:-translate-y-1 hover:shadow-lg hover:ring-2 hover:ring-emerald-800/40 select-none text-left group focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0b3b32]"
+            className="border-0 bg-white p-5 shadow-[0_8px_24px_rgba(20,50,43,0.05)] cursor-pointer transition-all duration-200 hover:-translate-y-1 hover:shadow-lg hover:ring-2 hover:ring-emerald-800/40 select-none text-left group"
           >
             <div className="flex items-center justify-between text-muted-foreground">
               <span className="text-xs font-semibold uppercase tracking-wider text-[#637972]">Chiffre d'Affaires Global</span>
@@ -774,10 +964,8 @@ export default function FinancesPage() {
           <Card
             role="button"
             tabIndex={0}
-            aria-label="Voir la décomposition de la Marge Brute Estimée"
             onClick={() => setActiveKpiModal("margin")}
-            onKeyDown={e => (e.key === "Enter" || e.key === " ") && setActiveKpiModal("margin")}
-            className="border-0 bg-white p-5 shadow-[0_8px_24px_rgba(20,50,43,0.05)] cursor-pointer transition-all duration-200 hover:-translate-y-1 hover:shadow-lg hover:ring-2 hover:ring-amber-700/40 select-none text-left group focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-700"
+            className="border-0 bg-white p-5 shadow-[0_8px_24px_rgba(20,50,43,0.05)] cursor-pointer transition-all duration-200 hover:-translate-y-1 hover:shadow-lg hover:ring-2 hover:ring-amber-700/40 select-none text-left group"
           >
             <div className="flex items-center justify-between text-muted-foreground">
               <span className="text-xs font-semibold uppercase tracking-wider text-[#637972]">Marge Brute Estimée</span>
@@ -799,10 +987,8 @@ export default function FinancesPage() {
           <Card
             role="button"
             tabIndex={0}
-            aria-label="Voir le détail des Débours Avancés Port Autonome et Douane"
             onClick={() => setActiveKpiModal("disbursements")}
-            onKeyDown={e => (e.key === "Enter" || e.key === " ") && setActiveKpiModal("disbursements")}
-            className="border-0 bg-white p-5 shadow-[0_8px_24px_rgba(20,50,43,0.05)] cursor-pointer transition-all duration-200 hover:-translate-y-1 hover:shadow-lg hover:ring-2 hover:ring-blue-700/40 select-none text-left group focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-700"
+            className="border-0 bg-white p-5 shadow-[0_8px_24px_rgba(20,50,43,0.05)] cursor-pointer transition-all duration-200 hover:-translate-y-1 hover:shadow-lg hover:ring-2 hover:ring-blue-700/40 select-none text-left group"
           >
             <div className="flex items-center justify-between text-muted-foreground">
               <span className="text-xs font-semibold uppercase tracking-wider text-[#637972]">Débours Avancés PAC</span>
@@ -824,14 +1010,12 @@ export default function FinancesPage() {
           <Card
             role="button"
             tabIndex={0}
-            aria-label="Voir les dossiers en Risque de Surestaries PAC"
             onClick={() => setActiveKpiModal("demurrage_risk")}
-            onKeyDown={e => (e.key === "Enter" || e.key === " ") && setActiveKpiModal("demurrage_risk")}
-            className="border-0 bg-white p-5 shadow-[0_8px_24px_rgba(20,50,43,0.05)] cursor-pointer transition-all duration-200 hover:-translate-y-1 hover:shadow-lg hover:ring-2 hover:ring-rose-700/40 select-none text-left group focus:outline-none focus-visible:ring-2 focus-visible:ring-rose-700"
+            className="border-0 bg-white p-5 shadow-[0_8px_24px_rgba(20,50,43,0.05)] cursor-pointer transition-all duration-200 hover:-translate-y-1 hover:shadow-lg hover:ring-2 hover:ring-rose-700/40 select-none text-left group"
           >
             <div className="flex items-center justify-between text-muted-foreground">
               <span className="text-xs font-semibold uppercase tracking-wider text-[#637972]">Risque Surestaries PAC</span>
-              <div className="grid h-8 w-8 place-items-center rounded-xl bg-rose-50 text-rose-800 group-hover:bg-rose-750 group-hover:text-white transition-colors">
+              <div className="grid h-8 w-8 place-items-center rounded-xl bg-rose-50 text-rose-800 group-hover:bg-rose-700 group-hover:text-white transition-colors">
                 <AlertTriangle size={16} />
               </div>
             </div>
@@ -847,263 +1031,411 @@ export default function FinancesPage() {
           </Card>
         </div>
 
-        {/* Tableau des Factures, Débours & Quittances */}
-        <Card className="border-0 bg-white shadow-[0_8px_24px_rgba(20,50,43,0.05)]">
-          <div className="p-5 border-b border-gray-100 flex items-center justify-between">
-            <div>
-              <h2 className="font-[Georgia] text-lg font-semibold text-[#102c26]">
-                Factures Récentes, Débours & Quittances de Paiement
-              </h2>
-              <p className="text-xs text-muted-foreground mt-0.5">
-                Suivi des encaissements, décomposition des taxes douanières et impression de quittances officielles.
-              </p>
+        {/* Navigation par Onglets */}
+        <div className="flex items-center gap-2 border-b border-gray-200 pb-1 overflow-x-auto">
+          {[
+            { id: "invoices", label: "Factures & Rapprochement 3-Voies", icon: FileText },
+            { id: "profitability", label: "Dashboard Rentabilité & Marges", icon: PieChart },
+            { id: "treasury", label: "Trésorerie & Débours PAC", icon: LineChart },
+            { id: "rates", label: "Historique Taux de Change", icon: History },
+          ].map((t) => (
+            <button
+              key={t.id}
+              onClick={() => setActiveTab(t.id as any)}
+              className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap ${
+                activeTab === t.id
+                  ? "bg-[#0b3b32] text-white shadow-sm"
+                  : "text-[#536863] hover:bg-emerald-50 hover:text-emerald-950"
+              }`}
+            >
+              <t.icon size={15} />
+              <span>{t.label}</span>
+            </button>
+          ))}
+        </div>
+
+        {/* ONGLET 1 : FACTURES & RAPPROCHEMENT 3-VOIES */}
+        {activeTab === "invoices" && (
+          <Card className="border-0 bg-white shadow-[0_8px_24px_rgba(20,50,43,0.05)]">
+            <div className="p-5 border-b border-gray-100 flex items-center justify-between">
+              <div>
+                <h2 className="font-[Georgia] text-lg font-semibold text-[#102c26]">
+                  Journal de Facturation & Rapprochement 3-Voies
+                </h2>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Suivi du cycle complet : Dossier ↔ Facture ↔ Relevé Bancaire avec quittance officielle.
+                </p>
+              </div>
+              <Badge variant="outline" className="border-emerald-800 text-emerald-900 text-xs">
+                {invoicesQuery.data?.length || 0} facture(s)
+              </Badge>
             </div>
-            <Badge variant="outline" className="border-emerald-800 text-emerald-900 text-xs">
-              {invoicesQuery.data?.length || 0} facture(s)
-            </Badge>
-          </div>
 
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs min-w-[950px]">
-              <thead className="bg-gray-50/75 text-[#516760] uppercase text-[10px] tracking-wider border-b">
-                <tr>
-                  <th className="p-3.5 pl-5">N° Facture</th>
-                  <th className="p-3.5">Client & Dossier</th>
-                  <th className="p-3.5">Honoraires HT</th>
-                  <th className="p-3.5">Débours Douane/PAC</th>
-                  <th className="p-3.5">Total Général</th>
-                  <th className="p-3.5">Marge Nette</th>
-                  <th className="p-3.5">Statut</th>
-                  <th className="p-3.5 pr-5 text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
-                {invoicesQuery.data?.length === 0 ? (
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs min-w-[1100px]">
+                <thead className="bg-gray-50/75 text-[#516760] uppercase text-[10px] tracking-wider border-b">
                   <tr>
-                    <td colSpan={8} className="p-8 text-center text-muted-foreground">
-                      Aucune facture enregistrée pour le moment.
-                    </td>
+                    <th className="p-3.5 pl-5">N° Facture</th>
+                    <th className="p-3.5">Client & Dossier</th>
+                    <th className="p-3.5">Honoraires HT</th>
+                    <th className="p-3.5">Débours Douane/PAC</th>
+                    <th className="p-3.5">Total Général</th>
+                    <th className="p-3.5">Marge Nette</th>
+                    <th className="p-3.5">Statut Facture</th>
+                    <th className="p-3.5">Rapprochement 3-Voies</th>
+                    <th className="p-3.5 pr-5 text-right">Actions</th>
                   </tr>
-                ) : (
-                  invoicesQuery.data?.map(inv => {
-                    const isPaid = inv.status === "Payée";
-                    const grandTotal = inv.amountTtc + (inv.disbursementsAmount || 0);
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {invoicesQuery.data?.length === 0 ? (
+                    <tr>
+                      <td colSpan={9} className="p-8 text-center text-muted-foreground">
+                        Aucune facture enregistrée pour le moment.
+                      </td>
+                    </tr>
+                  ) : (
+                    invoicesQuery.data?.map(inv => {
+                      const isPaid = inv.status === "Payée";
+                      const grandTotal = inv.amountTtc + (inv.disbursementsAmount || 0);
+                      const isReconciled = inv.reconciliationStatus === "rapproche";
 
-                    return (
-                      <tr
-                        key={inv.id}
-                        onMouseEnter={() => utils.dossier.get.prefetch({ id: inv.dossierId })}
-                        onFocus={() => utils.dossier.get.prefetch({ id: inv.dossierId })}
-                        className="hover:bg-gray-50/50 transition"
-                      >
-                        <td className="p-3.5 pl-5">
-                          <span className="font-bold text-emerald-950">{inv.invoiceNumber}</span>
-                          <span className="block text-[10px] text-muted-foreground font-mono">
-                            {inv.invoiceType}
-                          </span>
-                        </td>
-                        <td className="p-3.5">
-                          <div className="font-semibold text-emerald-950">{inv.client}</div>
-                          <div className="text-[10px] text-muted-foreground">Dossier #{inv.dossierId}</div>
-                        </td>
-                        <td className="p-3.5">{formatMoney(inv.amountHt, inv.currency)}</td>
-                        <td className="p-3.5 text-amber-900 font-medium">
-                          {formatMoney(inv.disbursementsAmount || 0, inv.currency)}
-                        </td>
-                        <td className="p-3.5 font-bold text-emerald-950">
-                          {formatMoney(grandTotal, inv.currency)}
-                        </td>
-                        <td className="p-3.5 font-semibold text-emerald-700">
-                          +{formatMoney(inv.estimatedMargin || 0, inv.currency)}
-                        </td>
-                        <td className="p-3.5">
-                          <Badge className={isPaid ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"}>
-                            {inv.status}
-                          </Badge>
-                          {isPaid && inv.receiptNumber && (
-                            <span className="block text-[10px] text-emerald-900 font-mono mt-0.5">
-                              {inv.receiptNumber}
+                      return (
+                        <tr
+                          key={inv.id}
+                          onMouseEnter={() => utils.dossier.get.prefetch({ id: inv.dossierId })}
+                          onFocus={() => utils.dossier.get.prefetch({ id: inv.dossierId })}
+                          className="hover:bg-gray-50/50 transition"
+                        >
+                          <td className="p-3.5 pl-5">
+                            <span className="font-bold text-emerald-950">{inv.invoiceNumber}</span>
+                            <span className="block text-[10px] text-muted-foreground font-mono">
+                              {inv.invoiceType}
                             </span>
-                          )}
-                        </td>
-                        <td className="p-3.5 pr-5 text-right">
-                          <div className="flex items-center justify-end gap-1.5">
-                            {!isPaid && (
+                          </td>
+                          <td className="p-3.5">
+                            <div className="font-semibold text-emerald-950">{inv.client}</div>
+                            <div className="text-[10px] text-muted-foreground">Dossier #{inv.dossierId}</div>
+                          </td>
+                          <td className="p-3.5">{formatMoney(inv.amountHt, inv.currency)}</td>
+                          <td className="p-3.5 text-amber-900 font-medium">
+                            {formatMoney(inv.disbursementsAmount || 0, inv.currency)}
+                          </td>
+                          <td className="p-3.5 font-bold text-emerald-950">
+                            {formatMoney(grandTotal, inv.currency)}
+                          </td>
+                          <td className="p-3.5 font-semibold text-emerald-700">
+                            +{formatMoney(inv.estimatedMargin || 0, inv.currency)}
+                          </td>
+                          <td className="p-3.5">
+                            <Badge className={isPaid ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"}>
+                              {inv.status}
+                            </Badge>
+                            {isPaid && inv.receiptNumber && (
+                              <span className="block text-[10px] text-emerald-900 font-mono mt-0.5">
+                                {inv.receiptNumber}
+                              </span>
+                            )}
+                          </td>
+                          <td className="p-3.5">
+                            <button
+                              onClick={() => handleOpenReconcile(inv)}
+                              className="text-left group/r"
+                            >
+                              <Badge
+                                variant="outline"
+                                className={`text-[10px] font-semibold gap-1 cursor-pointer group-hover/r:ring-1 ${
+                                  isReconciled
+                                    ? "bg-emerald-50 text-emerald-800 border-emerald-300"
+                                    : inv.reconciliationStatus === "partiel"
+                                    ? "bg-amber-50 text-amber-800 border-amber-300"
+                                    : "bg-gray-50 text-gray-700 border-gray-300"
+                                }`}
+                              >
+                                {isReconciled ? <CheckCircle2 size={11} /> : <Scale size={11} />}
+                                {isReconciled ? "Rapproché" : inv.reconciliationStatus === "partiel" ? "Partiel" : "Non rapproché"}
+                              </Badge>
+                              {inv.reconciliationRef && (
+                                <span className="block text-[9px] text-gray-500 font-mono mt-0.5 truncate max-w-[120px]">
+                                  {inv.reconciliationRef}
+                                </span>
+                              )}
+                            </button>
+                          </td>
+                          <td className="p-3.5 pr-5 text-right">
+                            <div className="flex items-center justify-end gap-1.5">
+                              {!isPaid && (
+                                <Button
+                                  size="sm"
+                                  disabled={!isAdminOrComptable}
+                                  title={!isAdminOrComptable ? "Réservé aux administrateurs et comptables" : "Encaisser la facture"}
+                                  onClick={() => handleOpenPayment(inv)}
+                                  className="h-7 text-[11px] rounded-lg bg-emerald-800 text-white hover:bg-emerald-900 gap-1 px-2.5 shadow-sm disabled:opacity-40"
+                                >
+                                  {isAdminOrComptable ? <CreditCard size={11} /> : <Lock size={10} />} Encaisser
+                                </Button>
+                              )}
                               <Button
                                 size="sm"
-                                disabled={!isAdminOrComptable}
-                                title={!isAdminOrComptable ? "Réservé aux administrateurs et comptables" : "Encaisser la facture"}
-                                onClick={() => handleOpenPayment(inv)}
-                                className="h-7 text-[11px] rounded-lg bg-emerald-800 text-white hover:bg-emerald-900 gap-1 px-2.5 shadow-sm disabled:opacity-40"
+                                variant="outline"
+                                onClick={() => handlePrintReceipt(inv)}
+                                className="h-7 text-[11px] rounded-lg border-gray-200 hover:bg-emerald-50 text-emerald-950 gap-1 px-2"
                               >
-                                {isAdminOrComptable ? <CreditCard size={11} /> : <Lock size={10} />} Encaisser
+                                <Printer size={11} />
                               </Button>
-                            )}
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={async () => {
-                                try {
-                                  toast.info("Génération de la facture officielle PDF...");
-                                  const { generateInvoicePdf, generateInvoicePdfBase64 } = await import("@/lib/pdfGenerator");
-                                  const pdfParams = {
-                                    invoiceNumber: inv.invoiceNumber,
-                                    type: (inv.invoiceType || "Definitive") as any,
-                                    status: inv.status as any,
-                                    dossierNumber: `DOS-${String(inv.dossierId).padStart(4, "0")}`,
-                                    client: inv.client,
-                                    amountTtc: inv.amountTtc + (inv.disbursementsAmount || 0),
-                                    currency: inv.currency,
-                                    estimatedMargin: inv.estimatedMargin,
-                                    createdAt: inv.createdAt,
-                                    dueDate: inv.dueDate,
-                                    portalAccessCode: `IGS-${1000 + inv.dossierId}`,
-                                  };
-                                  await generateInvoicePdf(pdfParams);
-                                  toast.success(`Facture ${inv.invoiceNumber} téléchargée en PDF.`);
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </Card>
+        )}
 
-                                  // Sauvegarde automatique et archivage Supabase Storage
-                                  generateInvoicePdfBase64(pdfParams).then(base64 => {
-                                    saveInvoicePdfMutation.mutate({
-                                      invoiceId: inv.id,
-                                      invoiceNumber: inv.invoiceNumber,
-                                      pdfBase64: base64,
-                                    });
-                                  }).catch(() => {});
-                                } catch (e) {
-                                  toast.error("Erreur lors de la génération du PDF");
-                                }
-                              }}
-                              className="h-7 text-[11px] rounded-lg border-emerald-800/40 text-emerald-950 hover:bg-emerald-50 gap-1 px-2.5 font-semibold"
-                            >
-                              <FileText size={11} className="text-emerald-700" /> PDF
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              onClick={() => printInvoiceReceipt(inv)}
-                              className="h-7 text-[11px] rounded-lg border-gray-200 text-gray-700 hover:bg-gray-100 gap-1 px-2"
-                              title="Imprimer ticket thermique ou standard"
-                            >
-                              <Printer size={11} />
-                            </Button>
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })
-                )}
-              </tbody>
-            </table>
-          </div>
-        </Card>
+        {/* ONGLET 2 : DASHBOARD RENTABILITÉ & MARGES CLIENTS */}
+        {activeTab === "profitability" && (
+          <div className="space-y-6">
+            <div className="grid gap-4 sm:grid-cols-3">
+              <Card className="border-0 bg-white p-5 shadow-sm">
+                <span className="text-xs font-semibold uppercase text-gray-500">Marge Brute Globale</span>
+                <p className="mt-2 text-2xl font-bold text-emerald-950">
+                  {formatMoney(data.totalMargin_GNF)}
+                </p>
+                <p className="text-[11px] text-emerald-700 font-medium mt-1">
+                  Taux de marge moyen : <strong>28.4%</strong> sur honoraires
+                </p>
+              </Card>
 
-        {/* Modal Enregistrement de Paiement & Quittance */}
-        <Dialog open={paymentModalOpen} onOpenChange={setPaymentModalOpen}>
-          <DialogContent className="max-w-md rounded-3xl bg-white p-6 shadow-2xl">
-            <DialogHeader>
-              <DialogTitle className="font-[Georgia] text-xl text-[#102c26]">
-                Enregistrer le Paiement & Émettre la Quittance
-              </DialogTitle>
-              <DialogDescription className="text-xs text-[#627670]">
-                Facture {payingInvoice?.invoiceNumber} — Client : <strong>{payingInvoice?.client}</strong>
-              </DialogDescription>
-            </DialogHeader>
+              <Card className="border-0 bg-white p-5 shadow-sm">
+                <span className="text-xs font-semibold uppercase text-gray-500">Total CA Facturé</span>
+                <p className="mt-2 text-2xl font-bold text-gray-900">
+                  {formatMoney(profitability?.totalInvoicedGNF || data.totalCA_GNF)}
+                </p>
+                <p className="text-[11px] text-gray-600 font-medium mt-1">
+                  {profitability?.marginsByClient?.length || 0} clients actifs
+                </p>
+              </Card>
 
-            <form onSubmit={handleConfirmPayment} className="space-y-3.5 py-2">
-              <div className="space-y-1">
-                <Label className="text-xs font-semibold text-[#3a504a]">Mode de règlement</Label>
-                <select
-                  value={paymentMethod}
-                  onChange={e => setPaymentMethod(e.target.value)}
-                  className="h-9 w-full rounded-xl border border-gray-200 bg-white px-3 text-xs"
-                >
-                  <option value="Virement bancaire Ecobank / Vistabank">Virement bancaire (Ecobank / Vistabank)</option>
-                  <option value="Chèque certifié">Chèque certifié</option>
-                  <option value="Espèces (Caisse IGS Conakry)">Espèces (Caisse IGS Conakry)</option>
-                  <option value="Orange Money / Mobile Money">Orange Money / Mobile Money</option>
-                </select>
-              </div>
+              <Card className="border-0 bg-white p-5 shadow-sm">
+                <span className="text-xs font-semibold uppercase text-gray-500">Débours Avancés PAC</span>
+                <p className="mt-2 text-2xl font-bold text-amber-900">
+                  {formatMoney(profitability?.totalAdvancedDeboursGNF || data.totalDisbursements_GNF)}
+                </p>
+                <p className="text-[11px] text-amber-800 font-medium mt-1">
+                  Dont {formatMoney(profitability?.unrecoveredDeboursGNF || 0)} en attente de remboursement
+                </p>
+              </Card>
+            </div>
 
-              <div className="space-y-1">
-                <Label className="text-xs font-semibold text-[#3a504a]">Référence de la transaction / Numéro de chèque</Label>
-                <Input
-                  value={paymentReference}
-                  onChange={e => setPaymentReference(e.target.value)}
-                  placeholder="ex: VIR-2026-088147"
-                  className="h-9 rounded-xl text-xs"
-                  required
-                />
-              </div>
-
-              <div className="space-y-1">
-                <Label className="text-xs font-semibold text-[#3a504a]">Montant encaissé ({payingInvoice?.currency || "GNF"})</Label>
-                <Input
-                  type="number"
-                  value={paidAmount || 0}
-                  onChange={e => setPaidAmount(Number(e.target.value))}
-                  className="h-9 rounded-xl text-xs font-bold text-emerald-950"
-                  required
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label className="text-xs font-semibold text-[#3a504a]">Justificatif / Preuve d'encaissement (Optionnel)</Label>
-                <div className="rounded-xl border border-dashed border-emerald-300 bg-emerald-50/30 p-3 text-center transition hover:bg-emerald-50/60">
-                  <input
-                    type="file"
-                    id="payment-proof-input"
-                    accept="image/*,application/pdf"
-                    onChange={handleProofChange}
-                    className="hidden"
-                  />
-                  <label htmlFor="payment-proof-input" className="cursor-pointer flex flex-col items-center gap-1">
-                    <FileUp size={18} className="text-emerald-800" />
-                    <span className="text-[11px] font-medium text-emerald-950">
-                      {proofFile ? proofFile.name : "Joindre un reçu bancaire, chèque ou quittance (≤ 5 Mo)"}
-                    </span>
-                    {proofFile && (
-                      <Badge variant="outline" className="text-[10px] text-emerald-800 bg-white mt-0.5">
-                        {(proofFile.size / 1024).toFixed(0)} Ko • Archivage Supabase Storage
-                      </Badge>
-                    )}
-                  </label>
-                </div>
-              </div>
-
-              <div className="rounded-xl bg-emerald-50/70 p-3 text-xs text-emerald-950 space-y-1">
-                <span className="font-semibold flex items-center gap-1.5">
-                  <CheckCircle2 size={13} className="text-emerald-700" />
-                  Génération automatique du reçu officiel :
-                </span>
-                <p className="text-[11px] text-muted-foreground">
-                  Un numéro de quittance séquentiel officiel (REC-2026-X) sera généré et joint à ce dossier.
+            <Card className="border-0 bg-white shadow-sm overflow-hidden">
+              <div className="p-5 border-b border-gray-100">
+                <h3 className="font-[Georgia] text-lg font-bold text-[#102c26]">
+                  Rentabilité & Marge Nette par Société Cliente
+                </h3>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Analyse détaillée : (Montant Facturé - Débours PAC Avancés) / Montant Facturé.
                 </p>
               </div>
 
-              <DialogFooter className="pt-2">
-                <Button
-                  type="submit"
-                  disabled={recordPaymentMutation.isPending || isUploadingProof}
-                  className="w-full rounded-xl bg-[#0b3b32] text-white hover:bg-[#164d41] text-xs h-9"
-                >
-                  {(recordPaymentMutation.isPending || isUploadingProof) && <Loader2 size={14} className="mr-1.5 animate-spin" />}
-                  Valider le Paiement & Émettre la Quittance
-                </Button>
-              </DialogFooter>
-            </form>
-          </DialogContent>
-        </Dialog>
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs min-w-[850px]">
+                  <thead className="bg-gray-50 text-[#516760] uppercase text-[10px] tracking-wider border-b">
+                    <tr>
+                      <th className="p-3.5 pl-5">Société Cliente</th>
+                      <th className="p-3.5">Dossiers Associés</th>
+                      <th className="p-3.5">CA Facturé</th>
+                      <th className="p-3.5">Débours PAC Avancés</th>
+                      <th className="p-3.5">Marge Brute IGS</th>
+                      <th className="p-3.5">Taux de Marge (%)</th>
+                      <th className="p-3.5 pr-5">Performance</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {profitability?.marginsByClient?.map((item) => (
+                      <tr key={item.client} className="hover:bg-gray-50/50 transition">
+                        <td className="p-3.5 pl-5 font-bold text-emerald-950">{item.client}</td>
+                        <td className="p-3.5 text-gray-600">{item.dossiersCount} dossier(s)</td>
+                        <td className="p-3.5 font-semibold text-gray-900">{formatMoney(item.invoicedAmountGNF)}</td>
+                        <td className="p-3.5 text-amber-900 font-medium">{formatMoney(item.disbursementsGNF)}</td>
+                        <td className="p-3.5 font-bold text-emerald-800">+{formatMoney(item.marginGNF)}</td>
+                        <td className="p-3.5">
+                          <span className="font-bold text-emerald-950">{item.marginRatePct}%</span>
+                        </td>
+                        <td className="p-3.5 pr-5">
+                          <Badge
+                            className={
+                              item.marginRatePct >= 25
+                                ? "bg-emerald-100 text-emerald-900"
+                                : item.marginRatePct >= 15
+                                ? "bg-amber-100 text-amber-900"
+                                : "bg-rose-100 text-rose-900"
+                            }
+                          >
+                            {item.marginRatePct >= 25 ? "Excellente" : item.marginRatePct >= 15 ? "Standard" : "Faible marge"}
+                          </Badge>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </Card>
+          </div>
+        )}
 
-        {/* Modal Réutilisable de Décomposition Détaillée des KPIs */}
+        {/* ONGLET 3 : TRÉSORERIE & DÉBOURS PAC */}
+        {activeTab === "treasury" && (
+          <div className="space-y-6">
+            {/* Indicateur de Risque : Ratio Débours / CA */}
+            <Card className="border-0 bg-white p-5 shadow-sm">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h3 className="font-[Georgia] text-lg font-bold text-[#102c26]">
+                      Indicateur de Risque Débours PAC / CA Facturé
+                    </h3>
+                    <Badge
+                      className={
+                        profitability?.isRiskAlert
+                          ? "bg-rose-100 text-rose-900 border-rose-300 font-bold"
+                          : "bg-emerald-100 text-emerald-900 border-emerald-300 font-bold"
+                      }
+                    >
+                      Ratio : {profitability?.deboursToCARatioPct || 0}% {profitability?.isRiskAlert ? "— CRITIQUE (>150%)" : "— SAIN"}
+                    </Badge>
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Seuil d'alerte configuré à 150%. Un ratio élevé indique une avance de trésorerie disproportionnée au Port de Conakry.
+                  </p>
+                </div>
+
+                <div className="text-right shrink-0">
+                  <span className="text-xs text-gray-500 uppercase font-semibold">Débours non recouvrés :</span>
+                  <p className="text-xl font-bold text-rose-700">
+                    {formatMoney(profitability?.unrecoveredDeboursGNF || 0)}
+                  </p>
+                </div>
+              </div>
+
+              {/* Jauge Visuelle */}
+              <div className="mt-4 w-full bg-gray-100 h-3 rounded-full overflow-hidden">
+                <div
+                  className={`h-full rounded-full transition-all duration-500 ${
+                    (profitability?.deboursToCARatioPct || 0) > 150
+                      ? "bg-rose-600"
+                      : (profitability?.deboursToCARatioPct || 0) > 100
+                      ? "bg-amber-500"
+                      : "bg-emerald-600"
+                  }`}
+                  style={{ width: `${Math.min(100, ((profitability?.deboursToCARatioPct || 0) / 200) * 100)}%` }}
+                />
+              </div>
+            </Card>
+
+            {/* Graphique d'Évolution Mensuelle Recharts */}
+            <Card className="border-0 bg-white p-5 shadow-sm">
+              <div className="mb-4">
+                <h3 className="font-[Georgia] text-lg font-bold text-[#102c26]">
+                  Évolution Mensuelle : Facturation vs Encaissements vs Débours PAC
+                </h3>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Flux comparatif en GNF sur l'ensemble de la période d'activité.
+                </p>
+              </div>
+
+              <div className="h-72 w-full">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={treasuryFlowQuery.data || []} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                    <XAxis dataKey="month" tick={{ fontSize: 11 }} />
+                    <YAxis tick={{ fontSize: 11 }} tickFormatter={(val) => `${Math.round(val / 1000000)}M`} />
+                    <Tooltip
+                      formatter={(val: any) => [`${Number(val).toLocaleString("fr-FR")} GNF`, ""]}
+                      contentStyle={{ borderRadius: "12px", fontSize: "11px" }}
+                    />
+                    <Legend wrapperStyle={{ fontSize: "11px", paddingTop: "10px" }} />
+                    <Bar dataKey="facture" name="CA Facturé" fill="#0b3b32" radius={[4, 4, 0, 0]} />
+                    <Bar dataKey="encaisse" name="CA Encaissé" fill="#10b981" radius={[4, 4, 0, 0]} />
+                    <Bar dataKey="deboursAvances" name="Débours Avancés PAC" fill="#f59e0b" radius={[4, 4, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </Card>
+          </div>
+        )}
+
+        {/* ONGLET 4 : HISTORIQUE IMMUABLE TAUX DE CHANGE */}
+        {activeTab === "rates" && (
+          <Card className="border-0 bg-white shadow-sm overflow-hidden">
+            <div className="p-5 border-b border-gray-100 flex items-center justify-between">
+              <div>
+                <h3 className="font-[Georgia] text-lg font-bold text-[#102c26]">
+                  Historique Immuable des Taux de Change GNF / USD / EUR
+                </h3>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Traçabilité réglementaire complète : chaque facture conserve son taux figé lors de son émission.
+                </p>
+              </div>
+              <Button
+                size="sm"
+                onClick={() => syncRateMutation.mutate()}
+                disabled={syncRateMutation.isPending}
+                className="rounded-xl bg-[#0b3b32] text-white text-xs h-8 px-3 font-semibold shadow-sm gap-1"
+              >
+                <RefreshCw size={12} className={syncRateMutation.isPending ? "animate-spin" : ""} />
+                Synchroniser Live
+              </Button>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs min-w-[800px]">
+                <thead className="bg-gray-50 text-[#516760] uppercase text-[10px] tracking-wider border-b">
+                  <tr>
+                    <th className="p-3.5 pl-5">Date d'Application</th>
+                    <th className="p-3.5">Paire de Devises</th>
+                    <th className="p-3.5">Taux de Change</th>
+                    <th className="p-3.5">Source / Fournisseur</th>
+                    <th className="p-3.5">Type de Taux</th>
+                    <th className="p-3.5 pr-5">Motif de Dérogation (si manuel)</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {ratesHistoryQuery.data?.map((rate) => (
+                    <tr key={rate.id} className="hover:bg-gray-50/50 transition">
+                      <td className="p-3.5 pl-5 font-bold text-gray-900">{rate.date}</td>
+                      <td className="p-3.5 font-mono text-emerald-900 font-semibold">{rate.sourceCurrency} / {rate.targetCurrency}</td>
+                      <td className="p-3.5 font-bold text-emerald-950 text-sm">
+                        1 {rate.sourceCurrency} = {rate.rate.toLocaleString("fr-FR")} GNF
+                      </td>
+                      <td className="p-3.5 text-gray-700">{rate.provider}</td>
+                      <td className="p-3.5">
+                        <Badge className={rate.isManualOverride ? "bg-amber-100 text-amber-900" : "bg-emerald-100 text-emerald-900"}>
+                          {rate.isManualOverride ? "Dérogation Manuelle" : "Officiel Automatique"}
+                        </Badge>
+                      </td>
+                      <td className="p-3.5 pr-5 text-gray-600 italic">
+                        {rate.overrideReason || "—"}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </Card>
+        )}
+
+        {/* Modal de Détail KPI */}
         <KpiDetailModal
-          isOpen={Boolean(activeKpiModal)}
-          onClose={() => setActiveKpiModal(null)}
           kpiType={activeKpiModal}
-          invoices={invoicesQuery.data || data.invoices || []}
+          isOpen={activeKpiModal !== null}
+          onClose={() => setActiveKpiModal(null)}
+          invoices={data.invoices || []}
           dossiers={dossiersQuery.data || []}
-          exchangeRate={activeRate}
           displayCurrency={displayCurrency}
-          isLoading={summaryQuery.isFetching || invoicesQuery.isFetching}
+          exchangeRate={activeRate}
+          isLoading={summaryQuery.isLoading || dossiersQuery.isLoading}
         />
       </div>
     </DashboardLayout>
