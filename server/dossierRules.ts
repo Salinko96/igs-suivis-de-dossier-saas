@@ -30,7 +30,16 @@ export const REQUIRED_DOSSIER_FIELDS = [
 
 const hasValue = (value: unknown) => value !== null && value !== undefined && String(value).trim() !== "";
 
-export function calculateDossierState(input: DossierStateInput) {
+export function calculateDossierState(input: DossierStateInput & { isDraft?: boolean; calculatedStatus?: string }) {
+  if (input.isDraft || input.calculatedStatus === "Brouillon") {
+    return {
+      calculatedStatus: "Brouillon" as const,
+      calculatedPriority: "Normale" as const,
+      completionRate: 20,
+      missingFields: [],
+    };
+  }
+
   const missingFields = REQUIRED_DOSSIER_FIELDS.filter(field => !hasValue(input[field]));
   const hasPackaging = hasValue(input.container) || hasValue(input.bulk);
 

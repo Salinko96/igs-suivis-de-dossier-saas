@@ -18,6 +18,7 @@ import {
   ClipboardCheck, 
   FolderKanban, 
   Globe, 
+  History,
   KeyRound,
   LayoutDashboard, 
   Lock,
@@ -42,6 +43,7 @@ const allMenuItems = [
   { icon: CircleDollarSign, label: "Finances & Facturation", path: "/finances", roles: ["admin", "comptable", "manager"] },
   { icon: CalendarDays, label: "Planning & Échéances", path: "/planning", roles: ["admin", "declarant", "manager"] },
   { icon: ShieldAlert, label: "Contrôles Douane & PAC", path: "/controles", roles: ["admin", "declarant", "manager"] },
+  { icon: History, label: "Journal d'Audit & Traçabilité", path: "/audit", roles: ["admin", "manager"] },
   { icon: Globe, label: "Portail Client Externe", path: "/portail-client", roles: ["admin", "client"] },
 ];
 

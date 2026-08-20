@@ -51,6 +51,27 @@ const dossierPayload = z.object({
   service: optionalText,
   regime: optionalText,
   notes: optionalText,
+  isDraft: z.boolean().optional(),
+  calculatedStatus: z.enum(["Régularisé", "À régulariser", "Brouillon"]).optional(),
+});
+
+const dossierCreatePayload = dossierPayload.superRefine((data, ctx) => {
+  const hasAnyData = Boolean(
+    data.client?.trim() ||
+    data.clientDossierNumber?.trim() ||
+    data.blLtaNumber?.trim() ||
+    data.cargoNature?.trim() ||
+    data.declarationNumber?.trim() ||
+    data.ddiGucegNumber?.trim()
+  );
+
+  if (!hasAnyData) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Impossible de créer un dossier vide. Veuillez renseigner au minimum le client ou la référence de transport.",
+      path: ["client"],
+    });
+  }
 });
 
 const filtersSchema = z.object({
@@ -400,7 +421,7 @@ export const appRouter = router({
         }
       }),
     create: internalProcedure
-      .input(dossierPayload)
+      .input(dossierCreatePayload)
       .mutation(async ({ ctx, input }) => {
         try {
           invalidateDashboardCache();
@@ -492,25 +513,161 @@ export const appRouter = router({
       }),
   }),
 
-  // 4. PORTAIL CLIENT PUBLIC / DIRECT
+  // 4. PORTAIL CLIENT PUBLIC / DIRECT (AVEC JWT SIGNÉ & OTP)
   portal: router({
     track: publicProcedure
-      .input(z.object({ accessCodeOrNumber: z.string().trim().min(2) }))
-      .query(async ({ input }) => {
-        const dossier = await db.getDossierByPortalCode(input.accessCodeOrNumber);
+      .input(
+        z.object({
+          accessCodeOrNumber: z.string().trim().optional(),
+          token: z.string().trim().optional(),
+        })
+      )
+      .query(async ({ ctx, input }) => {
+        const clientIp = (ctx.req?.headers?.["x-forwarded-for"] as string) || ctx.req?.socket?.remoteAddress || "127.0.0.1";
+        const userAgent = (ctx.req?.headers?.["user-agent"] as string) || "Navigateur Web";
+
+        let lookupCode = input.accessCodeOrNumber;
+        let tokenData: any = null;
+
+        if (input.token) {
+          tokenData = await db.verifyPortalToken(input.token);
+          if (!tokenData) {
+            await db.logPortalAccess({
+              accessCodeUsed: "JWT_TOKEN_INVALID",
+              tokenIdentifier: input.token.slice(0, 20),
+              ipAddress: clientIp,
+              userAgent,
+              success: false,
+              errorReason: "Token JWT expiré ou signature invalide",
+            });
+            throw new TRPCError({
+              code: "UNAUTHORIZED",
+              message: "Lien de suivi sécurisé expiré (valable 7 jours) ou signature invalide. Veuillez demander un nouveau lien ou entrer votre code d'accès.",
+            });
+          }
+          lookupCode = tokenData.dossierNumber || String(tokenData.dossierId);
+        }
+
+        if (!lookupCode || !lookupCode.trim()) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Veuillez fournir un code d'accès, un numéro de connaissement BL ou un token sécurisé.",
+          });
+        }
+
+        const dossier = await db.getDossierByPortalCode(lookupCode);
         if (!dossier) {
+          await db.logPortalAccess({
+            accessCodeUsed: lookupCode,
+            tokenIdentifier: input.token ? input.token.slice(0, 20) : undefined,
+            ipAddress: clientIp,
+            userAgent,
+            success: false,
+            errorReason: "Dossier introuvable",
+          });
           throw new TRPCError({
             code: "NOT_FOUND",
             message: "Dossier introuvable. Aucun dossier trouvé pour ce code. Vérifiez le code d'accès et réessayez.",
           });
         }
+
+        // Journalisation de l'accès réussi
+        await db.logPortalAccess({
+          dossierId: dossier.id,
+          accessCodeUsed: lookupCode,
+          tokenIdentifier: input.token ? input.token.slice(0, 20) : undefined,
+          clientCompany: dossier.client || tokenData?.clientCompany || undefined,
+          ipAddress: clientIp,
+          userAgent,
+          success: true,
+        });
+
         const docs = await db.listDocuments(dossier.id);
         const history = await db.listDossierHistory(dossier.id);
+
         return {
           dossier,
           documents: docs.map(d => ({ id: d.id, name: d.name, type: d.type, createdAt: d.createdAt })),
           timeline: history.map(h => ({ date: h.createdAt, title: h.fieldChanged, detail: h.newValue || h.comment })),
         };
+      }),
+
+    generateShareableToken: protectedProcedure
+      .input(z.object({ dossierId: z.number().int().positive() }))
+      .mutation(async ({ input }) => {
+        const dossier = await db.getDossier(input.dossierId);
+        if (!dossier) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Dossier introuvable" });
+        }
+        const token = await db.generatePortalToken({
+          dossierId: dossier.id,
+          dossierNumber: dossier.dossierNumber,
+          clientCompany: dossier.client ?? undefined,
+          clientDossierNumber: dossier.clientDossierNumber ?? undefined,
+        }, "7d");
+
+        return {
+          token,
+          shareableUrl: `/portail-client?token=${token}`,
+          expiresIn: "7 jours",
+          dossierNumber: dossier.dossierNumber,
+          client: dossier.client,
+        };
+      }),
+
+    requestOtp: publicProcedure
+      .input(
+        z.object({
+          clientCompany: z.string().min(2),
+          phone: z.string().optional(),
+          email: z.string().optional(),
+          dossierId: z.number().optional(),
+        })
+      )
+      .mutation(async ({ input }) => {
+        return db.requestClientOtp(input);
+      }),
+
+    verifyOtp: publicProcedure
+      .input(
+        z.object({
+          clientCompany: z.string().min(2),
+          otpCode: z.string().min(4),
+        })
+      )
+      .mutation(async ({ input }) => {
+        const res = await db.verifyClientOtp(input);
+        if (!res.success) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: res.error });
+        }
+        return res;
+      }),
+
+    logs: adminProcedure
+      .input(z.object({ dossierId: z.number().optional() }).optional())
+      .query(async ({ input }) => {
+        return db.listPortalAccessLogs(input?.dossierId);
+      }),
+  }),
+
+  // 5. AUDIT TRAIL & CONTRÔLE DOUANIER
+  audit: router({
+    list: protectedProcedure
+      .input(
+        z.object({
+          dossierId: z.number().optional(),
+          authorName: z.string().optional(),
+          action: z.string().optional(),
+          from: z.date().optional(),
+          to: z.date().optional(),
+          limit: z.number().optional(),
+        }).nullish()
+      )
+      .query(async ({ input }) => {
+        if (input?.dossierId) {
+          return db.listDossierHistory(input.dossierId);
+        }
+        return db.listAuditLogs(input || undefined);
       }),
   }),
 
@@ -571,13 +728,6 @@ export const appRouter = router({
     remove: protectedProcedure
       .input(z.object({ id: z.number().int().positive() }))
       .mutation(async ({ ctx, input }) => db.deleteDocument(input.id, ctx.user.id, ctx.user.name || "Opérateur IGS")),
-  }),
-
-  // 6. AUDIT TRAIL / HISTORIQUE
-  audit: router({
-    list: protectedProcedure
-      .input(z.object({ dossierId: z.number().int().positive() }))
-      .query(async ({ input }) => db.listDossierHistory(input.dossierId)),
   }),
 
   // 7. MODULE FINANCIER & FACTURATION

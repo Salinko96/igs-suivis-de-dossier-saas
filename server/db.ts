@@ -15,13 +15,18 @@ import {
   ExchangeRate, exchangeRates, InsertExchangeRate,
   DossierTask, dossierTasks, InsertDossierTask,
   DossierComment, dossierComments, InsertDossierComment,
-  Notification, notifications, InsertNotification
+  Notification, notifications, InsertNotification,
+  ClientAccessSession, clientAccessSessions, InsertClientAccessSession,
+  PortalAccessLog, portalAccessLogs, InsertPortalAccessLog
 } from "../drizzle/schema";
+import { SignJWT, jwtVerify } from "jose";
 import { calculateDossierState, formatDossierNumber } from "./dossierRules";
 import { generateProactiveAlerts } from "./alertsService";
 import { initialImportData } from "./initialImportData";
 import { initialUsersData } from "./initialUsersData";
 import { ENV } from "./_core/env";
+
+const PORTAL_JWT_SECRET = new TextEncoder().encode(process.env.JWT_SECRET || "igs_secure_portal_jwt_secret_2026_conakry");
 
 let _db: ReturnType<typeof drizzle> | null = null;
 let _client: ReturnType<typeof postgres> | null = null;
@@ -368,6 +373,9 @@ let _memoryNotifications: Notification[] = [
     createdAt: new Date(),
   }
 ];
+
+let _memoryPortalLogs: PortalAccessLog[] = [];
+let _memoryClientSessions: ClientAccessSession[] = [];
 
 export async function withDbTimeout<T>(queryPromise: Promise<T>, timeoutMs = 2500): Promise<T> {
   let timer: any;
@@ -942,7 +950,209 @@ export async function getDossierByPortalCode(portalAccessCode: string) {
   return undefined;
 }
 
-export type EditableDossier = Omit<typeof dossiers.$inferInsert, "id" | "version" | "dossierNumber" | "calculatedStatus" | "calculatedPriority" | "completionRate" | "createdAt" | "updatedAt">;
+// ----------------- SÉCURITÉ PORTAIL CLIENT (JWT & OTP) -----------------
+
+export async function generatePortalToken(payload: {
+  dossierId: number;
+  dossierNumber: string;
+  clientCompany?: string;
+  clientDossierNumber?: string;
+}, expiresIn = "7d"): Promise<string> {
+  return new SignJWT({ ...payload, scope: "portal_tracking" })
+    .setProtectedHeader({ alg: "HS256" })
+    .setIssuedAt()
+    .setExpirationTime(expiresIn)
+    .sign(PORTAL_JWT_SECRET);
+}
+
+export async function verifyPortalToken(token: string): Promise<{
+  dossierId: number;
+  dossierNumber: string;
+  clientCompany?: string;
+  clientDossierNumber?: string;
+  scope: string;
+} | null> {
+  try {
+    const { payload } = await jwtVerify(token, PORTAL_JWT_SECRET);
+    if (payload.scope !== "portal_tracking") return null;
+    return payload as any;
+  } catch (e) {
+    return null;
+  }
+}
+
+export async function logPortalAccess(input: {
+  dossierId?: number | null;
+  accessCodeUsed: string;
+  tokenIdentifier?: string | null;
+  clientCompany?: string | null;
+  ipAddress?: string | null;
+  userAgent?: string | null;
+  success?: boolean;
+  errorReason?: string | null;
+}): Promise<PortalAccessLog> {
+  const logEntry: PortalAccessLog = {
+    id: _memoryPortalLogs.length + 1,
+    dossierId: input.dossierId ?? null,
+    accessCodeUsed: input.accessCodeUsed,
+    tokenIdentifier: input.tokenIdentifier ?? null,
+    clientCompany: input.clientCompany ?? null,
+    ipAddress: input.ipAddress ?? null,
+    userAgent: input.userAgent ?? null,
+    accessedAt: new Date(),
+    success: input.success !== false,
+    errorReason: input.errorReason ?? null,
+  };
+
+  _memoryPortalLogs.unshift(logEntry);
+
+  const db = await getDb();
+  if (db) {
+    try {
+      await db.insert(portalAccessLogs).values(logEntry);
+    } catch (e) {
+      console.warn("[DB] Failed to insert portal access log to database:", e);
+    }
+  }
+
+  return logEntry;
+}
+
+export async function listPortalAccessLogs(dossierId?: number) {
+  let list = [..._memoryPortalLogs];
+  if (list.length === 0) {
+    const db = await getDb();
+    if (db) {
+      try {
+        const rows = await withDbTimeout(
+          db.select().from(portalAccessLogs).where(dossierId ? eq(portalAccessLogs.dossierId, dossierId) : undefined).orderBy(desc(portalAccessLogs.accessedAt)),
+          1500
+        );
+        if (rows.length > 0) {
+          _memoryPortalLogs = rows;
+          list = [...rows];
+        }
+      } catch (e) {}
+    }
+  }
+  if (dossierId) list = list.filter(l => l.dossierId === dossierId);
+  return list.sort((a, b) => b.accessedAt.getTime() - a.accessedAt.getTime());
+}
+
+export async function requestClientOtp(input: {
+  clientCompany: string;
+  phone?: string;
+  email?: string;
+  dossierId?: number;
+}) {
+  const otpCode = Math.floor(100000 + Math.random() * 900000).toString(); // 6 chiffres
+  const expiresAt = new Date(Date.now() + 15 * 60 * 1000); // 15 min expiration
+  const session: ClientAccessSession = {
+    id: _memoryClientSessions.length + 1,
+    dossierId: input.dossierId ?? null,
+    clientCompany: input.clientCompany,
+    clientPhone: input.phone ?? null,
+    clientEmail: input.email ?? null,
+    otpCode,
+    sessionToken: null,
+    expiresAt,
+    verifiedAt: null,
+    attemptsCount: 0,
+    createdAt: new Date(),
+  };
+
+  _memoryClientSessions.unshift(session);
+
+  const db = await getDb();
+  if (db) {
+    try {
+      await db.insert(clientAccessSessions).values(session);
+    } catch (e) {}
+  }
+
+  return {
+    success: true,
+    message: `Code OTP généré avec succès pour ${input.clientCompany}`,
+    expiresInSeconds: 900,
+    debugOtpCode: process.env.NODE_ENV !== "production" ? otpCode : undefined,
+  };
+}
+
+export async function verifyClientOtp(input: {
+  clientCompany: string;
+  otpCode: string;
+}) {
+  const now = new Date();
+  const session = _memoryClientSessions.find(
+    s => s.clientCompany.toLowerCase() === input.clientCompany.trim().toLowerCase() && s.expiresAt > now
+  );
+
+  if (!session) {
+    return { success: false, error: "Code OTP expiré ou demande introuvable. Veuillez renvoyer une demande." };
+  }
+
+  session.attemptsCount += 1;
+  if (session.otpCode !== input.otpCode.trim()) {
+    return { success: false, error: "Code OTP incorrect. Veuillez vérifier le code à 6 chiffres." };
+  }
+
+  session.verifiedAt = now;
+  const token = await generatePortalToken({
+    dossierId: session.dossierId || 1,
+    dossierNumber: "PORTAL_ALL",
+    clientCompany: session.clientCompany,
+  }, "7d");
+
+  session.sessionToken = token;
+  return {
+    success: true,
+    token,
+    clientCompany: session.clientCompany,
+  };
+}
+
+export async function listAuditLogs(filters?: {
+  dossierId?: number;
+  authorName?: string;
+  action?: string;
+  from?: Date;
+  to?: Date;
+  limit?: number;
+}) {
+  let list = [..._memoryHistory];
+  if (list.length === 0) {
+    const db = await getDb();
+    if (db) {
+      try {
+        const rows = await withDbTimeout(
+          db.select().from(dossierStatusHistory).orderBy(desc(dossierStatusHistory.createdAt)),
+          2000
+        );
+        if (rows.length > 0) {
+          _memoryHistory = rows;
+          list = [...rows];
+        }
+      } catch (e) {}
+    }
+  }
+
+  if (filters?.dossierId) list = list.filter(l => l.dossierId === filters.dossierId);
+  if (filters?.authorName) {
+    const a = filters.authorName.toLowerCase();
+    list = list.filter(l => l.authorName?.toLowerCase().includes(a));
+  }
+  if (filters?.action) list = list.filter(l => l.action === filters.action);
+  if (filters?.from) list = list.filter(l => l.createdAt >= filters.from!);
+  if (filters?.to) list = list.filter(l => l.createdAt <= filters.to!);
+
+  const sorted = list.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+  if (filters?.limit) return sorted.slice(0, filters.limit);
+  return sorted;
+}
+
+export type EditableDossier = Omit<typeof dossiers.$inferInsert, "id" | "version" | "dossierNumber" | "calculatedStatus" | "calculatedPriority" | "completionRate" | "createdAt" | "updatedAt"> & {
+  isDraft?: boolean;
+};
 
 export interface UpdateDossierOptions {
   expectedVersion?: number;

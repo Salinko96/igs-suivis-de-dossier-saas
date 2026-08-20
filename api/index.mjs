@@ -145,7 +145,7 @@ import { TRPCError } from "@trpc/server";
 // drizzle/schema.ts
 import { boolean, index, integer, pgEnum, pgTable, serial, text, timestamp, uniqueIndex, varchar } from "drizzle-orm/pg-core";
 var roleEnum = pgEnum("role", ["user", "declarant", "comptable", "manager", "client", "admin"]);
-var calculatedStatusEnum = pgEnum("calculated_status", ["R\xE9gularis\xE9", "\xC0 r\xE9gulariser"]);
+var calculatedStatusEnum = pgEnum("calculated_status", ["R\xE9gularis\xE9", "\xC0 r\xE9gulariser", "Brouillon"]);
 var calculatedPriorityEnum = pgEnum("calculated_priority", ["Haute", "Normale", "Basse"]);
 var documentTypeEnum = pgEnum("document_type", ["BL", "LTA", "DDI", "Facture_Fournisseur", "Facture_Transitaire", "Bulletin_Liquidation", "BAE", "Declaration_Douane", "Photos_Marchandise", "Autre"]);
 var invoiceStatusEnum = pgEnum("invoice_status", ["Proforma", "\xC9mise", "Pay\xE9e", "En_retard", "Annul\xE9e"]);
@@ -417,6 +417,42 @@ var referenceItems = pgTable("reference_items", {
   uniqueIndex("reference_category_label_unique").on(table.category, table.label),
   index("reference_category_idx").on(table.category)
 ]);
+var clientAccessSessions = pgTable("client_access_sessions", {
+  id: serial("id").primaryKey(),
+  dossierId: integer("dossier_id"),
+  clientCompany: varchar("client_company", { length: 255 }).notNull(),
+  clientPhone: varchar("client_phone", { length: 32 }),
+  clientEmail: varchar("client_email", { length: 320 }),
+  otpCode: varchar("otp_code", { length: 12 }).notNull(),
+  sessionToken: text("session_token"),
+  expiresAt: timestamp("expires_at").notNull(),
+  verifiedAt: timestamp("verified_at"),
+  attemptsCount: integer("attempts_count").notNull().default(0),
+  createdAt: timestamp("created_at").defaultNow().notNull()
+}, (table) => [
+  index("client_sessions_dossier_idx").on(table.dossierId),
+  index("client_sessions_phone_idx").on(table.clientPhone),
+  index("client_sessions_expires_idx").on(table.expiresAt)
+]);
+var portalAccessLogs = pgTable("portal_access_logs", {
+  id: serial("id").primaryKey(),
+  dossierId: integer("dossier_id"),
+  accessCodeUsed: varchar("access_code_used", { length: 64 }).notNull(),
+  tokenIdentifier: varchar("token_identifier", { length: 120 }),
+  clientCompany: varchar("client_company", { length: 255 }),
+  ipAddress: varchar("ip_address", { length: 64 }),
+  userAgent: text("user_agent"),
+  accessedAt: timestamp("accessed_at").defaultNow().notNull(),
+  success: boolean("success").notNull().default(true),
+  errorReason: text("error_reason")
+}, (table) => [
+  index("portal_logs_dossier_idx").on(table.dossierId),
+  index("portal_logs_time_idx").on(table.accessedAt),
+  index("portal_logs_code_idx").on(table.accessCodeUsed)
+]);
+
+// server/db.ts
+import { SignJWT, jwtVerify } from "jose";
 
 // server/dossierRules.ts
 var REQUIRED_DOSSIER_FIELDS = [
@@ -434,6 +470,14 @@ var REQUIRED_DOSSIER_FIELDS = [
 ];
 var hasValue = (value) => value !== null && value !== void 0 && String(value).trim() !== "";
 function calculateDossierState(input) {
+  if (input.isDraft || input.calculatedStatus === "Brouillon") {
+    return {
+      calculatedStatus: "Brouillon",
+      calculatedPriority: "Normale",
+      completionRate: 20,
+      missingFields: []
+    };
+  }
   const missingFields = REQUIRED_DOSSIER_FIELDS.filter((field) => !hasValue(input[field]));
   const hasPackaging = hasValue(input.container) || hasValue(input.bulk);
   if (!hasPackaging) missingFields.push("container");
@@ -4290,6 +4334,7 @@ var ENV = {
 };
 
 // server/db.ts
+var PORTAL_JWT_SECRET = new TextEncoder().encode(process.env.JWT_SECRET || "igs_secure_portal_jwt_secret_2026_conakry");
 var _db = null;
 var _client = null;
 var fromSourceDate = (value) => value ? /* @__PURE__ */ new Date(`${value}T00:00:00.000Z`) : null;
@@ -4621,6 +4666,8 @@ var _memoryNotifications = [
     createdAt: /* @__PURE__ */ new Date()
   }
 ];
+var _memoryPortalLogs = [];
+var _memoryClientSessions = [];
 async function withDbTimeout(queryPromise, timeoutMs = 2500) {
   let timer;
   const timeout = new Promise((_, reject) => {
@@ -5077,6 +5124,149 @@ async function getDossierByPortalCode(portalAccessCode) {
     }
   }
   return void 0;
+}
+async function generatePortalToken(payload, expiresIn = "7d") {
+  return new SignJWT({ ...payload, scope: "portal_tracking" }).setProtectedHeader({ alg: "HS256" }).setIssuedAt().setExpirationTime(expiresIn).sign(PORTAL_JWT_SECRET);
+}
+async function verifyPortalToken(token) {
+  try {
+    const { payload } = await jwtVerify(token, PORTAL_JWT_SECRET);
+    if (payload.scope !== "portal_tracking") return null;
+    return payload;
+  } catch (e) {
+    return null;
+  }
+}
+async function logPortalAccess(input) {
+  const logEntry = {
+    id: _memoryPortalLogs.length + 1,
+    dossierId: input.dossierId ?? null,
+    accessCodeUsed: input.accessCodeUsed,
+    tokenIdentifier: input.tokenIdentifier ?? null,
+    clientCompany: input.clientCompany ?? null,
+    ipAddress: input.ipAddress ?? null,
+    userAgent: input.userAgent ?? null,
+    accessedAt: /* @__PURE__ */ new Date(),
+    success: input.success !== false,
+    errorReason: input.errorReason ?? null
+  };
+  _memoryPortalLogs.unshift(logEntry);
+  const db = await getDb();
+  if (db) {
+    try {
+      await db.insert(portalAccessLogs).values(logEntry);
+    } catch (e) {
+      console.warn("[DB] Failed to insert portal access log to database:", e);
+    }
+  }
+  return logEntry;
+}
+async function listPortalAccessLogs(dossierId) {
+  let list = [..._memoryPortalLogs];
+  if (list.length === 0) {
+    const db = await getDb();
+    if (db) {
+      try {
+        const rows = await withDbTimeout(
+          db.select().from(portalAccessLogs).where(dossierId ? eq(portalAccessLogs.dossierId, dossierId) : void 0).orderBy(desc(portalAccessLogs.accessedAt)),
+          1500
+        );
+        if (rows.length > 0) {
+          _memoryPortalLogs = rows;
+          list = [...rows];
+        }
+      } catch (e) {
+      }
+    }
+  }
+  if (dossierId) list = list.filter((l) => l.dossierId === dossierId);
+  return list.sort((a, b) => b.accessedAt.getTime() - a.accessedAt.getTime());
+}
+async function requestClientOtp(input) {
+  const otpCode = Math.floor(1e5 + Math.random() * 9e5).toString();
+  const expiresAt = new Date(Date.now() + 15 * 60 * 1e3);
+  const session = {
+    id: _memoryClientSessions.length + 1,
+    dossierId: input.dossierId ?? null,
+    clientCompany: input.clientCompany,
+    clientPhone: input.phone ?? null,
+    clientEmail: input.email ?? null,
+    otpCode,
+    sessionToken: null,
+    expiresAt,
+    verifiedAt: null,
+    attemptsCount: 0,
+    createdAt: /* @__PURE__ */ new Date()
+  };
+  _memoryClientSessions.unshift(session);
+  const db = await getDb();
+  if (db) {
+    try {
+      await db.insert(clientAccessSessions).values(session);
+    } catch (e) {
+    }
+  }
+  return {
+    success: true,
+    message: `Code OTP g\xE9n\xE9r\xE9 avec succ\xE8s pour ${input.clientCompany}`,
+    expiresInSeconds: 900,
+    debugOtpCode: process.env.NODE_ENV !== "production" ? otpCode : void 0
+  };
+}
+async function verifyClientOtp(input) {
+  const now = /* @__PURE__ */ new Date();
+  const session = _memoryClientSessions.find(
+    (s) => s.clientCompany.toLowerCase() === input.clientCompany.trim().toLowerCase() && s.expiresAt > now
+  );
+  if (!session) {
+    return { success: false, error: "Code OTP expir\xE9 ou demande introuvable. Veuillez renvoyer une demande." };
+  }
+  session.attemptsCount += 1;
+  if (session.otpCode !== input.otpCode.trim()) {
+    return { success: false, error: "Code OTP incorrect. Veuillez v\xE9rifier le code \xE0 6 chiffres." };
+  }
+  session.verifiedAt = now;
+  const token = await generatePortalToken({
+    dossierId: session.dossierId || 1,
+    dossierNumber: "PORTAL_ALL",
+    clientCompany: session.clientCompany
+  }, "7d");
+  session.sessionToken = token;
+  return {
+    success: true,
+    token,
+    clientCompany: session.clientCompany
+  };
+}
+async function listAuditLogs(filters) {
+  let list = [..._memoryHistory];
+  if (list.length === 0) {
+    const db = await getDb();
+    if (db) {
+      try {
+        const rows = await withDbTimeout(
+          db.select().from(dossierStatusHistory).orderBy(desc(dossierStatusHistory.createdAt)),
+          2e3
+        );
+        if (rows.length > 0) {
+          _memoryHistory = rows;
+          list = [...rows];
+        }
+      } catch (e) {
+      }
+    }
+  }
+  if (filters?.dossierId) list = list.filter((l) => l.dossierId === filters.dossierId);
+  if (filters?.authorName) {
+    const a = filters.authorName.toLowerCase();
+    list = list.filter((l) => l.authorName?.toLowerCase().includes(a));
+  }
+  if (filters?.action) list = list.filter((l) => l.action === filters.action);
+  if (filters?.from) list = list.filter((l) => l.createdAt >= filters.from);
+  if (filters?.to) list = list.filter((l) => l.createdAt <= filters.to);
+  const sorted = list.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+  if (filters?.limit) return sorted.slice(0, filters.limit);
+  return sorted;
 }
 async function createDossier(input, userId, authorName) {
   const sequence = _memoryDossiers.length + 1;
@@ -6250,7 +6440,7 @@ var ForbiddenError = (msg) => new HttpError(403, msg);
 // server/_core/sdk.ts
 import axios from "axios";
 import { parse as parseCookieHeader } from "cookie";
-import { SignJWT, jwtVerify } from "jose";
+import { SignJWT as SignJWT2, jwtVerify as jwtVerify2 } from "jose";
 var isNonEmptyString = (value) => typeof value === "string" && value.length > 0;
 var EXCHANGE_TOKEN_PATH = `/webdev.v1.WebDevAuthPublicService/ExchangeToken`;
 var GET_USER_INFO_PATH = `/webdev.v1.WebDevAuthPublicService/GetUserInfo`;
@@ -6375,7 +6565,7 @@ var SDKServer = class {
     const expiresInMs = options.expiresInMs ?? ONE_YEAR_MS;
     const expirationSeconds = Math.floor((issuedAt + expiresInMs) / 1e3);
     const secretKey = this.getSessionSecret();
-    return new SignJWT({
+    return new SignJWT2({
       openId: payload.openId,
       appId: payload.appId,
       name: payload.name
@@ -6388,7 +6578,7 @@ var SDKServer = class {
     }
     try {
       const secretKey = this.getSessionSecret();
-      const { payload } = await jwtVerify(cookieValue, secretKey, {
+      const { payload } = await jwtVerify2(cookieValue, secretKey, {
         algorithms: ["HS256"]
       });
       const { openId, appId, name } = payload;
@@ -6908,7 +7098,21 @@ var dossierPayload = z2.object({
   declarant: optionalText,
   service: optionalText,
   regime: optionalText,
-  notes: optionalText
+  notes: optionalText,
+  isDraft: z2.boolean().optional(),
+  calculatedStatus: z2.enum(["R\xE9gularis\xE9", "\xC0 r\xE9gulariser", "Brouillon"]).optional()
+});
+var dossierCreatePayload = dossierPayload.superRefine((data, ctx) => {
+  const hasAnyData = Boolean(
+    data.client?.trim() || data.clientDossierNumber?.trim() || data.blLtaNumber?.trim() || data.cargoNature?.trim() || data.declarationNumber?.trim() || data.ddiGucegNumber?.trim()
+  );
+  if (!hasAnyData) {
+    ctx.addIssue({
+      code: z2.ZodIssueCode.custom,
+      message: "Impossible de cr\xE9er un dossier vide. Veuillez renseigner au minimum le client ou la r\xE9f\xE9rence de transport.",
+      path: ["client"]
+    });
+  }
 });
 var filtersSchema = z2.object({
   search: z2.string().trim().max(200).optional(),
@@ -7197,7 +7401,7 @@ var appRouter = router({
         });
       }
     }),
-    create: internalProcedure.input(dossierPayload).mutation(async ({ ctx, input }) => {
+    create: internalProcedure.input(dossierCreatePayload).mutation(async ({ ctx, input }) => {
       try {
         invalidateDashboardCache();
         return await createDossier(input, ctx.user.id, ctx.user.name || "Op\xE9rateur");
@@ -7279,16 +7483,66 @@ var appRouter = router({
       return importDossiersBatch(input, ctx.user.id, ctx.user.name || "Importateur Excel");
     })
   }),
-  // 4. PORTAIL CLIENT PUBLIC / DIRECT
+  // 4. PORTAIL CLIENT PUBLIC / DIRECT (AVEC JWT SIGNÉ & OTP)
   portal: router({
-    track: publicProcedure.input(z2.object({ accessCodeOrNumber: z2.string().trim().min(2) })).query(async ({ input }) => {
-      const dossier = await getDossierByPortalCode(input.accessCodeOrNumber);
+    track: publicProcedure.input(
+      z2.object({
+        accessCodeOrNumber: z2.string().trim().optional(),
+        token: z2.string().trim().optional()
+      })
+    ).query(async ({ ctx, input }) => {
+      const clientIp = ctx.req?.headers?.["x-forwarded-for"] || ctx.req?.socket?.remoteAddress || "127.0.0.1";
+      const userAgent = ctx.req?.headers?.["user-agent"] || "Navigateur Web";
+      let lookupCode = input.accessCodeOrNumber;
+      let tokenData = null;
+      if (input.token) {
+        tokenData = await verifyPortalToken(input.token);
+        if (!tokenData) {
+          await logPortalAccess({
+            accessCodeUsed: "JWT_TOKEN_INVALID",
+            tokenIdentifier: input.token.slice(0, 20),
+            ipAddress: clientIp,
+            userAgent,
+            success: false,
+            errorReason: "Token JWT expir\xE9 ou signature invalide"
+          });
+          throw new TRPCError4({
+            code: "UNAUTHORIZED",
+            message: "Lien de suivi s\xE9curis\xE9 expir\xE9 (valable 7 jours) ou signature invalide. Veuillez demander un nouveau lien ou entrer votre code d'acc\xE8s."
+          });
+        }
+        lookupCode = tokenData.dossierNumber || String(tokenData.dossierId);
+      }
+      if (!lookupCode || !lookupCode.trim()) {
+        throw new TRPCError4({
+          code: "BAD_REQUEST",
+          message: "Veuillez fournir un code d'acc\xE8s, un num\xE9ro de connaissement BL ou un token s\xE9curis\xE9."
+        });
+      }
+      const dossier = await getDossierByPortalCode(lookupCode);
       if (!dossier) {
+        await logPortalAccess({
+          accessCodeUsed: lookupCode,
+          tokenIdentifier: input.token ? input.token.slice(0, 20) : void 0,
+          ipAddress: clientIp,
+          userAgent,
+          success: false,
+          errorReason: "Dossier introuvable"
+        });
         throw new TRPCError4({
           code: "NOT_FOUND",
           message: "Dossier introuvable. Aucun dossier trouv\xE9 pour ce code. V\xE9rifiez le code d'acc\xE8s et r\xE9essayez."
         });
       }
+      await logPortalAccess({
+        dossierId: dossier.id,
+        accessCodeUsed: lookupCode,
+        tokenIdentifier: input.token ? input.token.slice(0, 20) : void 0,
+        clientCompany: dossier.client || tokenData?.clientCompany || void 0,
+        ipAddress: clientIp,
+        userAgent,
+        success: true
+      });
       const docs = await listDocuments(dossier.id);
       const history = await listDossierHistory(dossier.id);
       return {
@@ -7296,6 +7550,68 @@ var appRouter = router({
         documents: docs.map((d) => ({ id: d.id, name: d.name, type: d.type, createdAt: d.createdAt })),
         timeline: history.map((h) => ({ date: h.createdAt, title: h.fieldChanged, detail: h.newValue || h.comment }))
       };
+    }),
+    generateShareableToken: protectedProcedure.input(z2.object({ dossierId: z2.number().int().positive() })).mutation(async ({ input }) => {
+      const dossier = await getDossier(input.dossierId);
+      if (!dossier) {
+        throw new TRPCError4({ code: "NOT_FOUND", message: "Dossier introuvable" });
+      }
+      const token = await generatePortalToken({
+        dossierId: dossier.id,
+        dossierNumber: dossier.dossierNumber,
+        clientCompany: dossier.client ?? void 0,
+        clientDossierNumber: dossier.clientDossierNumber ?? void 0
+      }, "7d");
+      return {
+        token,
+        shareableUrl: `/portail-client?token=${token}`,
+        expiresIn: "7 jours",
+        dossierNumber: dossier.dossierNumber,
+        client: dossier.client
+      };
+    }),
+    requestOtp: publicProcedure.input(
+      z2.object({
+        clientCompany: z2.string().min(2),
+        phone: z2.string().optional(),
+        email: z2.string().optional(),
+        dossierId: z2.number().optional()
+      })
+    ).mutation(async ({ input }) => {
+      return requestClientOtp(input);
+    }),
+    verifyOtp: publicProcedure.input(
+      z2.object({
+        clientCompany: z2.string().min(2),
+        otpCode: z2.string().min(4)
+      })
+    ).mutation(async ({ input }) => {
+      const res = await verifyClientOtp(input);
+      if (!res.success) {
+        throw new TRPCError4({ code: "BAD_REQUEST", message: res.error });
+      }
+      return res;
+    }),
+    logs: adminProcedure.input(z2.object({ dossierId: z2.number().optional() }).optional()).query(async ({ input }) => {
+      return listPortalAccessLogs(input?.dossierId);
+    })
+  }),
+  // 5. AUDIT TRAIL & CONTRÔLE DOUANIER
+  audit: router({
+    list: protectedProcedure.input(
+      z2.object({
+        dossierId: z2.number().optional(),
+        authorName: z2.string().optional(),
+        action: z2.string().optional(),
+        from: z2.date().optional(),
+        to: z2.date().optional(),
+        limit: z2.number().optional()
+      }).nullish()
+    ).query(async ({ input }) => {
+      if (input?.dossierId) {
+        return listDossierHistory(input.dossierId);
+      }
+      return listAuditLogs(input || void 0);
     })
   }),
   // 5. GESTION DOCUMENTAIRE & PREUVES
@@ -7346,10 +7662,6 @@ var appRouter = router({
       });
     }),
     remove: protectedProcedure.input(z2.object({ id: z2.number().int().positive() })).mutation(async ({ ctx, input }) => deleteDocument(input.id, ctx.user.id, ctx.user.name || "Op\xE9rateur IGS"))
-  }),
-  // 6. AUDIT TRAIL / HISTORIQUE
-  audit: router({
-    list: protectedProcedure.input(z2.object({ dossierId: z2.number().int().positive() })).query(async ({ input }) => listDossierHistory(input.dossierId))
   }),
   // 7. MODULE FINANCIER & FACTURATION
   finance: router({

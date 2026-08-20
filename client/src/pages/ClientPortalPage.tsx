@@ -1,7 +1,9 @@
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { trpc } from "@/lib/trpc";
 import {
   Anchor,
@@ -12,28 +14,79 @@ import {
   FileCheck,
   FileText,
   Globe,
+  KeyRound,
   Loader2,
+  Lock,
   Package,
+  QrCode,
   Search,
+  Send,
   ShieldCheck,
   Ship,
+  Smartphone,
 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { toast } from "sonner";
 
 const IGS_LOGO = "/igs-logo-transparent.png";
 
 export default function ClientPortalPage() {
-  const [searchCode, setSearchCode] = useState("IGS-1001");
-  const [submittedCode, setSubmittedCode] = useState("IGS-1001");
+  const urlParams = typeof window !== "undefined" ? new URLSearchParams(window.location.search) : null;
+  const tokenParam = urlParams?.get("token") || "";
+
+  const [searchCode, setSearchCode] = useState(tokenParam ? "" : "IGS-1001");
+  const [submittedCode, setSubmittedCode] = useState(tokenParam ? "" : "IGS-1001");
+  const [activeToken, setActiveToken] = useState(tokenParam);
+
+  // OTP Modal State
+  const [otpModalOpen, setOtpModalOpen] = useState(false);
+  const [otpStep, setOtpStep] = useState<"request" | "verify">("request");
+  const [otpCompany, setOtpCompany] = useState("Guinean Birimian Gold S.A");
+  const [otpPhone, setOtpPhone] = useState("+224 621 00 11 22");
+  const [otpCode, setOtpCode] = useState("");
+  const [otpDebugCode, setOtpDebugCode] = useState<string | null>(null);
 
   const portalQuery = trpc.portal.track.useQuery(
-    { accessCodeOrNumber: submittedCode },
     {
-      enabled: Boolean(submittedCode.trim()),
+      accessCodeOrNumber: activeToken ? undefined : submittedCode,
+      token: activeToken || undefined,
+    },
+    {
+      enabled: Boolean(activeToken || submittedCode.trim()),
       retry: false,
       refetchOnWindowFocus: false,
     }
   );
+
+  const requestOtpMutation = trpc.portal.requestOtp.useMutation({
+    onSuccess: (res) => {
+      toast.success(res.message);
+      if (res.debugOtpCode) setOtpDebugCode(res.debugOtpCode);
+      setOtpStep("verify");
+    },
+    onError: (err) => {
+      toast.error(`Erreur OTP : ${err.message}`);
+    },
+  });
+
+  const verifyOtpMutation = trpc.portal.verifyOtp.useMutation({
+    onSuccess: (res) => {
+      toast.success("Authentification OTP réussie ! Vos dossiers sont déverrouillés.");
+      if (res.token) {
+        setActiveToken(res.token);
+      }
+      setOtpModalOpen(false);
+    },
+    onError: (err) => {
+      toast.error(`Code OTP invalide : ${err.message}`);
+    },
+  });
+
+  useEffect(() => {
+    if (tokenParam) {
+      setActiveToken(tokenParam);
+    }
+  }, [tokenParam]);
 
   const sampleCodes = [
     { label: "IGS-1001", desc: "Code de suivi direct" },
@@ -44,6 +97,7 @@ export default function ClientPortalPage() {
   const triggerSearchWithCode = (code: string) => {
     const trimmed = code.trim();
     if (trimmed) {
+      setActiveToken("");
       setSearchCode(trimmed);
       setSubmittedCode(trimmed);
     }
@@ -116,8 +170,25 @@ export default function ClientPortalPage() {
             </Button>
           </form>
 
+          {/* Bouton d'accès OTP & Sécurité Entreprise */}
+          <div className="pt-2 flex flex-wrap items-center justify-center gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setOtpStep("request");
+                setOtpModalOpen(true);
+              }}
+              className="rounded-2xl border-emerald-800/30 text-emerald-950 hover:bg-emerald-50 text-xs font-semibold gap-1.5 h-8"
+            >
+              <Smartphone size={13} className="text-emerald-800" />
+              <span>Accès Espace Client Entreprise (Code OTP)</span>
+            </Button>
+          </div>
+
           {/* Badges d'exemples cliquables sous le formulaire */}
-          <div className="flex flex-wrap items-center justify-center gap-1.5 pt-2 text-xs">
+          <div className="flex flex-wrap items-center justify-center gap-1.5 pt-1 text-xs">
             <span className="text-muted-foreground text-[11px] font-medium mr-1">Exemples rapides :</span>
             {sampleCodes.map(sample => (
               <button
@@ -130,7 +201,125 @@ export default function ClientPortalPage() {
               </button>
             ))}
           </div>
+
+          {/* Bannière de Sécurité Token JWT si actif */}
+          {activeToken && (
+            <div className="mt-3 inline-flex items-center gap-2 rounded-2xl bg-emerald-100/70 border border-emerald-300 px-3.5 py-1.5 text-xs text-emerald-950">
+              <ShieldCheck size={14} className="text-emerald-800 shrink-0" />
+              <span>Lien sécurisé actif : <strong>Session chiffrée IGS (Valable 7 jours)</strong></span>
+            </div>
+          )}
         </div>
+
+        {/* Modal d'Authentification OTP pour Sociétés Clientes */}
+        <Dialog open={otpModalOpen} onOpenChange={setOtpModalOpen}>
+          <DialogContent className="max-w-md rounded-3xl bg-white p-6 shadow-2xl border-0">
+            <DialogHeader>
+              <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-800 mb-2">
+                <KeyRound size={24} />
+              </div>
+              <DialogTitle className="text-center font-[Georgia] text-xl font-bold text-[#0b3b32]">
+                {otpStep === "request" ? "Connexion Espace Entreprise" : "Vérification du Code OTP"}
+              </DialogTitle>
+              <DialogDescription className="text-center text-xs text-muted-foreground">
+                {otpStep === "request"
+                  ? "Recevez un code à usage unique par SMS ou email pour consulter l'ensemble de vos dossiers."
+                  : `Entrez le code à 6 chiffres envoyé au ${otpPhone || otpCompany}.`}
+              </DialogDescription>
+            </DialogHeader>
+
+            {otpStep === "request" ? (
+              <div className="space-y-4 py-2">
+                <div className="space-y-1.5">
+                  <Label className="text-xs font-semibold text-gray-700">Société Cliente / Compte</Label>
+                  <Input
+                    value={otpCompany}
+                    onChange={e => setOtpCompany(e.target.value)}
+                    placeholder="Ex: Guinean Birimian Gold S.A"
+                    className="h-10 text-xs rounded-xl border-gray-200"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs font-semibold text-gray-700">Numéro de Téléphone (SMS) ou Email</Label>
+                  <Input
+                    value={otpPhone}
+                    onChange={e => setOtpPhone(e.target.value)}
+                    placeholder="+224 621 00 11 22 ou contact@societe.gn"
+                    className="h-10 text-xs rounded-xl border-gray-200"
+                  />
+                </div>
+
+                <DialogFooter className="pt-2">
+                  <Button
+                    onClick={() => {
+                      if (!otpCompany.trim()) {
+                        toast.error("Veuillez saisir le nom de votre société.");
+                        return;
+                      }
+                      requestOtpMutation.mutate({
+                        clientCompany: otpCompany,
+                        phone: otpPhone,
+                      });
+                    }}
+                    disabled={requestOtpMutation.isPending}
+                    className="w-full h-10 rounded-xl bg-[#0b3b32] text-white hover:bg-[#164d41] text-xs font-semibold"
+                  >
+                    {requestOtpMutation.isPending && <Loader2 size={14} className="mr-1.5 animate-spin" />}
+                    Recevoir le Code OTP (SMS / Email)
+                  </Button>
+                </DialogFooter>
+              </div>
+            ) : (
+              <div className="space-y-4 py-2">
+                <div className="space-y-1.5">
+                  <Label className="text-xs font-semibold text-gray-700">Code de Sécurité à 6 chiffres</Label>
+                  <Input
+                    value={otpCode}
+                    onChange={e => setOtpCode(e.target.value)}
+                    placeholder="Ex: 849201"
+                    maxLength={6}
+                    className="h-12 text-center font-mono text-lg tracking-widest font-bold rounded-xl border-emerald-600 focus:ring-emerald-700"
+                  />
+                </div>
+
+                {otpDebugCode && (
+                  <div className="rounded-xl bg-amber-50 p-2.5 text-center text-xs text-amber-900 border border-amber-200">
+                    <span className="font-semibold">Code de test (Développement) : </span>
+                    <strong className="font-mono text-sm tracking-wider">{otpDebugCode}</strong>
+                  </div>
+                )}
+
+                <DialogFooter className="flex flex-col gap-2 pt-2">
+                  <Button
+                    onClick={() => {
+                      if (!otpCode.trim() || otpCode.trim().length < 4) {
+                        toast.error("Veuillez saisir le code complet à 6 chiffres.");
+                        return;
+                      }
+                      verifyOtpMutation.mutate({
+                        clientCompany: otpCompany,
+                        otpCode: otpCode.trim(),
+                      });
+                    }}
+                    disabled={verifyOtpMutation.isPending}
+                    className="w-full h-10 rounded-xl bg-[#0b3b32] text-white hover:bg-[#164d41] text-xs font-semibold"
+                  >
+                    {verifyOtpMutation.isPending && <Loader2 size={14} className="mr-1.5 animate-spin" />}
+                    Valider & Consulter mes Dossiers
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setOtpStep("request")}
+                    className="text-xs text-muted-foreground"
+                  >
+                    Renvoyer un nouveau code
+                  </Button>
+                </DialogFooter>
+              </div>
+            )}
+          </DialogContent>
+        </Dialog>
 
         {/* Résultat du Suivi - Indicateur de chargement */}
         {portalQuery.isFetching && (

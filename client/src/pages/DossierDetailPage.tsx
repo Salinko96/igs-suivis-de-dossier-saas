@@ -544,8 +544,8 @@ function DetailContent() {
         const payload = variables.data || buildPayload();
         for (const [k, v] of Object.entries(payload)) {
           const serverVal = (dossier as any)?.[k];
-          const localVal = v instanceof Date ? v.toISOString().slice(0, 10) : v;
-          const sVal = serverVal instanceof Date ? serverVal.toISOString().slice(0, 10) : serverVal;
+          const localVal = v instanceof Date ? v.toISOString().slice(0, 10) : typeof v === "boolean" ? String(v) : v;
+          const sVal = serverVal instanceof Date ? serverVal.toISOString().slice(0, 10) : typeof serverVal === "boolean" ? String(serverVal) : serverVal;
           if (localVal !== undefined && String(localVal || "") !== String(sVal || "")) {
             diffs.push({
               field: k,
@@ -600,7 +600,11 @@ function DetailContent() {
       return;
     }
 
-    const payload = buildPayload();
+    const payload = {
+      ...buildPayload(),
+      isDraft: true,
+      calculatedStatus: "Brouillon" as const,
+    };
     if (isNew) {
       createMutation.mutate(payload);
     } else if (numericId) {

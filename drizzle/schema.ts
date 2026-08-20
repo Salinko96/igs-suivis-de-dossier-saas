@@ -1,7 +1,7 @@
 import { boolean, index, integer, pgEnum, pgTable, serial, text, timestamp, uniqueIndex, varchar } from "drizzle-orm/pg-core";
 
 export const roleEnum = pgEnum("role", ["user", "declarant", "comptable", "manager", "client", "admin"]);
-export const calculatedStatusEnum = pgEnum("calculated_status", ["Régularisé", "À régulariser"]);
+export const calculatedStatusEnum = pgEnum("calculated_status", ["Régularisé", "À régulariser", "Brouillon"]);
 export const calculatedPriorityEnum = pgEnum("calculated_priority", ["Haute", "Normale", "Basse"]);
 export const documentTypeEnum = pgEnum("document_type", ["BL", "LTA", "DDI", "Facture_Fournisseur", "Facture_Transitaire", "Bulletin_Liquidation", "BAE", "Declaration_Douane", "Photos_Marchandise", "Autre"]);
 export const invoiceStatusEnum = pgEnum("invoice_status", ["Proforma", "Émise", "Payée", "En_retard", "Annulée"]);
@@ -271,6 +271,41 @@ export const referenceItems = pgTable("reference_items", {
   index("reference_category_idx").on(table.category),
 ]);
 
+export const clientAccessSessions = pgTable("client_access_sessions", {
+  id: serial("id").primaryKey(),
+  dossierId: integer("dossier_id"),
+  clientCompany: varchar("client_company", { length: 255 }).notNull(),
+  clientPhone: varchar("client_phone", { length: 32 }),
+  clientEmail: varchar("client_email", { length: 320 }),
+  otpCode: varchar("otp_code", { length: 12 }).notNull(),
+  sessionToken: text("session_token"),
+  expiresAt: timestamp("expires_at").notNull(),
+  verifiedAt: timestamp("verified_at"),
+  attemptsCount: integer("attempts_count").notNull().default(0),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, table => [
+  index("client_sessions_dossier_idx").on(table.dossierId),
+  index("client_sessions_phone_idx").on(table.clientPhone),
+  index("client_sessions_expires_idx").on(table.expiresAt),
+]);
+
+export const portalAccessLogs = pgTable("portal_access_logs", {
+  id: serial("id").primaryKey(),
+  dossierId: integer("dossier_id"),
+  accessCodeUsed: varchar("access_code_used", { length: 64 }).notNull(),
+  tokenIdentifier: varchar("token_identifier", { length: 120 }),
+  clientCompany: varchar("client_company", { length: 255 }),
+  ipAddress: varchar("ip_address", { length: 64 }),
+  userAgent: text("user_agent"),
+  accessedAt: timestamp("accessed_at").defaultNow().notNull(),
+  success: boolean("success").notNull().default(true),
+  errorReason: text("error_reason"),
+}, table => [
+  index("portal_logs_dossier_idx").on(table.dossierId),
+  index("portal_logs_time_idx").on(table.accessedAt),
+  index("portal_logs_code_idx").on(table.accessCodeUsed),
+]);
+
 export type User = typeof users.$inferSelect;
 export type InsertUser = typeof users.$inferInsert;
 export type Client = typeof clients.$inferSelect;
@@ -296,6 +331,10 @@ export type InsertDossierComment = typeof dossierComments.$inferInsert;
 export type Notification = typeof notifications.$inferSelect;
 export type InsertNotification = typeof notifications.$inferInsert;
 export type ReferenceItem = typeof referenceItems.$inferSelect;
+export type ClientAccessSession = typeof clientAccessSessions.$inferSelect;
+export type InsertClientAccessSession = typeof clientAccessSessions.$inferInsert;
+export type PortalAccessLog = typeof portalAccessLogs.$inferSelect;
+export type InsertPortalAccessLog = typeof portalAccessLogs.$inferInsert;
 export type AuditLog = DossierStatusHistory;
 export type InsertAuditLog = InsertDossierStatusHistory;
 

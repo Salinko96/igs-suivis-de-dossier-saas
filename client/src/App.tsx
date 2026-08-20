@@ -17,6 +17,7 @@ const FinancesPage = lazy(() => import("./pages/FinancesPage"));
 const PlanningPage = lazy(() => import("./pages/PlanningPage"));
 const ControlsPage = lazy(() => import("./pages/ControlsPage"));
 const ClientPortalPage = lazy(() => import("./pages/ClientPortalPage"));
+const AuditPage = lazy(() => import("./pages/AuditPage"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 
 function PageLoading() {
@@ -103,6 +104,17 @@ function Router() {
 
         {/* Portail Client Public / Externe */}
         <Route path="/portail-client" component={ClientPortalPage} />
+
+        {/* Journal d'Audit & Traçabilité Réglementaire Douane */}
+        <Route path="/audit">
+          {() => (
+            <ProtectedRoute
+              component={AuditPage}
+              allowedRoles={["admin", "manager"]}
+              fallbackPath="/"
+            />
+          )}
+        </Route>
 
         <Route component={NotFound} />
       </Switch>
