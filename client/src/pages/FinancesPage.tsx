@@ -1,5 +1,6 @@
 import DashboardLayout from "@/components/DashboardLayout";
 import Breadcrumbs from "@/components/Breadcrumbs";
+import { KpiDetailModal, KpiType } from "@/components/KpiDetailModal";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -54,6 +55,9 @@ export default function FinancesPage() {
 
   // Multi-Currency Switcher State
   const [displayCurrency, setDisplayCurrency] = useState<"GNF" | "USD">("GNF");
+
+  // KPI Drilldown Modal State
+  const [activeKpiModal, setActiveKpiModal] = useState<KpiType | null>(null);
 
   // Exchange Rate Modal State
   const [rateModalOpen, setRateModalOpen] = useState(false);
@@ -740,58 +744,106 @@ export default function FinancesPage() {
           </DialogContent>
         </Dialog>
 
-        {/* Cartes KPI Financiers Dynamiques (GNF / USD) */}
+        {/* Cartes KPI Financiers Dynamiques & Cliquables (GNF / USD) */}
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          <Card className="border-0 bg-white p-5 shadow-[0_8px_24px_rgba(20,50,43,0.05)]">
+          <Card
+            role="button"
+            tabIndex={0}
+            aria-label="Voir le détail du Chiffre d'Affaires Global"
+            onClick={() => setActiveKpiModal("turnover")}
+            onKeyDown={e => (e.key === "Enter" || e.key === " ") && setActiveKpiModal("turnover")}
+            className="border-0 bg-white p-5 shadow-[0_8px_24px_rgba(20,50,43,0.05)] cursor-pointer transition-all duration-200 hover:-translate-y-1 hover:shadow-lg hover:ring-2 hover:ring-emerald-800/40 select-none text-left group focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0b3b32]"
+          >
             <div className="flex items-center justify-between text-muted-foreground">
               <span className="text-xs font-semibold uppercase tracking-wider text-[#637972]">Chiffre d'Affaires Global</span>
-              <div className="grid h-8 w-8 place-items-center rounded-xl bg-emerald-50 text-emerald-800">
+              <div className="grid h-8 w-8 place-items-center rounded-xl bg-emerald-50 text-emerald-800 group-hover:bg-emerald-800 group-hover:text-white transition-colors">
                 <Wallet size={16} />
               </div>
             </div>
             <p className="mt-3 font-[Georgia] text-2xl font-bold text-[#102c26]">
               {formatMoney(data.totalCA_GNF)}
             </p>
-            <p className="mt-1 text-[11px] text-emerald-700 font-medium">Facturation transit & dédouanement</p>
+            <div className="mt-1 flex items-center justify-between">
+              <span className="text-[11px] text-emerald-700 font-medium">Facturation transit & dédouanement</span>
+              <span className="text-[10px] font-semibold text-emerald-800 opacity-0 group-hover:opacity-100 transition-opacity">
+                Détail →
+              </span>
+            </div>
           </Card>
 
-          <Card className="border-0 bg-white p-5 shadow-[0_8px_24px_rgba(20,50,43,0.05)]">
+          <Card
+            role="button"
+            tabIndex={0}
+            aria-label="Voir la décomposition de la Marge Brute Estimée"
+            onClick={() => setActiveKpiModal("margin")}
+            onKeyDown={e => (e.key === "Enter" || e.key === " ") && setActiveKpiModal("margin")}
+            className="border-0 bg-white p-5 shadow-[0_8px_24px_rgba(20,50,43,0.05)] cursor-pointer transition-all duration-200 hover:-translate-y-1 hover:shadow-lg hover:ring-2 hover:ring-amber-700/40 select-none text-left group focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-700"
+          >
             <div className="flex items-center justify-between text-muted-foreground">
               <span className="text-xs font-semibold uppercase tracking-wider text-[#637972]">Marge Brute Estimée</span>
-              <div className="grid h-8 w-8 place-items-center rounded-xl bg-amber-50 text-amber-800">
+              <div className="grid h-8 w-8 place-items-center rounded-xl bg-amber-50 text-amber-800 group-hover:bg-amber-700 group-hover:text-white transition-colors">
                 <TrendingUp size={16} />
               </div>
             </div>
             <p className="mt-3 font-[Georgia] text-2xl font-bold text-[#102c26]">
               {formatMoney(data.totalMargin_GNF)}
             </p>
-            <p className="mt-1 text-[11px] text-amber-800 font-medium">Marge nette opérationnelle IGS</p>
+            <div className="mt-1 flex items-center justify-between">
+              <span className="text-[11px] text-amber-800 font-medium">Marge nette opérationnelle IGS</span>
+              <span className="text-[10px] font-semibold text-amber-800 opacity-0 group-hover:opacity-100 transition-opacity">
+                Détail →
+              </span>
+            </div>
           </Card>
 
-          <Card className="border-0 bg-white p-5 shadow-[0_8px_24px_rgba(20,50,43,0.05)]">
+          <Card
+            role="button"
+            tabIndex={0}
+            aria-label="Voir le détail des Débours Avancés Port Autonome et Douane"
+            onClick={() => setActiveKpiModal("disbursements")}
+            onKeyDown={e => (e.key === "Enter" || e.key === " ") && setActiveKpiModal("disbursements")}
+            className="border-0 bg-white p-5 shadow-[0_8px_24px_rgba(20,50,43,0.05)] cursor-pointer transition-all duration-200 hover:-translate-y-1 hover:shadow-lg hover:ring-2 hover:ring-blue-700/40 select-none text-left group focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-700"
+          >
             <div className="flex items-center justify-between text-muted-foreground">
               <span className="text-xs font-semibold uppercase tracking-wider text-[#637972]">Débours Avancés PAC</span>
-              <div className="grid h-8 w-8 place-items-center rounded-xl bg-blue-50 text-blue-800">
+              <div className="grid h-8 w-8 place-items-center rounded-xl bg-blue-50 text-blue-800 group-hover:bg-blue-700 group-hover:text-white transition-colors">
                 <Receipt size={16} />
               </div>
             </div>
             <p className="mt-3 font-[Georgia] text-2xl font-bold text-[#102c26]">
               {formatMoney(data.totalDisbursements_GNF)}
             </p>
-            <p className="mt-1 text-[11px] text-blue-700 font-medium">Trésor public, PAC & acconage</p>
+            <div className="mt-1 flex items-center justify-between">
+              <span className="text-[11px] text-blue-700 font-medium">Trésor public, PAC & acconage</span>
+              <span className="text-[10px] font-semibold text-blue-800 opacity-0 group-hover:opacity-100 transition-opacity">
+                Détail →
+              </span>
+            </div>
           </Card>
 
-          <Card className="border-0 bg-white p-5 shadow-[0_8px_24px_rgba(20,50,43,0.05)]">
+          <Card
+            role="button"
+            tabIndex={0}
+            aria-label="Voir les dossiers en Risque de Surestaries PAC"
+            onClick={() => setActiveKpiModal("demurrage_risk")}
+            onKeyDown={e => (e.key === "Enter" || e.key === " ") && setActiveKpiModal("demurrage_risk")}
+            className="border-0 bg-white p-5 shadow-[0_8px_24px_rgba(20,50,43,0.05)] cursor-pointer transition-all duration-200 hover:-translate-y-1 hover:shadow-lg hover:ring-2 hover:ring-rose-700/40 select-none text-left group focus:outline-none focus-visible:ring-2 focus-visible:ring-rose-700"
+          >
             <div className="flex items-center justify-between text-muted-foreground">
               <span className="text-xs font-semibold uppercase tracking-wider text-[#637972]">Risque Surestaries PAC</span>
-              <div className="grid h-8 w-8 place-items-center rounded-xl bg-rose-50 text-rose-800">
+              <div className="grid h-8 w-8 place-items-center rounded-xl bg-rose-50 text-rose-800 group-hover:bg-rose-750 group-hover:text-white transition-colors">
                 <AlertTriangle size={16} />
               </div>
             </div>
             <p className="mt-3 font-[Georgia] text-2xl font-bold text-rose-700">
               {data.totalDemurrageRisk} <span className="text-sm font-normal text-muted-foreground">dossier(s)</span>
             </p>
-            <p className="mt-1 text-[11px] text-rose-700 font-medium">&gt; 7 jours séjour quai Conakry</p>
+            <div className="mt-1 flex items-center justify-between">
+              <span className="text-[11px] text-rose-700 font-medium">&gt; 7 jours séjour quai Conakry</span>
+              <span className="text-[10px] font-semibold text-rose-800 opacity-0 group-hover:opacity-100 transition-opacity">
+                Dossiers →
+              </span>
+            </div>
           </Card>
         </div>
 
@@ -1041,6 +1093,18 @@ export default function FinancesPage() {
             </form>
           </DialogContent>
         </Dialog>
+
+        {/* Modal Réutilisable de Décomposition Détaillée des KPIs */}
+        <KpiDetailModal
+          isOpen={Boolean(activeKpiModal)}
+          onClose={() => setActiveKpiModal(null)}
+          kpiType={activeKpiModal}
+          invoices={invoicesQuery.data || data.invoices || []}
+          dossiers={dossiersQuery.data || []}
+          exchangeRate={activeRate}
+          displayCurrency={displayCurrency}
+          isLoading={summaryQuery.isFetching || invoicesQuery.isFetching}
+        />
       </div>
     </DashboardLayout>
   );
