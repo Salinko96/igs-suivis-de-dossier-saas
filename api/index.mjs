@@ -492,6 +492,97 @@ function calculateDossierState(input) {
 function formatDossierNumber(sequence) {
   return `DOS-${String(sequence).padStart(4, "0")}`;
 }
+function validateStatusTransition(currentDossier, targetStatus, updateData) {
+  if (targetStatus === "R\xE9gularis\xE9") {
+    const effectiveGoodsReleaseDate = updateData?.goodsReleaseDate !== void 0 ? updateData.goodsReleaseDate : currentDossier.goodsReleaseDate;
+    const effectiveDeclarationNumber = updateData?.declarationNumber !== void 0 ? updateData.declarationNumber : currentDossier.declarationNumber;
+    const missing = [];
+    if (!hasValue(effectiveGoodsReleaseDate)) {
+      missing.push("Date de sortie marchandise (goodsReleaseDate)");
+    }
+    if (!hasValue(effectiveDeclarationNumber)) {
+      missing.push("Num\xE9ro de d\xE9claration douani\xE8re (declarationNumber)");
+    }
+    if (missing.length > 0) {
+      return {
+        valid: false,
+        error: `Transition refus\xE9e vers \xAB R\xE9gularis\xE9 \xBB : les champs obligatoires suivants doivent \xEAtre renseign\xE9s : ${missing.join(", ")}.`,
+        missingFields: missing
+      };
+    }
+  }
+  return { valid: true };
+}
+function calculateDemurrageRisk(eta, goodsReleaseDate, freeDays = 7, referenceDate = /* @__PURE__ */ new Date()) {
+  if (goodsReleaseDate) {
+    return {
+      daysOnQuay: 0,
+      freeDays,
+      isRisk: false,
+      isOverdue: false,
+      isWarningJ2: false,
+      daysRemaining: 0,
+      daysOverFreeTime: 0,
+      statusLabel: "Sorti",
+      urgencyLevel: "resolved"
+    };
+  }
+  if (!eta) {
+    return {
+      daysOnQuay: 0,
+      freeDays,
+      isRisk: false,
+      isOverdue: false,
+      isWarningJ2: false,
+      daysRemaining: freeDays,
+      daysOverFreeTime: 0,
+      statusLabel: "Sous Franchise",
+      urgencyLevel: "normal"
+    };
+  }
+  const etaDate = eta instanceof Date ? eta : new Date(eta);
+  const diffMs = referenceDate.getTime() - etaDate.getTime();
+  const daysOnQuay = Math.max(0, Math.floor(diffMs / (1e3 * 60 * 60 * 24)));
+  const daysRemaining = Math.max(0, freeDays - daysOnQuay);
+  const daysOverFreeTime = Math.max(0, daysOnQuay - freeDays);
+  if (daysOnQuay >= freeDays) {
+    return {
+      daysOnQuay,
+      freeDays,
+      isRisk: true,
+      isOverdue: true,
+      isWarningJ2: false,
+      daysRemaining: 0,
+      daysOverFreeTime,
+      statusLabel: "Surestarie D\xE9pass\xE9e",
+      urgencyLevel: "critical"
+    };
+  }
+  if (daysOnQuay >= freeDays - 2) {
+    return {
+      daysOnQuay,
+      freeDays,
+      isRisk: true,
+      isOverdue: false,
+      isWarningJ2: true,
+      daysRemaining,
+      daysOverFreeTime: 0,
+      statusLabel: "Risque Surestarie (J-2)",
+      urgencyLevel: "warning"
+    };
+  }
+  return {
+    daysOnQuay,
+    freeDays,
+    isRisk: false,
+    isOverdue: false,
+    isWarningJ2: false,
+    daysRemaining,
+    daysOverFreeTime: 0,
+    statusLabel: "Sous Franchise",
+    urgencyLevel: "normal"
+  };
+}
 
 // server/alertsService.ts
 function generateProactiveAlerts(dossiers2) {
@@ -7065,6 +7156,72 @@ async function uploadDossierCloudFile(options) {
   };
 }
 
+// server/cronDemurrageReminders.ts
+async function runDemurrageReminderJob() {
+  const allDossiers = await listDossiers();
+  const unreleased = allDossiers.filter((d) => !d.goodsReleaseDate && d.eta);
+  const now = /* @__PURE__ */ new Date();
+  let j2Count = 0;
+  let overdueCount = 0;
+  let alertsCount = 0;
+  const details = [];
+  for (const dossier of unreleased) {
+    const risk = calculateDemurrageRisk(dossier.eta, dossier.goodsReleaseDate, 7, now);
+    if (risk.isRisk) {
+      if (risk.isWarningJ2) j2Count++;
+      if (risk.isOverdue) overdueCount++;
+      let alertMessage = "";
+      if (risk.isWarningJ2) {
+        alertMessage = `\u26A0\uFE0F [ALERTE FRANCHISE J-2] Le dossier ${dossier.dossierNumber} (BL: ${dossier.blLtaNumber || "N/A"}) pour ${dossier.client || "Client"} arrive \xE0 expiration de franchise portuaire dans ${risk.daysRemaining} jour(s) (Quai PAC). Proc\xE9dez d'urgence \xE0 la sortie marchandise.`;
+      } else if (risk.isOverdue) {
+        alertMessage = `\u{1F6A8} [SURESTARIE D\xC9PASS\xC9E (+${risk.daysOverFreeTime}j)] Le dossier ${dossier.dossierNumber} (BL: ${dossier.blLtaNumber || "N/A"}) pour ${dossier.client || "Client"} est en d\xE9passement de franchise depuis ${risk.daysOverFreeTime} jour(s). Frais de surestaries en cours au Port Autonome de Conakry.`;
+      }
+      await addNotification({
+        dossierId: dossier.id,
+        dossierNumber: dossier.dossierNumber,
+        type: "SURESTARIES_RISQUE",
+        title: risk.isWarningJ2 ? "Risque Surestarie Portuaire (J-2)" : "D\xE9passement de Franchise PAC",
+        message: alertMessage,
+        recipientRole: "declarant",
+        recipientEmail: "transit@igs-logistics.gn"
+      });
+      sendDossierWhatsAppAlert({
+        dossierNumber: dossier.dossierNumber,
+        clientName: dossier.client || "Client IGS",
+        recipientPhone: "+224621001122",
+        messageText: alertMessage
+      });
+      sendDossierEmailAlert({
+        dossierNumber: dossier.dossierNumber,
+        clientName: dossier.client || "Client IGS",
+        recipientEmail: "logistique@igs-logistics.gn",
+        subject: `[URGENT] ${risk.statusLabel} \u2014 Dossier ${dossier.dossierNumber}`,
+        htmlContent: `<p>${alertMessage}</p>`
+      });
+      alertsCount++;
+      details.push({
+        dossierId: dossier.id,
+        dossierNumber: dossier.dossierNumber,
+        client: dossier.client || "Non renseign\xE9",
+        blLtaNumber: dossier.blLtaNumber || "Non renseign\xE9",
+        eta: dossier.eta ? new Date(dossier.eta).toISOString().slice(0, 10) : "N/A",
+        daysOnQuay: risk.daysOnQuay,
+        riskStatus: risk.statusLabel,
+        alertDispatched: true
+      });
+    }
+  }
+  return {
+    timestamp: now.toISOString(),
+    totalDossiersScanned: allDossiers.length,
+    unreleasedDossiersCount: unreleased.length,
+    j2WarningCount: j2Count,
+    overdueCount,
+    alertsSentCount: alertsCount,
+    details
+  };
+}
+
 // server/routers.ts
 var optionalText = z2.string().trim().max(2e3).optional().nullable();
 var optionalDate = z2.date().optional().nullable();
@@ -7428,6 +7585,18 @@ var appRouter = router({
         if (isNaN(numId) || numId <= 0) {
           throw new TRPCError4({ code: "BAD_REQUEST", message: `Identifiant de dossier invalide: ${input.id}` });
         }
+        if (input.data.calculatedStatus === "R\xE9gularis\xE9") {
+          const existing = await getDossier(numId);
+          if (existing) {
+            const check = validateStatusTransition(existing, "R\xE9gularis\xE9", input.data);
+            if (!check.valid) {
+              throw new TRPCError4({
+                code: "BAD_REQUEST",
+                message: check.error
+              });
+            }
+          }
+        }
         invalidateDashboardCache();
         return await updateDossier(numId, input.data, ctx.user.id, ctx.user.name || "Op\xE9rateur", {
           expectedVersion: input.expectedVersion,
@@ -7458,6 +7627,18 @@ var appRouter = router({
         if (isNaN(numId) || numId <= 0) {
           throw new TRPCError4({ code: "BAD_REQUEST", message: `Identifiant de dossier invalide: ${input.id}` });
         }
+        if (input.data.calculatedStatus === "R\xE9gularis\xE9") {
+          const existing = await getDossier(numId);
+          if (existing) {
+            const check = validateStatusTransition(existing, "R\xE9gularis\xE9", input.data);
+            if (!check.valid) {
+              throw new TRPCError4({
+                code: "BAD_REQUEST",
+                message: check.error
+              });
+            }
+          }
+        }
         invalidateDashboardCache();
         return await updateDossier(numId, input.data, ctx.user.id, ctx.user.name || "D\xE9clarant PAC", {
           expectedVersion: input.expectedVersion,
@@ -7471,6 +7652,57 @@ var appRouter = router({
         throw new TRPCError4({
           code: "INTERNAL_SERVER_ERROR",
           message: `Erreur lors de la mise \xE0 jour des contr\xF4les douane: ${err.message}`
+        });
+      }
+    }),
+    quickUpdateMobile: declarantProcedure.input(
+      z2.object({
+        dossierId: z2.number().int().positive(),
+        goodsReleaseDate: z2.union([z2.date(), z2.string()]).nullish(),
+        declarationNumber: z2.string().trim().nullish(),
+        badStatus: z2.string().trim().nullish(),
+        baeStatus: z2.string().trim().nullish(),
+        customsStatus: z2.string().trim().nullish(),
+        portStatus: z2.string().trim().nullish(),
+        fieldOperation: z2.string().trim().nullish(),
+        comment: z2.string().trim().nullish(),
+        expectedVersion: z2.number().optional()
+      })
+    ).mutation(async ({ ctx, input }) => {
+      try {
+        const existing = await getDossier(input.dossierId);
+        if (!existing) {
+          throw new TRPCError4({ code: "NOT_FOUND", message: "Dossier introuvable" });
+        }
+        const partialData = {};
+        if (input.goodsReleaseDate !== void 0) {
+          partialData.goodsReleaseDate = input.goodsReleaseDate ? new Date(input.goodsReleaseDate) : null;
+        }
+        if (input.declarationNumber !== void 0) partialData.declarationNumber = input.declarationNumber;
+        if (input.badStatus !== void 0) partialData.badStatus = input.badStatus;
+        if (input.baeStatus !== void 0) partialData.baeStatus = input.baeStatus;
+        if (input.customsStatus !== void 0) partialData.customsStatus = input.customsStatus;
+        if (input.portStatus !== void 0) partialData.portStatus = input.portStatus;
+        if (input.fieldOperation !== void 0) partialData.fieldOperation = input.fieldOperation;
+        if (input.comment) {
+          await addComment({
+            dossierId: input.dossierId,
+            authorId: ctx.user.id,
+            authorName: ctx.user.name || "D\xE9clarant Quai",
+            message: input.comment
+          });
+        }
+        invalidateDashboardCache();
+        return await updateDossier(input.dossierId, partialData, ctx.user.id, ctx.user.name || "D\xE9clarant Quai PAC", {
+          expectedVersion: input.expectedVersion,
+          userRole: ctx.user.role
+        });
+      } catch (err) {
+        if (err instanceof TRPCError4) throw err;
+        console.error("[tRPC dossier.quickUpdateMobile Error]", err);
+        throw new TRPCError4({
+          code: "INTERNAL_SERVER_ERROR",
+          message: `Erreur lors de la mise \xE0 jour mobile: ${err.message}`
         });
       }
     }),
@@ -7867,6 +8099,25 @@ var appRouter = router({
         htmlContent: z2.string().min(1)
       })
     ).mutation(async ({ input }) => sendDossierEmailAlert(input))
+  }),
+  // 11. CRON & AUTOMATISATION SURESTARIES
+  cron: router({
+    runDemurrageCheck: internalProcedure.mutation(async () => {
+      return runDemurrageReminderJob();
+    }),
+    demurrageStatus: internalProcedure.query(async () => {
+      const allDossiers = await listDossiers();
+      const now = /* @__PURE__ */ new Date();
+      return allDossiers.map((d) => ({
+        dossierId: d.id,
+        dossierNumber: d.dossierNumber,
+        client: d.client,
+        blLtaNumber: d.blLtaNumber,
+        eta: d.eta,
+        goodsReleaseDate: d.goodsReleaseDate,
+        demurrageRisk: calculateDemurrageRisk(d.eta, d.goodsReleaseDate, 7, now)
+      }));
+    })
   }),
   // TABLEAU DE BORD OPÉRATIONNEL
   dashboard: router({

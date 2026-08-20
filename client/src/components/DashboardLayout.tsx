@@ -35,6 +35,7 @@ import { useLocation } from "wouter";
 import { DashboardLayoutSkeleton } from "./DashboardLayoutSkeleton";
 import { NetworkStatusBanner } from "./NetworkStatusBanner";
 import { PWAInstallBanner } from "./PWAInstallBanner";
+import OfflineSyncBanner from "./OfflineSyncBanner";
 
 const allMenuItems = [
   { icon: LayoutDashboard, label: "Pilotage & KPI", path: "/", roles: ["admin", "comptable", "manager"] },
@@ -453,6 +454,7 @@ function LayoutContent({ children, setSidebarWidth }: { children: React.ReactNod
       <SidebarInset className="relative isolate overflow-hidden bg-[#f5f7f6]">
         <NetworkStatusBanner />
         <PWAInstallBanner />
+        <OfflineSyncBanner />
         {/* Barre supérieure permanente avec alertes et notifications proactives */}
         <header className="sticky top-0 z-40 flex h-14 items-center justify-between border-b border-[#e4ebe8] bg-white/90 px-4 sm:px-6 backdrop-blur">
           <div className="flex items-center gap-3">

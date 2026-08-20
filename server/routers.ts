@@ -16,6 +16,8 @@ import {
 import * as db from "./db";
 import { uploadDossierCloudFile } from "./cloudStorageService";
 import { sendDossierWhatsAppAlert, sendDossierEmailAlert } from "./alertsService";
+import { validateStatusTransition, calculateDemurrageRisk } from "./dossierRules";
+import { runDemurrageReminderJob } from "./cronDemurrageReminders";
 
 const optionalText = z.string().trim().max(2000).optional().nullable();
 const optionalDate = z.date().optional().nullable();
@@ -451,6 +453,21 @@ export const appRouter = router({
           if (isNaN(numId) || numId <= 0) {
             throw new TRPCError({ code: "BAD_REQUEST", message: `Identifiant de dossier invalide: ${input.id}` });
           }
+
+          // Validation stricte de la State Machine
+          if (input.data.calculatedStatus === "Régularisé") {
+            const existing = await db.getDossier(numId);
+            if (existing) {
+              const check = validateStatusTransition(existing, "Régularisé", input.data);
+              if (!check.valid) {
+                throw new TRPCError({
+                  code: "BAD_REQUEST",
+                  message: check.error,
+                });
+              }
+            }
+          }
+
           invalidateDashboardCache();
           return await db.updateDossier(numId, input.data, ctx.user.id, ctx.user.name || "Opérateur", {
             expectedVersion: input.expectedVersion,
@@ -483,6 +500,20 @@ export const appRouter = router({
           if (isNaN(numId) || numId <= 0) {
             throw new TRPCError({ code: "BAD_REQUEST", message: `Identifiant de dossier invalide: ${input.id}` });
           }
+
+          if (input.data.calculatedStatus === "Régularisé") {
+            const existing = await db.getDossier(numId);
+            if (existing) {
+              const check = validateStatusTransition(existing, "Régularisé", input.data);
+              if (!check.valid) {
+                throw new TRPCError({
+                  code: "BAD_REQUEST",
+                  message: check.error,
+                });
+              }
+            }
+          }
+
           invalidateDashboardCache();
           return await db.updateDossier(numId, input.data, ctx.user.id, ctx.user.name || "Déclarant PAC", {
             expectedVersion: input.expectedVersion,
@@ -496,6 +527,62 @@ export const appRouter = router({
           throw new TRPCError({
             code: "INTERNAL_SERVER_ERROR",
             message: `Erreur lors de la mise à jour des contrôles douane: ${err.message}`,
+          });
+        }
+      }),
+    quickUpdateMobile: declarantProcedure
+      .input(
+        z.object({
+          dossierId: z.number().int().positive(),
+          goodsReleaseDate: z.union([z.date(), z.string()]).nullish(),
+          declarationNumber: z.string().trim().nullish(),
+          badStatus: z.string().trim().nullish(),
+          baeStatus: z.string().trim().nullish(),
+          customsStatus: z.string().trim().nullish(),
+          portStatus: z.string().trim().nullish(),
+          fieldOperation: z.string().trim().nullish(),
+          comment: z.string().trim().nullish(),
+          expectedVersion: z.number().optional(),
+        })
+      )
+      .mutation(async ({ ctx, input }) => {
+        try {
+          const existing = await db.getDossier(input.dossierId);
+          if (!existing) {
+            throw new TRPCError({ code: "NOT_FOUND", message: "Dossier introuvable" });
+          }
+
+          const partialData: any = {};
+          if (input.goodsReleaseDate !== undefined) {
+            partialData.goodsReleaseDate = input.goodsReleaseDate ? new Date(input.goodsReleaseDate) : null;
+          }
+          if (input.declarationNumber !== undefined) partialData.declarationNumber = input.declarationNumber;
+          if (input.badStatus !== undefined) partialData.badStatus = input.badStatus;
+          if (input.baeStatus !== undefined) partialData.baeStatus = input.baeStatus;
+          if (input.customsStatus !== undefined) partialData.customsStatus = input.customsStatus;
+          if (input.portStatus !== undefined) partialData.portStatus = input.portStatus;
+          if (input.fieldOperation !== undefined) partialData.fieldOperation = input.fieldOperation;
+
+          if (input.comment) {
+            await db.addComment({
+              dossierId: input.dossierId,
+              authorId: ctx.user.id,
+              authorName: ctx.user.name || "Déclarant Quai",
+              message: input.comment,
+            });
+          }
+
+          invalidateDashboardCache();
+          return await db.updateDossier(input.dossierId, partialData, ctx.user.id, ctx.user.name || "Déclarant Quai PAC", {
+            expectedVersion: input.expectedVersion,
+            userRole: ctx.user.role,
+          });
+        } catch (err: any) {
+          if (err instanceof TRPCError) throw err;
+          console.error("[tRPC dossier.quickUpdateMobile Error]", err);
+          throw new TRPCError({
+            code: "INTERNAL_SERVER_ERROR",
+            message: `Erreur lors de la mise à jour mobile: ${err.message}`,
           });
         }
       }),
@@ -978,6 +1065,26 @@ export const appRouter = router({
         })
       )
       .mutation(async ({ input }) => sendDossierEmailAlert(input)),
+  }),
+
+  // 11. CRON & AUTOMATISATION SURESTARIES
+  cron: router({
+    runDemurrageCheck: internalProcedure.mutation(async () => {
+      return runDemurrageReminderJob();
+    }),
+    demurrageStatus: internalProcedure.query(async () => {
+      const allDossiers = await db.listDossiers();
+      const now = new Date();
+      return allDossiers.map(d => ({
+        dossierId: d.id,
+        dossierNumber: d.dossierNumber,
+        client: d.client,
+        blLtaNumber: d.blLtaNumber,
+        eta: d.eta,
+        goodsReleaseDate: d.goodsReleaseDate,
+        demurrageRisk: calculateDemurrageRisk(d.eta, d.goodsReleaseDate, 7, now),
+      }));
+    }),
   }),
 
   // TABLEAU DE BORD OPÉRATIONNEL

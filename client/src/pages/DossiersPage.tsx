@@ -1,5 +1,6 @@
 import DashboardLayout from "@/components/DashboardLayout";
 import { CustomsEditModal, CustomsEditDossier } from "@/components/CustomsEditModal";
+import MobileQuickUpdateDrawer from "@/components/MobileQuickUpdateDrawer";
 import Breadcrumbs from "@/components/Breadcrumbs";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -28,6 +29,7 @@ import {
   SlidersHorizontal,
   Upload,
   X,
+  Zap,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -177,8 +179,30 @@ function DossiersContent() {
   const [etaTo, setEtaTo] = useState("");
   const [viewMode, setViewMode] = useState<"table" | "cards">("table");
 
-  // State for quick customs edit modal
+  // State for quick customs edit modal & mobile drawer
   const [editingCustomsDossier, setEditingCustomsDossier] = useState<CustomsEditDossier | null>(null);
+  const [mobileUpdateDossier, setMobileUpdateDossier] = useState<any | null>(null);
+  const [demurrageFilterOnly, setDemurrageFilterOnly] = useState(false);
+
+  const getDemurrageBadge = (d: any) => {
+    if (d.goodsReleaseDate || !d.eta) return null;
+    const days = Math.floor((Date.now() - new Date(d.eta).getTime()) / 86400000);
+    if (days >= 7) {
+      return (
+        <Badge className="bg-rose-100 text-rose-800 border-rose-300 text-[10px] whitespace-nowrap font-bold gap-1 shadow-sm animate-pulse">
+          🚨 Surestarie (+{days - 7}j)
+        </Badge>
+      );
+    }
+    if (days >= 5) {
+      return (
+        <Badge className="bg-amber-100 text-amber-900 border-amber-300 text-[10px] whitespace-nowrap font-bold gap-1 shadow-sm">
+          ⚠️ Franchise J-2 ({7 - days}j)
+        </Badge>
+      );
+    }
+    return null;
+  };
 
   // Advanced drill-down URL parameters state
   const [urlParams, setUrlParams] = useState<Record<string, string>>({});
@@ -357,8 +381,14 @@ function DossiersContent() {
       );
     }
 
+    if (demurrageFilterOnly) {
+      list = list
+        .filter(d => d.eta && !d.goodsReleaseDate && (Date.now() - new Date(d.eta).getTime()) >= 86400000 * 5)
+        .sort((a, b) => new Date(a.eta!).getTime() - new Date(b.eta!).getTime());
+    }
+
     return list;
-  }, [rawDossiers, urlParams]);
+  }, [rawDossiers, urlParams, demurrageFilterOnly]);
 
   const dossiers = filteredDossiers;
 
@@ -712,14 +742,29 @@ function DossiersContent() {
                 className="h-8 w-[145px] rounded-lg text-xs"
               />
             </div>
-            <div className="flex items-center justify-between gap-3 sm:justify-end">
+            <div className="flex items-center justify-between gap-3 sm:justify-end flex-wrap">
+              <Button
+                type="button"
+                size="sm"
+                variant={demurrageFilterOnly ? "default" : "outline"}
+                onClick={() => setDemurrageFilterOnly(!demurrageFilterOnly)}
+                className={`h-8 rounded-xl text-xs font-semibold gap-1.5 ${
+                  demurrageFilterOnly
+                    ? "bg-rose-700 text-white hover:bg-rose-800 shadow-sm"
+                    : "border-rose-300 text-rose-950 bg-rose-50/50 hover:bg-rose-100"
+                }`}
+              >
+                <AlertTriangle size={13} className={demurrageFilterOnly ? "text-white" : "text-rose-700"} />
+                <span>Risque Surestaries (PAC)</span>
+              </Button>
+
               <div className="flex items-center gap-2">
                 <Badge className="border-0 bg-[#e8f1ed] text-[#286c5a]">
                   <Filter className="mr-1" size={12} />
-                  {activeFilters} filtre{activeFilters > 1 ? "s" : ""}
+                  {activeFilters + (demurrageFilterOnly ? 1 : 0)} filtre{(activeFilters + (demurrageFilterOnly ? 1 : 0)) > 1 ? "s" : ""}
                 </Badge>
-                {Boolean(search || activeFilters) && (
-                  <button onClick={reset} className="flex items-center gap-1 text-xs font-semibold text-[#8a4a38] hover:underline">
+                {Boolean(search || activeFilters || demurrageFilterOnly) && (
+                  <button onClick={() => { reset(); setDemurrageFilterOnly(false); }} className="flex items-center gap-1 text-xs font-semibold text-[#8a4a38] hover:underline">
                     <X size={13} />
                     Réinitialiser
                   </button>
@@ -786,9 +831,12 @@ function DossiersContent() {
                           <p className="font-semibold text-[#176b55] group-hover:underline">{dossier.dossierNumber}</p>
                           <p className="text-xs text-[#687e77]">{dossier.client || "Client non renseigné"}</p>
                         </div>
-                        <Badge className={`border-0 ${badgeStyle(dossier.calculatedStatus)}`}>
-                          {dossier.calculatedStatus}
-                        </Badge>
+                        <div className="flex flex-col items-end gap-1">
+                          <Badge className={`border-0 ${badgeStyle(dossier.calculatedStatus)}`}>
+                            {dossier.calculatedStatus}
+                          </Badge>
+                          {getDemurrageBadge(dossier)}
+                        </div>
                       </div>
                       <div className="mt-3 space-y-1 text-xs text-[#536863]">
                         <p>
@@ -801,21 +849,37 @@ function DossiersContent() {
                           <span className="font-medium text-[#2d4d44]">ETA :</span> {dateLabel(dossier.eta)}
                         </p>
                         <p>
+                          <span className="font-medium text-[#2d4d44]">Sortie marchandise :</span> {dateLabel(dossier.goodsReleaseDate)}
+                        </p>
+                        <p>
                           <span className="font-medium text-[#2d4d44]">Port dest. :</span> {dossier.destinationPort || "—"}
                         </p>
                       </div>
                       <div className="mt-3 flex items-center justify-between border-t border-[#edf3f0] pt-2 text-[11px]">
                         <span className="text-[#849690]">{dossier.transportMode || "Maritime"}</span>
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-1.5">
                           {perms.canEditCustoms && (
                             <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setMobileUpdateDossier(dossier);
+                              }}
+                              className="h-7 px-2 rounded-lg bg-[#0b3b32] text-white hover:bg-[#165a4c] font-semibold text-[11px] flex items-center gap-1 shadow-sm"
+                            >
+                              <Zap size={11} /> Quai
+                            </button>
+                          )}
+                          {perms.canEditCustoms && (
+                            <button
+                              type="button"
                               onClick={(e) => { e.stopPropagation(); setEditingCustomsDossier(dossier); }}
                               className="font-semibold text-emerald-800 hover:text-emerald-950 flex items-center gap-1"
                             >
                               <Edit3 size={12} /> Douane
                             </button>
                           )}
-                          <span className="font-medium text-[#1d7764] hover:underline">Voir détails →</span>
+                          <span className="font-medium text-[#1d7764] hover:underline">Détails →</span>
                         </div>
                       </div>
                     </div>
@@ -901,9 +965,12 @@ function DossiersContent() {
                           <td className="px-4 py-3 text-sm font-mono text-[#8b5516]">{dossier.bulletinNumber || "—"}</td>
                           <td className="px-4 py-3 text-sm font-mono text-[#536863]">{dossier.finalDeclarationNumber || "—"}</td>
                           <td className="px-4 py-3">
-                            <Badge className={`whitespace-nowrap border-0 ${badgeStyle(dossier.calculatedStatus)}`}>
-                              {dossier.calculatedStatus}
-                            </Badge>
+                            <div className="flex flex-col items-start gap-1">
+                              <Badge className={`whitespace-nowrap border-0 ${badgeStyle(dossier.calculatedStatus)}`}>
+                                {dossier.calculatedStatus}
+                              </Badge>
+                              {getDemurrageBadge(dossier)}
+                            </div>
                           </td>
                           <td className="px-4 py-3">
                             <Badge className={`border-0 ${badgeStyle(dossier.calculatedPriority)}`}>
@@ -914,6 +981,17 @@ function DossiersContent() {
                             <div className="flex items-center gap-1.5">
                               {perms.canEditCustoms && (
                                 <button
+                                  type="button"
+                                  onClick={() => setMobileUpdateDossier(dossier)}
+                                  title="Mise à jour rapide quai"
+                                  className="h-8 px-2 rounded-lg bg-[#0b3b32] text-white hover:bg-[#165a4c] text-xs font-semibold flex items-center gap-1 shadow-sm"
+                                >
+                                  <Zap size={12} /> Quai
+                                </button>
+                              )}
+                              {perms.canEditCustoms && (
+                                <button
+                                  type="button"
                                   onClick={() => setEditingCustomsDossier(dossier)}
                                   title="Édition rapide douane"
                                   className="h-8 px-2 rounded-lg bg-emerald-50 text-emerald-800 hover:bg-emerald-100 text-xs font-medium flex items-center gap-1"
@@ -1070,6 +1148,14 @@ function DossiersContent() {
         isOpen={Boolean(editingCustomsDossier)}
         onClose={() => setEditingCustomsDossier(null)}
         dossier={editingCustomsDossier}
+      />
+
+      {/* Mobile Quick Update Drawer pour Déclarants Quai */}
+      <MobileQuickUpdateDrawer
+        open={Boolean(mobileUpdateDossier)}
+        onOpenChange={(open) => !open && setMobileUpdateDossier(null)}
+        dossier={mobileUpdateDossier}
+        onSuccess={() => utils.dossier.list.invalidate()}
       />
     </div>
   );
