@@ -1,6 +1,10 @@
 import DashboardLayout from "@/components/DashboardLayout";
 import { CustomsEditModal } from "@/components/CustomsEditModal";
 import { ConflictResolutionModal, ConflictFieldDiff } from "@/components/ConflictResolutionModal";
+import { DocumentManager } from "@/components/DocumentManager";
+import { WhatsAppDispatchModal } from "@/components/WhatsAppDispatchModal";
+import { ClientReportModal } from "@/components/ClientReportModal";
+import { ClientPreferencesModal } from "@/components/ClientPreferencesModal";
 import Breadcrumbs from "@/components/Breadcrumbs";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -397,6 +401,9 @@ function DetailContent() {
   });
 
   const [alertModalOpen, setAlertModalOpen] = useState(false);
+  const [whatsAppModalOpen, setWhatsAppModalOpen] = useState(false);
+  const [clientReportModalOpen, setClientReportModalOpen] = useState(false);
+  const [clientPrefModalOpen, setClientPrefModalOpen] = useState(false);
   const [alertChannel, setAlertChannel] = useState<"whatsapp" | "email">("whatsapp");
   const [alertPhone, setAlertPhone] = useState("+224 620 00 00 00");
   const [alertEmail, setAlertEmail] = useState("direction@client.gn");
@@ -853,18 +860,37 @@ function DetailContent() {
               </Button>
             )}
 
-            {/* Notification Multi-Canal WhatsApp / Email */}
+            {/* WhatsApp Business API direct */}
             <Button
               variant="outline"
               size="sm"
-              onClick={() => {
-                setAlertMessage(`Bonjour, le dossier ${dossier.dossierNumber} (BL: ${dossier.blLtaNumber || "N/A"}) pour ${dossier.client || "votre compte"} est actuellement en statut : ${dossier.calculatedStatus}.`);
-                setAlertModalOpen(true);
-              }}
-              className="rounded-xl border-amber-300 bg-amber-50/60 text-amber-950 hover:bg-amber-100 text-xs h-9 font-semibold gap-1.5"
+              onClick={() => setWhatsAppModalOpen(true)}
+              className="rounded-xl border-emerald-500/30 bg-emerald-500/10 text-emerald-800 dark:text-emerald-300 hover:bg-emerald-500/20 text-xs h-9 font-semibold gap-1.5"
             >
-              <Share2 size={14} className="text-amber-700" />
-              Notifier Client
+              <MessageSquare size={14} className="text-emerald-600 dark:text-emerald-400" />
+              WhatsApp API
+            </Button>
+
+            {/* Rapport Consolidé Client */}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setClientReportModalOpen(true)}
+              className="rounded-xl border-primary/30 bg-primary/5 text-primary hover:bg-primary/10 text-xs h-9 font-semibold gap-1.5"
+            >
+              <FileText size={14} />
+              Rapport Client
+            </Button>
+
+            {/* Préférences Client */}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setClientPrefModalOpen(true)}
+              className="rounded-xl border-[#dfe8e4] bg-white text-[#35544c] hover:bg-[#edf5f1] text-xs h-9 font-semibold gap-1.5"
+            >
+              <Share2 size={14} className="text-[#35544c]" />
+              Préférences
             </Button>
 
             <Button
@@ -1182,101 +1208,18 @@ function DetailContent() {
 
         {/* ONGLET 2: Documents & Preuves */}
         <TabsContent value="documents" className="space-y-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <h2 className="font-[Georgia] text-lg font-semibold text-[#173b32]">Gestion Documentaire & Preuves de Conformité</h2>
-              <p className="text-xs text-muted-foreground">Téléversez les originaux scannés (BL, Déclaration Sydonia, Bulletin DDI, Factures, BAE, Photos).</p>
-            </div>
-            
-            <Dialog open={uploadDocOpen} onOpenChange={setUploadDocOpen}>
-              <DialogTrigger asChild>
-                <Button className="rounded-xl bg-[#0b3b32] text-white hover:bg-[#164d41] text-xs">
-                  <UploadCloud size={14} className="mr-1.5" /> Ajouter une pièce jointe
-                </Button>
-              </DialogTrigger>
-              <DialogContent className="max-w-md">
-                <DialogHeader>
-                  <DialogTitle>Téléverser un document de preuve</DialogTitle>
-                  <DialogDescription>Associez un document scanné ou une photo de marchandise à ce dossier.</DialogDescription>
-                </DialogHeader>
-                <div className="space-y-4 py-3">
-                  <div className="space-y-1.5">
-                    <Label className="text-xs">Type de document</Label>
-                    <select
-                      value={newDocType}
-                      onChange={e => setNewDocType(e.target.value as any)}
-                      className="h-10 w-full rounded-xl border border-gray-200 bg-white px-3 text-sm"
-                    >
-                      <option value="BL">Connaissement Maritime (BL)</option>
-                      <option value="Declaration_Douane">Déclaration Sydonia World</option>
-                      <option value="Bulletin_Liquidation">Bulletin de Liquidation (BLD)</option>
-                      <option value="DDI">DDI (GUCEG Guinée)</option>
-                      <option value="BAE">Bon à Enlever (BAE)</option>
-                      <option value="Facture_Fournisseur">Facture Commerciale</option>
-                      <option value="Facture_Transitaire">Facture Transit / Débours</option>
-                      <option value="Photos_Marchandise">Photos de marchandise / Quai</option>
-                      <option value="Autre">Autre document</option>
-                    </select>
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label className="text-xs">Fichier (PDF, Image)</Label>
-                    <Input type="file" onChange={handleFileUploadMock} className="rounded-xl" />
-                  </div>
-                </div>
-              </DialogContent>
-            </Dialog>
-          </div>
-
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {docsQuery.data?.length === 0 ? (
-              <Card className="col-span-full border-dashed p-8 text-center bg-white/60">
-                <Paperclip className="mx-auto h-8 w-8 text-muted-foreground/50" />
-                <p className="mt-2 text-sm font-medium text-muted-foreground">Aucun document joint pour ce dossier.</p>
-                <p className="text-xs text-muted-foreground">Téléversez le BL scanné ou la déclaration de douane pour prouver la régularisation.</p>
-              </Card>
-            ) : (
-              docsQuery.data?.map(doc => (
-                <Card key={doc.id} className="border border-emerald-900/10 bg-white shadow-sm hover:shadow transition">
-                  <CardContent className="p-4 flex flex-col justify-between h-full">
-                    <div>
-                      <div className="flex items-center justify-between">
-                        <Badge variant="outline" className="text-[10px] font-mono border-emerald-800 text-emerald-900">
-                          {doc.type.replace("_", " ")}
-                        </Badge>
-                        <span className="text-[10px] text-muted-foreground">
-                          {new Date(doc.createdAt).toLocaleDateString("fr-FR")}
-                        </span>
-                      </div>
-                      <h3 className="mt-2 font-semibold text-xs text-emerald-950 truncate" title={doc.name}>
-                        {doc.name}
-                      </h3>
-                      <p className="text-[11px] text-muted-foreground mt-0.5">
-                        Ajouté par : {doc.uploaderName || "Opérateur IGS"}
-                      </p>
-                    </div>
-
-                    <div className="mt-4 flex items-center justify-between border-t pt-2.5">
-                      <a
-                        href={doc.fileUrl}
-                        download={doc.name}
-                        className="inline-flex items-center text-xs font-semibold text-emerald-800 hover:text-emerald-950"
-                      >
-                        <Download size={13} className="mr-1" /> Télécharger
-                      </a>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => deleteDocMutation.mutate({ id: doc.id })}
-                        className="h-7 w-7 text-rose-600 hover:bg-rose-50"
-                      >
-                        <Trash2 size={13} />
-                      </Button>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))
-            )}
-          </div>
+          {numericId ? (
+            <DocumentManager
+              dossierId={numericId}
+              dossierNumber={dossier?.dossierNumber || "DOS-0000"}
+              isClientView={false}
+            />
+          ) : (
+            <Card className="border-dashed p-8 text-center bg-white/60">
+              <Paperclip className="mx-auto h-8 w-8 text-muted-foreground/50" />
+              <p className="mt-2 text-sm font-medium text-muted-foreground">Veuillez enregistrer le dossier avant d'ajouter des pièces justificatives.</p>
+            </Card>
+          )}
         </TabsContent>
 
         {/* ONGLET 3: Facturation & Finances (Gated via perms.canViewFinances) */}
@@ -1822,6 +1765,27 @@ function DetailContent() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* WhatsApp Business API Modal */}
+      {dossier && (
+        <>
+          <WhatsAppDispatchModal
+            isOpen={whatsAppModalOpen}
+            onClose={() => setWhatsAppModalOpen(false)}
+            dossier={dossier}
+          />
+          <ClientReportModal
+            isOpen={clientReportModalOpen}
+            onClose={() => setClientReportModalOpen(false)}
+            initialClientName={dossier.client || "Guinean Birimian Gold (GBG)"}
+          />
+          <ClientPreferencesModal
+            isOpen={clientPrefModalOpen}
+            onClose={() => setClientPrefModalOpen(false)}
+            clientNameOrId={dossier.client || dossier.id}
+          />
+        </>
+      )}
     </div>
   );
 }

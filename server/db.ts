@@ -17,7 +17,9 @@ import {
   DossierComment, dossierComments, InsertDossierComment,
   Notification, notifications, InsertNotification,
   ClientAccessSession, clientAccessSessions, InsertClientAccessSession,
-  PortalAccessLog, portalAccessLogs, InsertPortalAccessLog
+  PortalAccessLog, portalAccessLogs, InsertPortalAccessLog,
+  ApprovalRequest, approvalRequests, InsertApprovalRequest,
+  WhatsappMessageLog, whatsappMessageLogs, InsertWhatsappMessageLog
 } from "../drizzle/schema";
 import { SignJWT, jwtVerify } from "jose";
 import { calculateDossierState, formatDossierNumber } from "./dossierRules";
@@ -109,6 +111,10 @@ let _memoryDocuments: Document[] = [
     fileUrl: "data:application/pdf;base64,JVBERi0xLjQKJcTl8uXr...",
     fileSize: 142500,
     mimeType: "application/pdf",
+    version: 1,
+    isPublic: true,
+    previousVersions: "[]",
+    description: "Connaissement maritime original émis par Hapag-Lloyd",
     uploadedById: 1,
     uploaderName: "Ibrahima Gold Service",
     createdAt: new Date(),
@@ -121,9 +127,91 @@ let _memoryDocuments: Document[] = [
     fileUrl: "data:application/pdf;base64,JVBERi0xLjQKJcTl8uXr...",
     fileSize: 204800,
     mimeType: "application/pdf",
+    version: 1,
+    isPublic: true,
+    previousVersions: "[]",
+    description: "Déclaration d'importation SYDONIA World validée",
     uploadedById: 2,
     uploaderName: "Mamadou Diallo",
     createdAt: new Date(),
+  }
+];
+
+let _memoryApprovals: ApprovalRequest[] = [
+  {
+    id: 1,
+    entityType: "disbursement",
+    entityId: 1,
+    dossierId: 1,
+    amount: 14500000,
+    currency: "GNF",
+    thresholdAmount: 5000000,
+    requestedById: 2,
+    requestedByName: "Mamadou Diallo",
+    approverId: 1,
+    approverName: "Alpha Barry (Manager)",
+    status: "APPROUVE",
+    rejectionReason: null,
+    comment: "Débours Droits de douane liquidation Trésor Public",
+    createdAt: new Date(Date.now() - 86400000 * 2),
+    updatedAt: new Date(Date.now() - 86400000),
+    resolvedAt: new Date(Date.now() - 86400000),
+  }
+];
+
+let _memoryWhatsappLogs: WhatsappMessageLog[] = [];
+
+let _memoryClients: Client[] = [
+  {
+    id: 1,
+    name: "Guinean Birimian Gold (GBG)",
+    contactPerson: "Ousmane Camara",
+    email: "transit@gbg-mining.gn",
+    phone: "+224622001122",
+    whatsappPhone: "+224622001122",
+    country: "Guinée",
+    taxId: "NIF-8901234",
+    address: "Boffa / Conakry, République de Guinée",
+    preferredChannel: "whatsapp",
+    optInNotifications: true,
+    monthlyReportEnabled: true,
+    accountCategory: "mining_major",
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  },
+  {
+    id: 2,
+    name: "Guinee Gold Exploration (GGE)",
+    contactPerson: "Amadou Diallo",
+    email: "direction@gge-gold.gn",
+    phone: "+224621234567",
+    whatsappPhone: "+224621234567",
+    country: "Guinée",
+    taxId: "NIF-782190",
+    address: "Kamsar / Conakry, République de Guinée",
+    preferredChannel: "whatsapp",
+    optInNotifications: true,
+    monthlyReportEnabled: true,
+    accountCategory: "mining_major",
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  },
+  {
+    id: 3,
+    name: "New Japon Mining (NJP)",
+    contactPerson: "Kenji Sato",
+    email: "operations@njp-mining.gn",
+    phone: "+224623344556",
+    whatsappPhone: "+224623344556",
+    country: "Guinée",
+    taxId: "NIF-654321",
+    address: "Boké, République de Guinée",
+    preferredChannel: "whatsapp",
+    optInNotifications: true,
+    monthlyReportEnabled: true,
+    accountCategory: "mining_major",
+    createdAt: new Date(),
+    updatedAt: new Date(),
   }
 ];
 
@@ -1734,34 +1822,113 @@ export async function deleteDossier(id: number) {
   return { success: true } as const;
 }
 
-// ----------------- DOCUMENTS & PREUVES -----------------
-export async function listDocuments(dossierId: number) {
-  const db = await getDb();
-  if (db) {
-    try {
-      return await db.select().from(documents).where(eq(documents.dossierId, dossierId)).orderBy(desc(documents.createdAt));
-    } catch (e) {}
+// ----------------- DOCUMENTS & VERSIONNING -----------------
+export async function listDocuments(dossierId: number, isExternalClient?: boolean) {
+  let list = _memoryDocuments.filter(doc => doc.dossierId === dossierId);
+  if (isExternalClient) {
+    list = list.filter(doc => doc.isPublic !== false);
   }
-  return _memoryDocuments.filter(doc => doc.dossierId === dossierId).sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+  return list.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
 }
 
-export async function createDocument(input: InsertDocument) {
+export async function uploadDocumentWithVersion(input: {
+  dossierId: number;
+  name: string;
+  type?: Document["type"];
+  fileUrl: string;
+  fileSize?: number;
+  mimeType?: string;
+  isPublic?: boolean;
+  description?: string | null;
+  uploadedById?: number;
+  uploaderName?: string;
+  replaceExistingType?: boolean;
+}) {
   const now = new Date();
+  const docType = input.type ?? "Autre";
+  
+  // Recherche d'un document existant de même type sur le dossier si remplacement demandé
+  const existingIdx = input.replaceExistingType
+    ? _memoryDocuments.findIndex(d => d.dossierId === input.dossierId && d.type === docType)
+    : -1;
+
+  if (existingIdx >= 0) {
+    const existing = _memoryDocuments[existingIdx];
+    const prevHistory: Array<any> = (() => {
+      try {
+        return existing.previousVersions ? JSON.parse(existing.previousVersions) : [];
+      } catch {
+        return [];
+      }
+    })();
+
+    // Archiver la version actuelle
+    prevHistory.unshift({
+      version: existing.version || 1,
+      name: existing.name,
+      fileUrl: existing.fileUrl,
+      fileSize: existing.fileSize,
+      mimeType: existing.mimeType,
+      uploadedAt: existing.createdAt,
+      uploaderName: existing.uploaderName,
+    });
+
+    const nextVersion = (existing.version || 1) + 1;
+    const updatedDoc: Document = {
+      ...existing,
+      name: input.name,
+      fileUrl: input.fileUrl,
+      fileSize: input.fileSize ?? existing.fileSize,
+      mimeType: input.mimeType ?? existing.mimeType,
+      version: nextVersion,
+      isPublic: input.isPublic !== undefined ? input.isPublic : existing.isPublic,
+      description: input.description !== undefined ? input.description : existing.description,
+      previousVersions: JSON.stringify(prevHistory),
+      uploadedById: input.uploadedById ?? existing.uploadedById,
+      uploaderName: input.uploaderName ?? existing.uploaderName,
+      createdAt: now,
+    };
+
+    _memoryDocuments[existingIdx] = updatedDoc;
+
+    await logAuditEvent({
+      dossierId: input.dossierId,
+      userId: input.uploadedById ?? 1,
+      userName: input.uploaderName ?? "Opérateur IGS",
+      userRole: "declarant",
+      action: "DOCUMENT_NOUVELLE_VERSION",
+      entityType: "document",
+      entityId: updatedDoc.id,
+      fieldChanged: "Document Version",
+      previousValue: `v${existing.version || 1}: ${existing.name}`,
+      newValue: `v${nextVersion}: ${updatedDoc.name}`,
+      afterData: { name: updatedDoc.name, type: updatedDoc.type, version: nextVersion },
+      comment: `Mise à jour version v${nextVersion} pour ${updatedDoc.type} (${Math.round((updatedDoc.fileSize || 0) / 1024)} KB)`,
+    });
+
+    return updatedDoc;
+  }
+
+  // Création initiale (version 1)
   const doc: Document = {
     id: _memoryDocuments.length + 1,
     dossierId: input.dossierId,
     name: input.name,
-    type: input.type ?? "Autre",
+    type: docType,
     fileUrl: input.fileUrl,
     fileSize: input.fileSize ?? 0,
     mimeType: input.mimeType ?? "application/octet-stream",
+    version: 1,
+    isPublic: input.isPublic !== undefined ? input.isPublic : true,
+    previousVersions: "[]",
+    description: input.description ?? null,
     uploadedById: input.uploadedById ?? 1,
     uploaderName: input.uploaderName ?? "Opérateur IGS",
     createdAt: now,
   };
+
   _memoryDocuments.unshift(doc);
 
-  // Traçabilité & notification
   await logAuditEvent({
     dossierId: input.dossierId,
     userId: input.uploadedById ?? 1,
@@ -1771,20 +1938,210 @@ export async function createDocument(input: InsertDocument) {
     entityType: "document",
     entityId: doc.id,
     fieldChanged: "Document",
-    previousValue: null,
     newValue: `${doc.type}: ${doc.name}`,
-    afterData: { name: doc.name, type: doc.type, fileSize: doc.fileSize, mimeType: doc.mimeType },
-    metadata: { mimeType: doc.mimeType, fileSize: doc.fileSize },
-    comment: `Fichier joint (${Math.round((doc.fileSize || 0) / 1024)} KB)`,
+    afterData: { name: doc.name, type: doc.type, fileSize: doc.fileSize, mimeType: doc.mimeType, version: doc.version, isPublic: doc.isPublic },
+    metadata: { mimeType: doc.mimeType, fileSize: doc.fileSize, version: doc.version },
+    comment: `Dépôt document v1 (${Math.round((doc.fileSize || 0) / 1024)} KB) - Visibilité: ${doc.isPublic ? "Publique" : "Interne"}`,
   });
 
-  const db = await getDb();
-  if (db) {
-    try {
-      await db.insert(documents).values(input);
-    } catch (e) {}
-  }
   return doc;
+}
+
+export async function createDocument(input: InsertDocument) {
+  return uploadDocumentWithVersion({
+    dossierId: input.dossierId,
+    name: input.name,
+    type: input.type as any,
+    fileUrl: input.fileUrl,
+    fileSize: input.fileSize,
+    mimeType: input.mimeType || undefined,
+    isPublic: input.isPublic,
+    description: input.description,
+    uploadedById: input.uploadedById || undefined,
+    uploaderName: input.uploaderName || undefined,
+  });
+}
+
+// ----------------- WORKFLOW D'APPROBATION FINANCIÈRE -----------------
+export const APPROVAL_THRESHOLDS = {
+  DISBURSEMENT_GNF: 5_000_000,
+  INVOICE_GNF: 10_000_000,
+};
+
+export async function listApprovalRequests(filters?: {
+  status?: string;
+  entityType?: string;
+  dossierId?: number;
+}) {
+  let list = [..._memoryApprovals];
+  if (filters?.status && filters.status !== "all") {
+    list = list.filter(r => r.status === filters.status);
+  }
+  if (filters?.entityType && filters.entityType !== "all") {
+    list = list.filter(r => r.entityType === filters.entityType);
+  }
+  if (filters?.dossierId) {
+    list = list.filter(r => r.dossierId === filters.dossierId);
+  }
+  return list.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+}
+
+export async function createApprovalRequest(input: {
+  entityType: "invoice" | "disbursement";
+  entityId: number;
+  dossierId: number;
+  amount: number;
+  currency?: string;
+  thresholdAmount?: number;
+  requestedById?: number;
+  requestedByName?: string;
+  comment?: string;
+}) {
+  const now = new Date();
+  const defaultThreshold = input.entityType === "disbursement"
+    ? APPROVAL_THRESHOLDS.DISBURSEMENT_GNF
+    : APPROVAL_THRESHOLDS.INVOICE_GNF;
+
+  const req: ApprovalRequest = {
+    id: _memoryApprovals.length + 1,
+    entityType: input.entityType,
+    entityId: input.entityId,
+    dossierId: input.dossierId,
+    amount: input.amount,
+    currency: input.currency ?? "GNF",
+    thresholdAmount: input.thresholdAmount ?? defaultThreshold,
+    requestedById: input.requestedById ?? 1,
+    requestedByName: input.requestedByName ?? "Comptabilité IGS",
+    approverId: null,
+    approverName: null,
+    status: "EN_ATTENTE",
+    rejectionReason: null,
+    comment: input.comment ?? null,
+    createdAt: now,
+    updatedAt: now,
+    resolvedAt: null,
+  };
+
+  _memoryApprovals.unshift(req);
+
+  // Notification aux Managers & Direction
+  try {
+    await addNotification({
+      dossierId: input.dossierId,
+      dossierNumber: null,
+      type: "STATUT_MODIFIE",
+      title: `Approbation requise — ${input.entityType === 'invoice' ? 'Facture' : 'Débours'} de ${input.amount.toLocaleString('fr-FR')} ${input.currency || 'GNF'}`,
+      message: `Demande soumise par ${req.requestedByName}. Seuil de validation (${req.thresholdAmount.toLocaleString('fr-FR')} GNF) dépassé.`,
+      recipientRole: "manager",
+    });
+  } catch (e) {}
+
+  await logAuditEvent({
+    dossierId: input.dossierId,
+    userId: input.requestedById ?? 1,
+    userName: req.requestedByName,
+    userRole: "comptable",
+    action: "DEMANDE_APPROBATION_CREEE",
+    entityType: input.entityType,
+    entityId: input.entityId,
+    fieldChanged: "Approbation",
+    previousValue: null,
+    newValue: `EN_ATTENTE (${input.amount.toLocaleString("fr-FR")} GNF)`,
+    comment: `Demande d'approbation soumise pour ${input.entityType} #${input.entityId}`,
+  });
+
+  return req;
+}
+
+export async function approveRequest(
+  requestId: number,
+  approverId: number = 1,
+  approverName: string = "Alpha Barry (Manager)"
+) {
+  const idx = _memoryApprovals.findIndex(r => r.id === requestId);
+  if (idx < 0) throw new Error(`Demande d'approbation #${requestId} introuvable.`);
+
+  const now = new Date();
+  _memoryApprovals[idx] = {
+    ..._memoryApprovals[idx],
+    status: "APPROUVE",
+    approverId,
+    approverName,
+    rejectionReason: null,
+    updatedAt: now,
+    resolvedAt: now,
+  };
+
+  const req = _memoryApprovals[idx];
+
+  // Si facture approuvée, débloquer le statut en "Émise"
+  if (req.entityType === "invoice") {
+    const invIdx = _memoryInvoices.findIndex(i => i.id === req.entityId);
+    if (invIdx >= 0 && _memoryInvoices[invIdx].status === "Proforma") {
+      _memoryInvoices[invIdx].status = "Émise";
+    }
+  }
+
+  await logAuditEvent({
+    dossierId: req.dossierId,
+    userId: approverId,
+    userName: approverName,
+    userRole: "manager",
+    action: "DEMANDE_APPROUVEE",
+    entityType: req.entityType,
+    entityId: req.entityId,
+    fieldChanged: "Approbation",
+    previousValue: "EN_ATTENTE",
+    newValue: "APPROUVE",
+    comment: `Demande #${requestId} de ${req.amount.toLocaleString("fr-FR")} GNF validée par ${approverName}`,
+  });
+
+  invalidateFinanceCache();
+  return req;
+}
+
+export async function rejectRequest(
+  requestId: number,
+  approverId: number = 1,
+  approverName: string = "Alpha Barry (Manager)",
+  rejectionReason: string = ""
+) {
+  if (!rejectionReason || !rejectionReason.trim()) {
+    throw new Error("Un motif explicite est strictement obligatoire pour rejeter une demande.");
+  }
+
+  const idx = _memoryApprovals.findIndex(r => r.id === requestId);
+  if (idx < 0) throw new Error(`Demande d'approbation #${requestId} introuvable.`);
+
+  const now = new Date();
+  _memoryApprovals[idx] = {
+    ..._memoryApprovals[idx],
+    status: "REJETE",
+    approverId,
+    approverName,
+    rejectionReason: rejectionReason.trim(),
+    updatedAt: now,
+    resolvedAt: now,
+  };
+
+  const req = _memoryApprovals[idx];
+
+  await logAuditEvent({
+    dossierId: req.dossierId,
+    userId: approverId,
+    userName: approverName,
+    userRole: "manager",
+    action: "DEMANDE_REJETEE",
+    entityType: req.entityType,
+    entityId: req.entityId,
+    fieldChanged: "Approbation",
+    previousValue: "EN_ATTENTE",
+    newValue: "REJETE",
+    comment: `Demande #${requestId} rejetée par ${approverName}. Motif : ${rejectionReason}`,
+  });
+
+  invalidateFinanceCache();
+  return req;
 }
 
 export async function deleteDocument(id: number, userId?: number, authorName?: string) {
@@ -2890,4 +3247,59 @@ export async function createReferenceItem(input: { category: string; label: stri
     } catch (e) {}
   }
   return item;
+}
+
+// ----------------- PRÉFÉRENCES CLIENTS & COMMUNICATIONS -----------------
+export async function getClientPreferences(clientNameOrId: string | number) {
+  let client = typeof clientNameOrId === "number"
+    ? _memoryClients.find(c => c.id === clientNameOrId)
+    : _memoryClients.find(c => c.name.toLowerCase().trim() === String(clientNameOrId).toLowerCase().trim() || c.name.toLowerCase().includes(String(clientNameOrId).toLowerCase()));
+
+  if (!client) {
+    const cleanName = typeof clientNameOrId === "string" ? clientNameOrId : `Client #${clientNameOrId}`;
+    const newClient: Client = {
+      id: _memoryClients.length + 1,
+      name: cleanName,
+      contactPerson: "Direction Logistique",
+      email: `${cleanName.toLowerCase().replace(/[^a-z0-9]/g, "")}@client-igs.gn`,
+      phone: "+224620000000",
+      whatsappPhone: "+224620000000",
+      country: "Guinée",
+      taxId: null,
+      address: "Conakry, République de Guinée",
+      preferredChannel: "whatsapp",
+      optInNotifications: true,
+      monthlyReportEnabled: true,
+      accountCategory: cleanName.toUpperCase().includes("GOLD") || cleanName.toUpperCase().includes("MINING") ? "mining_major" : "standard",
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+    _memoryClients.push(newClient);
+    return newClient;
+  }
+
+  return client;
+}
+
+export async function updateClientPreferences(
+  clientId: number,
+  data: {
+    preferredChannel?: string;
+    optInNotifications?: boolean;
+    monthlyReportEnabled?: boolean;
+    whatsappPhone?: string | null;
+    email?: string | null;
+    contactPerson?: string | null;
+  }
+) {
+  const idx = _memoryClients.findIndex(c => c.id === clientId);
+  if (idx < 0) throw new Error(`Client #${clientId} introuvable.`);
+
+  _memoryClients[idx] = {
+    ..._memoryClients[idx],
+    ...data,
+    updatedAt: new Date(),
+  };
+
+  return _memoryClients[idx];
 }

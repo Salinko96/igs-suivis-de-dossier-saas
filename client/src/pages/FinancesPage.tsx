@@ -1,6 +1,8 @@
 import DashboardLayout from "@/components/DashboardLayout";
 import Breadcrumbs from "@/components/Breadcrumbs";
 import { KpiDetailModal, KpiType } from "@/components/KpiDetailModal";
+import { ApprovalsManagementModal } from "@/components/ApprovalsManagementModal";
+import { ClientReportModal } from "@/components/ClientReportModal";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -80,6 +82,11 @@ export default function FinancesPage() {
 
   // Sub-Navigation Tabs
   const [activeTab, setActiveTab] = useState<"invoices" | "profitability" | "treasury" | "rates">("invoices");
+  const [approvalsModalOpen, setApprovalsModalOpen] = useState(false);
+  const [reportModalOpen, setReportModalOpen] = useState(false);
+
+  const approvalsQuery = trpc.approval.list.useQuery({ status: "EN_ATTENTE" }, { refetchInterval: 15000 });
+  const pendingApprovalsCount = (approvalsQuery.data || []).filter((r: any) => r.status === "EN_ATTENTE").length;
 
   // Invoices Server Pagination & Filters
   const [invoicePage, setInvoicePage] = useState(1);
@@ -523,6 +530,37 @@ export default function FinancesPage() {
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
+            {/* Approbations & Arbitrages Financiers */}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setApprovalsModalOpen(true)}
+              className={`h-9 rounded-xl border text-xs gap-1.5 shadow-sm font-semibold ${
+                pendingApprovalsCount > 0
+                  ? "border-amber-400 bg-amber-50/80 text-amber-950 hover:bg-amber-100 animate-pulse"
+                  : "border-gray-200 bg-white text-emerald-950 hover:bg-emerald-50"
+              }`}
+            >
+              <ShieldAlert size={14} className={pendingApprovalsCount > 0 ? "text-amber-700" : "text-emerald-700"} />
+              <span>Approbations</span>
+              {pendingApprovalsCount > 0 && (
+                <Badge className="bg-amber-600 text-white text-[10px] h-4 px-1.5">
+                  {pendingApprovalsCount}
+                </Badge>
+              )}
+            </Button>
+
+            {/* Rapports Consolidés Grands Comptes */}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setReportModalOpen(true)}
+              className="h-9 rounded-xl border-gray-200 bg-white text-xs text-emerald-950 hover:bg-emerald-50 gap-1.5 shadow-sm font-semibold"
+            >
+              <Building2 size={14} className="text-primary" />
+              <span>Rapports Miniers</span>
+            </Button>
+
             {/* Taux de Change Actif & Bouton Paramétrage */}
             <Button
               variant="outline"
@@ -1519,6 +1557,18 @@ export default function FinancesPage() {
           displayCurrency={displayCurrency}
           exchangeRate={activeRate}
           isLoading={summaryQuery.isLoading || dossiersQuery.isLoading}
+        />
+
+        {/* Modal Workflow d'Approbation & Arbitrage */}
+        <ApprovalsManagementModal
+          isOpen={approvalsModalOpen}
+          onClose={() => setApprovalsModalOpen(false)}
+        />
+
+        {/* Modal Rapports Consolidés Grands Comptes */}
+        <ClientReportModal
+          isOpen={reportModalOpen}
+          onClose={() => setReportModalOpen(false)}
         />
       </div>
     </DashboardLayout>

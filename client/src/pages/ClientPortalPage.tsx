@@ -4,6 +4,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { DocumentManager } from "@/components/DocumentManager";
 import { trpc } from "@/lib/trpc";
 import {
   Anchor,
@@ -485,26 +486,11 @@ export default function ClientPortalPage() {
             </Card>
 
             {/* Documents & Preuves Disponibles */}
-            <Card className="border-0 bg-white p-6 shadow-[0_12px_36px_rgba(20,50,43,0.06)] rounded-3xl">
-              <h2 className="font-[Georgia] text-base font-bold text-emerald-950 mb-4">
-                Documents & Preuves de Transit ({data.documents.length})
-              </h2>
-              {data.documents.length === 0 ? (
-                <p className="text-xs text-muted-foreground italic">Aucun document joint n'est encore public pour ce dossier.</p>
-              ) : (
-                <div className="grid gap-2 sm:grid-cols-2">
-                  {data.documents.map(doc => (
-                    <div key={doc.id} className="flex items-center justify-between p-3 rounded-2xl border border-gray-100 bg-gray-50/50">
-                      <div>
-                        <Badge variant="outline" className="text-[9px] border-emerald-800 text-emerald-900">{doc.type}</Badge>
-                        <p className="text-xs font-semibold text-emerald-950 mt-1 truncate max-w-[200px]">{doc.name}</p>
-                      </div>
-                      <span className="text-[10px] text-muted-foreground">Certifié IGS</span>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </Card>
+            <DocumentManager
+              dossierId={dossier.id}
+              dossierNumber={dossier.dossierNumber}
+              isClientView={true}
+            />
           </div>
         )}
       </main>

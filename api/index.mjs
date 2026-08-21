@@ -174,9 +174,14 @@ var clients = pgTable("clients", {
   contactPerson: varchar("contactPerson", { length: 160 }),
   email: varchar("email", { length: 320 }),
   phone: varchar("phone", { length: 32 }),
+  whatsappPhone: varchar("whatsapp_phone", { length: 32 }),
   country: varchar("country", { length: 100 }).default("Guin\xE9e"),
   taxId: varchar("taxId", { length: 80 }),
   address: text("address"),
+  preferredChannel: varchar("preferred_channel", { length: 32 }).default("whatsapp").notNull(),
+  optInNotifications: boolean("opt_in_notifications").default(true).notNull(),
+  monthlyReportEnabled: boolean("monthly_report_enabled").default(true).notNull(),
+  accountCategory: varchar("account_category", { length: 64 }).default("standard"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().notNull()
 }, (table) => [
@@ -249,11 +254,17 @@ var documents = pgTable("documents", {
   fileSize: integer("fileSize").notNull().default(0),
   // en octets
   mimeType: varchar("mimeType", { length: 120 }),
+  version: integer("version").notNull().default(1),
+  isPublic: boolean("isPublic").notNull().default(true),
+  previousVersions: text("previousVersions").default("[]"),
+  // JSON stringifié des versions antérieures
+  description: text("description"),
   uploadedById: integer("uploadedById"),
   uploaderName: varchar("uploaderName", { length: 120 }),
   createdAt: timestamp("createdAt").defaultNow().notNull()
 }, (table) => [
-  index("documents_dossier_idx").on(table.dossierId)
+  index("documents_dossier_idx").on(table.dossierId),
+  index("documents_is_public_idx").on(table.dossierId, table.isPublic)
 ]);
 var dossierStatusHistory = pgTable("dossier_status_history", {
   id: serial("id").primaryKey(),
@@ -465,6 +476,48 @@ var portalAccessLogs = pgTable("portal_access_logs", {
   index("portal_logs_dossier_idx").on(table.dossierId),
   index("portal_logs_time_idx").on(table.accessedAt),
   index("portal_logs_code_idx").on(table.accessCodeUsed)
+]);
+var approvalRequests = pgTable("approval_requests", {
+  id: serial("id").primaryKey(),
+  entityType: varchar("entity_type", { length: 64 }).notNull(),
+  // 'invoice' | 'disbursement'
+  entityId: integer("entity_id").notNull(),
+  dossierId: integer("dossier_id").notNull(),
+  amount: integer("amount").notNull(),
+  currency: varchar("currency", { length: 16 }).default("GNF").notNull(),
+  thresholdAmount: integer("threshold_amount").notNull(),
+  requestedById: integer("requested_by_id").notNull(),
+  requestedByName: varchar("requested_by_name", { length: 160 }).notNull(),
+  approverId: integer("approver_id"),
+  approverName: varchar("approver_name", { length: 160 }),
+  status: varchar("status", { length: 32 }).default("EN_ATTENTE").notNull(),
+  // 'EN_ATTENTE' | 'APPROUVE' | 'REJETE'
+  rejectionReason: text("rejection_reason"),
+  comment: text("comment"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  resolvedAt: timestamp("resolved_at")
+}, (table) => [
+  index("approvals_status_idx").on(table.status),
+  index("approvals_dossier_idx").on(table.dossierId),
+  index("approvals_entity_idx").on(table.entityType, table.entityId)
+]);
+var whatsappMessageLogs = pgTable("whatsapp_message_logs", {
+  id: serial("id").primaryKey(),
+  dossierId: integer("dossier_id"),
+  dossierNumber: varchar("dossier_number", { length: 64 }),
+  templateName: varchar("template_name", { length: 64 }).notNull(),
+  recipientPhone: varchar("recipient_phone", { length: 64 }).notNull(),
+  clientName: varchar("client_name", { length: 255 }).notNull(),
+  renderedMessage: text("rendered_message").notNull(),
+  providerMessageId: varchar("provider_message_id", { length: 120 }),
+  status: varchar("status", { length: 32 }).default("SENT").notNull(),
+  errorDetails: text("error_details"),
+  createdAt: timestamp("created_at").defaultNow().notNull()
+}, (table) => [
+  index("whatsapp_logs_dossier_idx").on(table.dossierId),
+  index("whatsapp_logs_template_idx").on(table.templateName),
+  index("whatsapp_logs_time_idx").on(table.createdAt)
 ]);
 
 // server/db.ts
@@ -4517,6 +4570,10 @@ var _memoryDocuments = [
     fileUrl: "data:application/pdf;base64,JVBERi0xLjQKJcTl8uXr...",
     fileSize: 142500,
     mimeType: "application/pdf",
+    version: 1,
+    isPublic: true,
+    previousVersions: "[]",
+    description: "Connaissement maritime original \xE9mis par Hapag-Lloyd",
     uploadedById: 1,
     uploaderName: "Ibrahima Gold Service",
     createdAt: /* @__PURE__ */ new Date()
@@ -4529,9 +4586,87 @@ var _memoryDocuments = [
     fileUrl: "data:application/pdf;base64,JVBERi0xLjQKJcTl8uXr...",
     fileSize: 204800,
     mimeType: "application/pdf",
+    version: 1,
+    isPublic: true,
+    previousVersions: "[]",
+    description: "D\xE9claration d'importation SYDONIA World valid\xE9e",
     uploadedById: 2,
     uploaderName: "Mamadou Diallo",
     createdAt: /* @__PURE__ */ new Date()
+  }
+];
+var _memoryApprovals = [
+  {
+    id: 1,
+    entityType: "disbursement",
+    entityId: 1,
+    dossierId: 1,
+    amount: 145e5,
+    currency: "GNF",
+    thresholdAmount: 5e6,
+    requestedById: 2,
+    requestedByName: "Mamadou Diallo",
+    approverId: 1,
+    approverName: "Alpha Barry (Manager)",
+    status: "APPROUVE",
+    rejectionReason: null,
+    comment: "D\xE9bours Droits de douane liquidation Tr\xE9sor Public",
+    createdAt: new Date(Date.now() - 864e5 * 2),
+    updatedAt: new Date(Date.now() - 864e5),
+    resolvedAt: new Date(Date.now() - 864e5)
+  }
+];
+var _memoryClients = [
+  {
+    id: 1,
+    name: "Guinean Birimian Gold (GBG)",
+    contactPerson: "Ousmane Camara",
+    email: "transit@gbg-mining.gn",
+    phone: "+224622001122",
+    whatsappPhone: "+224622001122",
+    country: "Guin\xE9e",
+    taxId: "NIF-8901234",
+    address: "Boffa / Conakry, R\xE9publique de Guin\xE9e",
+    preferredChannel: "whatsapp",
+    optInNotifications: true,
+    monthlyReportEnabled: true,
+    accountCategory: "mining_major",
+    createdAt: /* @__PURE__ */ new Date(),
+    updatedAt: /* @__PURE__ */ new Date()
+  },
+  {
+    id: 2,
+    name: "Guinee Gold Exploration (GGE)",
+    contactPerson: "Amadou Diallo",
+    email: "direction@gge-gold.gn",
+    phone: "+224621234567",
+    whatsappPhone: "+224621234567",
+    country: "Guin\xE9e",
+    taxId: "NIF-782190",
+    address: "Kamsar / Conakry, R\xE9publique de Guin\xE9e",
+    preferredChannel: "whatsapp",
+    optInNotifications: true,
+    monthlyReportEnabled: true,
+    accountCategory: "mining_major",
+    createdAt: /* @__PURE__ */ new Date(),
+    updatedAt: /* @__PURE__ */ new Date()
+  },
+  {
+    id: 3,
+    name: "New Japon Mining (NJP)",
+    contactPerson: "Kenji Sato",
+    email: "operations@njp-mining.gn",
+    phone: "+224623344556",
+    whatsappPhone: "+224623344556",
+    country: "Guin\xE9e",
+    taxId: "NIF-654321",
+    address: "Bok\xE9, R\xE9publique de Guin\xE9e",
+    preferredChannel: "whatsapp",
+    optInNotifications: true,
+    monthlyReportEnabled: true,
+    accountCategory: "mining_major",
+    createdAt: /* @__PURE__ */ new Date(),
+    updatedAt: /* @__PURE__ */ new Date()
   }
 ];
 var _memoryHistory = [
@@ -5858,26 +5993,79 @@ async function deleteDossier(id) {
   }
   return { success: true };
 }
-async function listDocuments(dossierId) {
-  const db = await getDb();
-  if (db) {
-    try {
-      return await db.select().from(documents).where(eq(documents.dossierId, dossierId)).orderBy(desc(documents.createdAt));
-    } catch (e) {
-    }
+async function listDocuments(dossierId, isExternalClient) {
+  let list = _memoryDocuments.filter((doc) => doc.dossierId === dossierId);
+  if (isExternalClient) {
+    list = list.filter((doc) => doc.isPublic !== false);
   }
-  return _memoryDocuments.filter((doc) => doc.dossierId === dossierId).sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+  return list.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
 }
-async function createDocument(input) {
+async function uploadDocumentWithVersion(input) {
   const now = /* @__PURE__ */ new Date();
+  const docType = input.type ?? "Autre";
+  const existingIdx = input.replaceExistingType ? _memoryDocuments.findIndex((d) => d.dossierId === input.dossierId && d.type === docType) : -1;
+  if (existingIdx >= 0) {
+    const existing = _memoryDocuments[existingIdx];
+    const prevHistory = (() => {
+      try {
+        return existing.previousVersions ? JSON.parse(existing.previousVersions) : [];
+      } catch {
+        return [];
+      }
+    })();
+    prevHistory.unshift({
+      version: existing.version || 1,
+      name: existing.name,
+      fileUrl: existing.fileUrl,
+      fileSize: existing.fileSize,
+      mimeType: existing.mimeType,
+      uploadedAt: existing.createdAt,
+      uploaderName: existing.uploaderName
+    });
+    const nextVersion = (existing.version || 1) + 1;
+    const updatedDoc = {
+      ...existing,
+      name: input.name,
+      fileUrl: input.fileUrl,
+      fileSize: input.fileSize ?? existing.fileSize,
+      mimeType: input.mimeType ?? existing.mimeType,
+      version: nextVersion,
+      isPublic: input.isPublic !== void 0 ? input.isPublic : existing.isPublic,
+      description: input.description !== void 0 ? input.description : existing.description,
+      previousVersions: JSON.stringify(prevHistory),
+      uploadedById: input.uploadedById ?? existing.uploadedById,
+      uploaderName: input.uploaderName ?? existing.uploaderName,
+      createdAt: now
+    };
+    _memoryDocuments[existingIdx] = updatedDoc;
+    await logAuditEvent({
+      dossierId: input.dossierId,
+      userId: input.uploadedById ?? 1,
+      userName: input.uploaderName ?? "Op\xE9rateur IGS",
+      userRole: "declarant",
+      action: "DOCUMENT_NOUVELLE_VERSION",
+      entityType: "document",
+      entityId: updatedDoc.id,
+      fieldChanged: "Document Version",
+      previousValue: `v${existing.version || 1}: ${existing.name}`,
+      newValue: `v${nextVersion}: ${updatedDoc.name}`,
+      afterData: { name: updatedDoc.name, type: updatedDoc.type, version: nextVersion },
+      comment: `Mise \xE0 jour version v${nextVersion} pour ${updatedDoc.type} (${Math.round((updatedDoc.fileSize || 0) / 1024)} KB)`
+    });
+    return updatedDoc;
+  }
   const doc = {
     id: _memoryDocuments.length + 1,
     dossierId: input.dossierId,
     name: input.name,
-    type: input.type ?? "Autre",
+    type: docType,
     fileUrl: input.fileUrl,
     fileSize: input.fileSize ?? 0,
     mimeType: input.mimeType ?? "application/octet-stream",
+    version: 1,
+    isPublic: input.isPublic !== void 0 ? input.isPublic : true,
+    previousVersions: "[]",
+    description: input.description ?? null,
     uploadedById: input.uploadedById ?? 1,
     uploaderName: input.uploaderName ?? "Op\xE9rateur IGS",
     createdAt: now
@@ -5892,20 +6080,98 @@ async function createDocument(input) {
     entityType: "document",
     entityId: doc.id,
     fieldChanged: "Document",
-    previousValue: null,
     newValue: `${doc.type}: ${doc.name}`,
-    afterData: { name: doc.name, type: doc.type, fileSize: doc.fileSize, mimeType: doc.mimeType },
-    metadata: { mimeType: doc.mimeType, fileSize: doc.fileSize },
-    comment: `Fichier joint (${Math.round((doc.fileSize || 0) / 1024)} KB)`
+    afterData: { name: doc.name, type: doc.type, fileSize: doc.fileSize, mimeType: doc.mimeType, version: doc.version, isPublic: doc.isPublic },
+    metadata: { mimeType: doc.mimeType, fileSize: doc.fileSize, version: doc.version },
+    comment: `D\xE9p\xF4t document v1 (${Math.round((doc.fileSize || 0) / 1024)} KB) - Visibilit\xE9: ${doc.isPublic ? "Publique" : "Interne"}`
   });
-  const db = await getDb();
-  if (db) {
-    try {
-      await db.insert(documents).values(input);
-    } catch (e) {
+  return doc;
+}
+var APPROVAL_THRESHOLDS = {
+  DISBURSEMENT_GNF: 5e6,
+  INVOICE_GNF: 1e7
+};
+async function listApprovalRequests(filters) {
+  let list = [..._memoryApprovals];
+  if (filters?.status && filters.status !== "all") {
+    list = list.filter((r) => r.status === filters.status);
+  }
+  if (filters?.entityType && filters.entityType !== "all") {
+    list = list.filter((r) => r.entityType === filters.entityType);
+  }
+  if (filters?.dossierId) {
+    list = list.filter((r) => r.dossierId === filters.dossierId);
+  }
+  return list.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+}
+async function approveRequest(requestId, approverId = 1, approverName = "Alpha Barry (Manager)") {
+  const idx = _memoryApprovals.findIndex((r) => r.id === requestId);
+  if (idx < 0) throw new Error(`Demande d'approbation #${requestId} introuvable.`);
+  const now = /* @__PURE__ */ new Date();
+  _memoryApprovals[idx] = {
+    ..._memoryApprovals[idx],
+    status: "APPROUVE",
+    approverId,
+    approverName,
+    rejectionReason: null,
+    updatedAt: now,
+    resolvedAt: now
+  };
+  const req = _memoryApprovals[idx];
+  if (req.entityType === "invoice") {
+    const invIdx = _memoryInvoices.findIndex((i) => i.id === req.entityId);
+    if (invIdx >= 0 && _memoryInvoices[invIdx].status === "Proforma") {
+      _memoryInvoices[invIdx].status = "\xC9mise";
     }
   }
-  return doc;
+  await logAuditEvent({
+    dossierId: req.dossierId,
+    userId: approverId,
+    userName: approverName,
+    userRole: "manager",
+    action: "DEMANDE_APPROUVEE",
+    entityType: req.entityType,
+    entityId: req.entityId,
+    fieldChanged: "Approbation",
+    previousValue: "EN_ATTENTE",
+    newValue: "APPROUVE",
+    comment: `Demande #${requestId} de ${req.amount.toLocaleString("fr-FR")} GNF valid\xE9e par ${approverName}`
+  });
+  invalidateFinanceCache();
+  return req;
+}
+async function rejectRequest(requestId, approverId = 1, approverName = "Alpha Barry (Manager)", rejectionReason = "") {
+  if (!rejectionReason || !rejectionReason.trim()) {
+    throw new Error("Un motif explicite est strictement obligatoire pour rejeter une demande.");
+  }
+  const idx = _memoryApprovals.findIndex((r) => r.id === requestId);
+  if (idx < 0) throw new Error(`Demande d'approbation #${requestId} introuvable.`);
+  const now = /* @__PURE__ */ new Date();
+  _memoryApprovals[idx] = {
+    ..._memoryApprovals[idx],
+    status: "REJETE",
+    approverId,
+    approverName,
+    rejectionReason: rejectionReason.trim(),
+    updatedAt: now,
+    resolvedAt: now
+  };
+  const req = _memoryApprovals[idx];
+  await logAuditEvent({
+    dossierId: req.dossierId,
+    userId: approverId,
+    userName: approverName,
+    userRole: "manager",
+    action: "DEMANDE_REJETEE",
+    entityType: req.entityType,
+    entityId: req.entityId,
+    fieldChanged: "Approbation",
+    previousValue: "EN_ATTENTE",
+    newValue: "REJETE",
+    comment: `Demande #${requestId} rejet\xE9e par ${approverName}. Motif : ${rejectionReason}`
+  });
+  invalidateFinanceCache();
+  return req;
 }
 async function deleteDocument(id, userId, authorName) {
   const targetDoc = _memoryDocuments.find((d) => d.id === id);
@@ -6805,6 +7071,42 @@ async function createReferenceItem(input) {
   }
   return item;
 }
+async function getClientPreferences(clientNameOrId) {
+  let client = typeof clientNameOrId === "number" ? _memoryClients.find((c) => c.id === clientNameOrId) : _memoryClients.find((c) => c.name.toLowerCase().trim() === String(clientNameOrId).toLowerCase().trim() || c.name.toLowerCase().includes(String(clientNameOrId).toLowerCase()));
+  if (!client) {
+    const cleanName = typeof clientNameOrId === "string" ? clientNameOrId : `Client #${clientNameOrId}`;
+    const newClient = {
+      id: _memoryClients.length + 1,
+      name: cleanName,
+      contactPerson: "Direction Logistique",
+      email: `${cleanName.toLowerCase().replace(/[^a-z0-9]/g, "")}@client-igs.gn`,
+      phone: "+224620000000",
+      whatsappPhone: "+224620000000",
+      country: "Guin\xE9e",
+      taxId: null,
+      address: "Conakry, R\xE9publique de Guin\xE9e",
+      preferredChannel: "whatsapp",
+      optInNotifications: true,
+      monthlyReportEnabled: true,
+      accountCategory: cleanName.toUpperCase().includes("GOLD") || cleanName.toUpperCase().includes("MINING") ? "mining_major" : "standard",
+      createdAt: /* @__PURE__ */ new Date(),
+      updatedAt: /* @__PURE__ */ new Date()
+    };
+    _memoryClients.push(newClient);
+    return newClient;
+  }
+  return client;
+}
+async function updateClientPreferences(clientId, data) {
+  const idx = _memoryClients.findIndex((c) => c.id === clientId);
+  if (idx < 0) throw new Error(`Client #${clientId} introuvable.`);
+  _memoryClients[idx] = {
+    ..._memoryClients[idx],
+    ...data,
+    updatedAt: /* @__PURE__ */ new Date()
+  };
+  return _memoryClients[idx];
+}
 
 // server/_core/cookies.ts
 var LOCAL_HOSTS = /* @__PURE__ */ new Set(["localhost", "127.0.0.1", "::1"]);
@@ -7466,6 +7768,343 @@ async function uploadDossierCloudFile(options) {
     storageProvider: "local_resilient",
     fileKey
   };
+}
+
+// server/whatsappService.ts
+function renderWhatsappHsmTemplate(options) {
+  const { template, dossierNumber, clientName, variables } = options;
+  const trackingUrl = variables.directTrackingUrl || `https://igs-suivis-de-dossier-saas.vercel.app/portail-client`;
+  const header = `\u{1F6A2} *IBRAHIMA GOLD SERVICE (IGS) \u2014 TRANSIT & DOUANE GUIN\xC9E*`;
+  const footer = `
+\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501
+\u{1F4CD} *Conakry Terminal \u2022 Port Autonome de Conakry (PAC)*
+\u{1F4DE} *Assistance 24/7 :* +224 620 00 00 00
+\u{1F517} *Suivi temps r\xE9el :* ${trackingUrl}`;
+  let body = "";
+  switch (template) {
+    case "dossier_cree":
+      body = `Bonjour *${clientName}*,
+
+\u2705 Votre dossier de transit maritime *${dossierNumber}* a \xE9t\xE9 ouvert avec succ\xE8s dans notre syst\xE8me.
+\u2022 *Connaissement (BL/LTA) :* ${variables.blLtaNumber || "En attente"}
+\u2022 *Date estim\xE9e d'accostage (ETA) :* ${variables.eta ? new Date(variables.eta).toLocaleDateString("fr-FR") : "Non confirm\xE9e"}
+\u2022 *\xC9quipe en charge :* Service Op\xE9rations Quai PAC IGS.`;
+      break;
+    case "eta_mise_a_jour":
+      body = `Avis \xE0 l'attention de *${clientName}*,
+
+\u23F1\uFE0F *Mise \xE0 jour d'ETA Navire \u2014 Dossier ${dossierNumber}*
+\u2022 *Nouveau cr\xE9neau d'arriv\xE9e au Port de Conakry :* ${variables.eta ? new Date(variables.eta).toLocaleDateString("fr-FR") : "Confirm\xE9"}
+\u2022 *Connaissement (BL) :* ${variables.blLtaNumber || "N/A"}
+Nos d\xE9clarants quai sont pr\xE9-positionn\xE9s pour le pointage et l'acconage d\xE8s l'amarrage.`;
+      break;
+    case "alerte_surestarie_imminente":
+      body = `\u26A0\uFE0F *ALERTE EXPIRATION FRANCHISE PORTUAIRE (J-2)*
+Client : *${clientName}* \u2022 Dossier : *${dossierNumber}*
+
+Le s\xE9jour de votre cargaison au quai de Conakry atteint *${variables.daysOnQuay || 5} jours* (franchise armateur de 7 jours).
+\u{1F6A8} *Action requise :* Cl\xF4ture de la d\xE9claration SYDONIA World et acquittement des d\xE9bours PAC pour \xE9viter l'application des surestaries journali\xE8res.`;
+      break;
+    case "dossier_regularise":
+      body = `\u{1F389} *CONFIRMATION DE D\xC9DOUANEMENT & SORTIE DE QUAI*
+Client : *${clientName}* \u2022 Dossier : *${dossierNumber}*
+
+\u2705 Le Bon \xE0 Enlever (BAE) / SYDONIA World N\xB0 ${variables.customsDeclaration || "Valid\xE9"} a \xE9t\xE9 d\xE9livr\xE9.
+Les formalit\xE9s de d\xE9douanement et le bon de sortie de quai sont complets. La livraison sur votre site d'exploitation peut d\xE9buter.`;
+      break;
+    case "facture_disponible":
+      body = `\u{1F4C4} *AVIS DE FACTURATION & D\xC9BOURS DOUANIERS*
+Client : *${clientName}* \u2022 Facture N\xB0 *${variables.invoiceNumber || "FAC-2026"}*
+
+\u2022 *Dossier rattach\xE9 :* ${dossierNumber}
+\u2022 *Montant Total :* ${Number(variables.amount || 0).toLocaleString("fr-FR")} ${variables.currency || "GNF"}
+Votre facture d\xE9taill\xE9e et le relev\xE9 des d\xE9bours Tr\xE9sor/PAC sont disponibles sur votre espace s\xE9curis\xE9.`;
+      break;
+    default:
+      body = `Notification op\xE9rationnelle concernant le dossier ${dossierNumber} pour ${clientName}.`;
+      break;
+  }
+  const fullText = `${header}
+
+${body}${footer}`;
+  return {
+    template,
+    header,
+    body,
+    footer,
+    fullText
+  };
+}
+async function sendWhatsappBusinessMessage(options) {
+  const rendered = renderWhatsappHsmTemplate(options);
+  const cleanPhone = options.recipientPhone.replace(/[^0-9+]/g, "") || "+224620000000";
+  let provider = "simulator";
+  let messageId = `wamid.HBgL${Date.now()}${Math.floor(Math.random() * 1e3)}`;
+  console.log(`[WhatsApp Business API] Dispatch to ${cleanPhone} [Template: ${options.template}] :
+${rendered.fullText}`);
+  if (process.env.WHATSAPP_API_TOKEN && process.env.WHATSAPP_PHONE_ID) {
+    provider = "meta_cloud_api";
+    try {
+      const response = await fetch(`https://graph.facebook.com/v19.0/${process.env.WHATSAPP_PHONE_ID}/messages`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${process.env.WHATSAPP_API_TOKEN}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          messaging_product: "whatsapp",
+          to: cleanPhone,
+          type: "text",
+          text: { body: rendered.fullText }
+        })
+      });
+      const data = await response.json();
+      if (data.messages && data.messages[0]?.id) {
+        messageId = data.messages[0].id;
+      }
+    } catch (err) {
+      console.warn("[WhatsApp Meta API Exception]", err);
+    }
+  }
+  if (options.dossierId) {
+    try {
+      await logAuditEvent({
+        dossierId: options.dossierId,
+        userId: options.userId || 1,
+        userName: options.userName || "WhatsApp Business Engine",
+        userRole: "system",
+        action: "WHATSAPP_ENVOYE",
+        entityType: "notification",
+        entityId: null,
+        fieldChanged: "WhatsApp Alert",
+        previousValue: null,
+        newValue: `${options.template} \u2794 ${cleanPhone}`,
+        metadata: {
+          template: options.template,
+          recipient: cleanPhone,
+          messageId,
+          provider
+        },
+        comment: `Message WhatsApp envoy\xE9 au client ${options.clientName} (Template: ${options.template})`
+      });
+    } catch (e) {
+    }
+  }
+  return {
+    success: true,
+    messageId,
+    renderedText: rendered.fullText,
+    recipientPhone: cleanPhone,
+    provider
+  };
+}
+
+// server/clientReportService.ts
+async function generateClientConsolidatedReport(clientName, options) {
+  const [allDossiers, allInvoices, allDebours, { rate }] = await Promise.all([
+    listDossiers({ client: clientName }),
+    listInvoices(),
+    listPacDisbursements(),
+    getExchangeRate()
+  ]);
+  let clientDossiers = allDossiers.filter(
+    (d) => d.client?.toLowerCase().trim() === clientName.toLowerCase().trim() || d.client?.toLowerCase().includes(clientName.toLowerCase())
+  );
+  const pStart = options?.periodStart ? new Date(options.periodStart) : null;
+  const pEnd = options?.periodEnd ? new Date(options.periodEnd) : null;
+  if (pStart) {
+    clientDossiers = clientDossiers.filter((d) => new Date(d.createdAt) >= pStart);
+  }
+  if (pEnd) {
+    clientDossiers = clientDossiers.filter((d) => new Date(d.createdAt) <= pEnd);
+  }
+  const clientInvoices = allInvoices.filter(
+    (i) => clientDossiers.some((d) => d.id === i.dossierId) || i.client?.toLowerCase().includes(clientName.toLowerCase())
+  );
+  let accountCategory = "standard";
+  const upper = clientName.toUpperCase();
+  if (upper.includes("GOLD") || upper.includes("MINING") || upper.includes("BIRIMIAN") || upper.includes("CAPDRILL") || upper.includes("BAUXITE")) {
+    accountCategory = "mining_major";
+  } else if (upper.includes("SHIPBUILDING") || upper.includes("LOGISTICS") || upper.includes("INDUSTRIE")) {
+    accountCategory = "industrial";
+  }
+  const totalDossiers = clientDossiers.length;
+  const regularizedDossiers = clientDossiers.filter((d) => d.calculatedStatus === "R\xE9gularis\xE9");
+  const regularizedDossiersCount = regularizedDossiers.length;
+  const pendingDossiersCount = totalDossiers - regularizedDossiersCount;
+  const regularizationRatePct = totalDossiers > 0 ? Math.round(regularizedDossiersCount / totalDossiers * 100) : 0;
+  let totalClearanceDays = 0;
+  let clearedCount = 0;
+  const enrichedDossiers = clientDossiers.map((d) => {
+    let clearanceDays = null;
+    if (d.eta && d.goodsReleaseDate) {
+      const etaTime = new Date(d.eta).getTime();
+      const releaseTime = new Date(d.goodsReleaseDate).getTime();
+      clearanceDays = Math.max(0, Math.round((releaseTime - etaTime) / 864e5));
+      totalClearanceDays += clearanceDays;
+      clearedCount += 1;
+    }
+    const relatedInvoices = clientInvoices.filter((i) => i.dossierId === d.id);
+    const invoicedAmountGNF = relatedInvoices.reduce((sum, i) => sum + (i.currency === "USD" ? i.amountTtc * rate : i.amountTtc), 0);
+    return {
+      dossierNumber: d.dossierNumber,
+      blLtaNumber: d.blLtaNumber,
+      cargoNature: d.cargoNature,
+      container: d.container,
+      transportMode: d.transportMode,
+      eta: d.eta,
+      goodsReleaseDate: d.goodsReleaseDate,
+      calculatedStatus: d.calculatedStatus,
+      declarationNumber: d.declarationNumber,
+      clearanceDays,
+      invoicedAmountGNF
+    };
+  });
+  const averageClearanceDays = clearedCount > 0 ? Math.round(totalClearanceDays / clearedCount * 10) / 10 : 3.5;
+  const now = /* @__PURE__ */ new Date();
+  const demurrageRiskCount = clientDossiers.filter(
+    (d) => d.eta && !d.goodsReleaseDate && now.getTime() - new Date(d.eta).getTime() > 864e5 * 7
+  ).length;
+  const totalInvoicedGNF = clientInvoices.reduce((sum, i) => sum + (i.currency === "USD" ? i.amountTtc * rate : i.amountTtc), 0);
+  const totalInvoicedUSD = Math.round(totalInvoicedGNF / rate * 100) / 100;
+  const totalDisbursementsGNF = clientInvoices.reduce((sum, i) => sum + (i.currency === "USD" ? (i.disbursementsAmount || 0) * rate : i.disbursementsAmount || 0), 0);
+  const totalMarginGNF = clientInvoices.reduce((sum, i) => sum + (i.currency === "USD" ? (i.estimatedMargin || 0) * rate : i.estimatedMargin || 0), 0);
+  const marginRatePct = totalInvoicedGNF > 0 ? Math.round((totalInvoicedGNF - totalDisbursementsGNF) / totalInvoicedGNF * 1e3) / 10 : 0;
+  return {
+    clientName,
+    accountCategory,
+    periodStart: options?.periodStart,
+    periodEnd: options?.periodEnd,
+    generatedAt: /* @__PURE__ */ new Date(),
+    totalDossiers,
+    regularizedDossiersCount,
+    pendingDossiersCount,
+    regularizationRatePct,
+    demurrageRiskCount,
+    averageClearanceDays,
+    totalInvoicedGNF,
+    totalInvoicedUSD,
+    totalDisbursementsGNF,
+    totalMarginGNF,
+    marginRatePct,
+    exchangeRate: rate,
+    dossiers: enrichedDossiers
+  };
+}
+function generateClientReportHtml(report) {
+  const isMining = report.accountCategory === "mining_major";
+  return `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <title>Rapport Consolid\xE9 Transit & Douane - ${report.clientName}</title>
+      <meta charset="utf-8" />
+      <style>
+        @page { size: A4 portrait; margin: 15mm; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif; color: #102c26; margin: 0; padding: 15px; font-size: 11px; line-height: 1.4; }
+        .header { display: flex; justify-content: space-between; border-bottom: 3px solid #0b3b32; padding-bottom: 15px; }
+        .logo-title { font-size: 20px; font-weight: 800; color: #0b3b32; letter-spacing: 0.5px; }
+        .subtitle { font-size: 10px; color: #52736b; margin-top: 2px; }
+        .badge-mining { background: #0b3b32; color: #ffffff; padding: 4px 10px; border-radius: 6px; font-weight: bold; font-size: 10px; display: inline-block; }
+        .client-banner { margin-top: 18px; padding: 14px 18px; background: #f4f8f6; border-radius: 10px; border-left: 4px solid #d9a94b; display: flex; justify-content: space-between; align-items: center; }
+        .kpi-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-top: 18px; }
+        .kpi-card { background: #ffffff; border: 1px solid #e1ebe7; border-radius: 8px; padding: 10px; text-align: center; }
+        .kpi-title { font-size: 9px; text-transform: uppercase; color: #627670; font-weight: bold; }
+        .kpi-val { font-size: 16px; font-weight: 800; color: #0b3b32; margin-top: 4px; }
+        table { width: 100%; border-collapse: collapse; margin-top: 20px; font-size: 10px; }
+        th { background: #0b3b32; color: #ffffff; padding: 8px 10px; text-align: left; font-size: 9px; font-weight: 700; text-transform: uppercase; }
+        td { padding: 7px 10px; border-bottom: 1px solid #e1ebe7; }
+        .text-right { text-align: right; }
+        .status-reg { color: #065f46; font-weight: bold; background: #d1fae5; padding: 2px 6px; border-radius: 4px; }
+        .status-att { color: #92400e; font-weight: bold; background: #fef3c7; padding: 2px 6px; border-radius: 4px; }
+        .footer { margin-top: 30px; font-size: 9px; text-align: center; color: #789088; border-top: 1px solid #e1ebe7; padding-top: 10px; }
+      </style>
+    </head>
+    <body>
+      <div class="header">
+        <div>
+          <div class="logo-title">IBRAHIMA GOLD SERVICE (IGS) S.A.R.L</div>
+          <div class="subtitle">Direction des Op\xE9rations Maritimes & Relations Grands Comptes Miniers</div>
+          <div class="subtitle">Conakry Terminal \u2022 Port Autonome de Conakry (PAC) \u2022 R\xE9publique de Guin\xE9e</div>
+        </div>
+        <div class="text-right">
+          <div class="badge-mining">${isMining ? "\u2605 COMPTE STRAT\xC9GIQUE MINIER" : "RAPPORT D'ACTIVIT\xC9"}</div>
+          <div style="font-weight: bold; margin-top: 4px; font-size: 11px;">\xC9dition du ${report.generatedAt.toLocaleDateString("fr-FR")}</div>
+          <div style="font-size: 9px; color: #666;">Taux de r\xE9f\xE9rence : 1 USD = ${report.exchangeRate.toLocaleString("fr-FR")} GNF</div>
+        </div>
+      </div>
+
+      <div class="client-banner">
+        <div>
+          <div style="font-size: 9px; font-weight: bold; color: #627670; text-transform: uppercase;">SOCI\xC9T\xC9 CLIENTE :</div>
+          <div style="font-size: 16px; font-weight: bold; color: #0b3b32;">${report.clientName}</div>
+        </div>
+        <div class="text-right">
+          <div style="font-size: 9px; color: #627670;">Taux de R\xE9gularisation :</div>
+          <div style="font-size: 14px; font-weight: bold; color: #0b3b32;">${report.regularizationRatePct}% (${report.regularizedDossiersCount}/${report.totalDossiers})</div>
+        </div>
+      </div>
+
+      <div class="kpi-grid">
+        <div class="kpi-card">
+          <div class="kpi-title">Total Dossiers Trait\xE9s</div>
+          <div class="kpi-val">${report.totalDossiers}</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-title">D\xE9lai Moyen Quai (Lead Time)</div>
+          <div class="kpi-val">${report.averageClearanceDays} j</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-title">Total Factur\xE9 (GNF)</div>
+          <div class="kpi-val">${Math.round(report.totalInvoicedGNF).toLocaleString("fr-FR")} GNF</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-title">\xC9quivalent Factur\xE9 USD</div>
+          <div class="kpi-val">$ ${report.totalInvoicedUSD.toLocaleString("en-US")}</div>
+        </div>
+      </div>
+
+      <table>
+        <thead>
+          <tr>
+            <th>N\xB0 Dossier</th>
+            <th>BL / LTA</th>
+            <th>Marchandise & T/C</th>
+            <th>Mode</th>
+            <th>ETA Navire</th>
+            <th>BAE / Sortie</th>
+            <th>D\xE9lai Quai</th>
+            <th>Statut</th>
+            <th class="text-right">Montant Factur\xE9</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${report.dossiers.map((d) => `
+            <tr>
+              <td><strong>${d.dossierNumber}</strong></td>
+              <td style="font-family: monospace;">${d.blLtaNumber || "\u2014"}</td>
+              <td>${d.cargoNature || "Cargaison"} ${d.container ? `(${d.container})` : ""}</td>
+              <td>${d.transportMode || "Maritime"}</td>
+              <td>${d.eta ? new Date(d.eta).toLocaleDateString("fr-FR") : "\u2014"}</td>
+              <td>${d.goodsReleaseDate ? new Date(d.goodsReleaseDate).toLocaleDateString("fr-FR") : "\u2014"}</td>
+              <td><strong>${d.clearanceDays !== null ? `${d.clearanceDays} j` : "En cours"}</strong></td>
+              <td>
+                <span class="${d.calculatedStatus === "R\xE9gularis\xE9" ? "status-reg" : "status-att"}">
+                  ${d.calculatedStatus}
+                </span>
+              </td>
+              <td class="text-right font-bold">${d.invoicedAmountGNF.toLocaleString("fr-FR")} GNF</td>
+            </tr>
+          `).join("")}
+        </tbody>
+      </table>
+
+      <div class="footer">
+        Rapport consolid\xE9 certifi\xE9 par le syst\xE8me s\xE9curis\xE9 IGS Dossiers. Pour toute demande d'assistance : op\xE9rations@igs-logistics.gn / +224 620 00 00 00.
+      </div>
+    </body>
+    </html>
+  `;
 }
 
 // server/cronDemurrageReminders.ts
@@ -8337,7 +8976,13 @@ var appRouter = router({
   }),
   // 5. GESTION DOCUMENTAIRE & PREUVES
   document: router({
-    list: protectedProcedure.input(z2.object({ dossierId: z2.number().int().positive() })).query(async ({ input }) => listDocuments(input.dossierId)),
+    list: protectedProcedure.input(z2.object({
+      dossierId: z2.number().int().positive(),
+      isExternalClient: z2.boolean().optional()
+    })).query(async ({ ctx, input }) => {
+      const isExternal = input.isExternalClient ?? ctx.user.role === "client";
+      return listDocuments(input.dossierId, isExternal);
+    }),
     upload: protectedProcedure.input(
       z2.object({
         dossierId: z2.number().int().positive(),
@@ -8345,10 +8990,13 @@ var appRouter = router({
         type: z2.enum(["BL", "LTA", "DDI", "Facture_Fournisseur", "Facture_Transitaire", "Bulletin_Liquidation", "BAE", "Declaration_Douane", "Photos_Marchandise", "Autre"]),
         fileUrl: z2.string().min(1),
         fileSize: z2.number().optional(),
-        mimeType: z2.string().optional()
+        mimeType: z2.string().optional(),
+        isPublic: z2.boolean().optional().default(true),
+        description: z2.string().optional().nullable(),
+        replaceExistingType: z2.boolean().optional().default(false)
       })
     ).mutation(async ({ ctx, input }) => {
-      return createDocument({
+      return uploadDocumentWithVersion({
         ...input,
         uploadedById: ctx.user.id,
         uploaderName: ctx.user.name || "Op\xE9rateur IGS"
@@ -8360,7 +9008,10 @@ var appRouter = router({
         name: z2.string().min(1),
         type: z2.enum(["BL", "LTA", "DDI", "Facture_Fournisseur", "Facture_Transitaire", "Bulletin_Liquidation", "BAE", "Declaration_Douane", "Photos_Marchandise", "Autre"]),
         base64Content: z2.string().min(1),
-        mimeType: z2.string().default("application/pdf")
+        mimeType: z2.string().default("application/pdf"),
+        isPublic: z2.boolean().optional().default(true),
+        description: z2.string().optional().nullable(),
+        replaceExistingType: z2.boolean().optional().default(false)
       })
     ).mutation(async ({ ctx, input }) => {
       const cleanBase64 = input.base64Content.replace(/^data:[^;]+;base64,/, "");
@@ -8371,16 +9022,62 @@ var appRouter = router({
         fileBuffer: buffer,
         mimeType: input.mimeType
       });
-      return createDocument({
+      return uploadDocumentWithVersion({
         dossierId: input.dossierId,
         name: input.name,
         type: input.type,
         fileUrl: uploadRes.fileUrl,
         fileSize: buffer.length,
         mimeType: input.mimeType,
+        isPublic: input.isPublic,
+        description: input.description,
+        replaceExistingType: input.replaceExistingType,
         uploadedById: ctx.user.id,
         uploaderName: ctx.user.name || "Op\xE9rateur IGS"
       });
+    }),
+    uploadMulti: protectedProcedure.input(
+      z2.object({
+        dossierId: z2.number().int().positive(),
+        files: z2.array(
+          z2.object({
+            name: z2.string().min(1),
+            type: z2.enum(["BL", "LTA", "DDI", "Facture_Fournisseur", "Facture_Transitaire", "Bulletin_Liquidation", "BAE", "Declaration_Douane", "Photos_Marchandise", "Autre"]),
+            base64Content: z2.string().min(1),
+            mimeType: z2.string().default("application/pdf"),
+            isPublic: z2.boolean().optional().default(true),
+            description: z2.string().optional().nullable(),
+            replaceExistingType: z2.boolean().optional().default(false)
+          })
+        )
+      })
+    ).mutation(async ({ ctx, input }) => {
+      const uploadedDocs = [];
+      for (const file of input.files) {
+        const cleanBase64 = file.base64Content.replace(/^data:[^;]+;base64,/, "");
+        const buffer = Buffer.from(cleanBase64, "base64");
+        const uploadRes = await uploadDossierCloudFile({
+          dossierId: input.dossierId,
+          fileName: file.name,
+          fileBuffer: buffer,
+          mimeType: file.mimeType
+        });
+        const doc = await uploadDocumentWithVersion({
+          dossierId: input.dossierId,
+          name: file.name,
+          type: file.type,
+          fileUrl: uploadRes.fileUrl,
+          fileSize: buffer.length,
+          mimeType: file.mimeType,
+          isPublic: file.isPublic,
+          description: file.description,
+          replaceExistingType: file.replaceExistingType,
+          uploadedById: ctx.user.id,
+          uploaderName: ctx.user.name || "Op\xE9rateur IGS"
+        });
+        uploadedDocs.push(doc);
+      }
+      return { success: true, count: uploadedDocs.length, documents: uploadedDocs };
     }),
     remove: protectedProcedure.input(z2.object({ id: z2.number().int().positive() })).mutation(async ({ ctx, input }) => deleteDocument(input.id, ctx.user.id, ctx.user.name || "Op\xE9rateur IGS"))
   }),
@@ -8643,7 +9340,88 @@ var appRouter = router({
       })
     ).mutation(async ({ input }) => sendDossierEmailAlert(input))
   }),
-  // 11. CRON & AUTOMATISATION SURESTARIES
+  // 11. WORKFLOWS D'APPROBATION FINANCIÈRE
+  approval: router({
+    list: protectedProcedure.input(
+      z2.object({
+        status: z2.string().optional(),
+        entityType: z2.string().optional(),
+        dossierId: z2.number().optional()
+      }).optional()
+    ).query(async ({ input }) => listApprovalRequests(input)),
+    approve: protectedProcedure.input(z2.object({ requestId: z2.number().int().positive() })).mutation(async ({ ctx, input }) => approveRequest(input.requestId, ctx.user.id, ctx.user.name || "Alpha Barry (Manager)")),
+    reject: protectedProcedure.input(
+      z2.object({
+        requestId: z2.number().int().positive(),
+        rejectionReason: z2.string().min(3, "Le motif de rejet est obligatoire")
+      })
+    ).mutation(async ({ ctx, input }) => rejectRequest(input.requestId, ctx.user.id, ctx.user.name || "Alpha Barry (Manager)", input.rejectionReason)),
+    thresholds: protectedProcedure.query(() => APPROVAL_THRESHOLDS)
+  }),
+  // 12. RAPPORTS CONSOLIDÉS CLIENTS & COMPTES MINIERS
+  report: router({
+    getClientReport: protectedProcedure.input(
+      z2.object({
+        clientName: z2.string().min(1),
+        periodStart: z2.string().optional(),
+        periodEnd: z2.string().optional()
+      })
+    ).query(async ({ input }) => {
+      const summary = await generateClientConsolidatedReport(input.clientName, {
+        periodStart: input.periodStart,
+        periodEnd: input.periodEnd
+      });
+      const htmlLayout = generateClientReportHtml(summary);
+      return { summary, htmlLayout };
+    })
+  }),
+  // 13. PRÉFÉRENCES CLIENTS & COMMUNICATIONS MULTI-CANAUX
+  clientEntity: router({
+    getPreferences: protectedProcedure.input(z2.object({ clientNameOrId: z2.union([z2.string(), z2.number()]) })).query(async ({ input }) => getClientPreferences(input.clientNameOrId)),
+    updatePreferences: protectedProcedure.input(
+      z2.object({
+        clientId: z2.number().int().positive(),
+        preferredChannel: z2.string().optional(),
+        optInNotifications: z2.boolean().optional(),
+        monthlyReportEnabled: z2.boolean().optional(),
+        whatsappPhone: z2.string().optional().nullable(),
+        email: z2.string().optional().nullable(),
+        contactPerson: z2.string().optional().nullable()
+      })
+    ).mutation(async ({ input }) => {
+      const { clientId, ...data } = input;
+      return updateClientPreferences(clientId, data);
+    })
+  }),
+  // 14. WHATSAPP BUSINESS API (TEMPLATES HSM)
+  whatsapp: router({
+    sendHsmTemplate: protectedProcedure.input(
+      z2.object({
+        dossierId: z2.number().optional(),
+        dossierNumber: z2.string().min(1),
+        clientName: z2.string().min(1),
+        recipientPhone: z2.string().min(4),
+        template: z2.enum(["dossier_cree", "eta_mise_a_jour", "alerte_surestarie_imminente", "dossier_regularise", "facture_disponible"]),
+        variables: z2.object({
+          blLtaNumber: z2.string().optional().nullable(),
+          eta: z2.union([z2.string(), z2.date()]).optional().nullable(),
+          daysOnQuay: z2.number().optional().nullable(),
+          amount: z2.number().optional().nullable(),
+          currency: z2.string().optional(),
+          invoiceNumber: z2.string().optional(),
+          customsDeclaration: z2.string().optional().nullable(),
+          directTrackingUrl: z2.string().optional()
+        })
+      })
+    ).mutation(async ({ ctx, input }) => {
+      return sendWhatsappBusinessMessage({
+        ...input,
+        userId: ctx.user.id,
+        userName: ctx.user.name || "Op\xE9rateur IGS"
+      });
+    })
+  }),
+  // 15. CRON & AUTOMATISATION SURESTARIES
   cron: router({
     runDemurrageCheck: internalProcedure.mutation(async () => {
       return runDemurrageReminderJob();

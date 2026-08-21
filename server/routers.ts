@@ -16,6 +16,8 @@ import {
 import * as db from "./db";
 import { uploadDossierCloudFile } from "./cloudStorageService";
 import { sendDossierWhatsAppAlert, sendDossierEmailAlert } from "./alertsService";
+import { sendWhatsappBusinessMessage } from "./whatsappService";
+import { generateClientConsolidatedReport, generateClientReportHtml } from "./clientReportService";
 import { validateStatusTransition, calculateDemurrageRisk } from "./dossierRules";
 import { runDemurrageReminderJob } from "./cronDemurrageReminders";
 import { 
@@ -810,8 +812,14 @@ export const appRouter = router({
   // 5. GESTION DOCUMENTAIRE & PREUVES
   document: router({
     list: protectedProcedure
-      .input(z.object({ dossierId: z.number().int().positive() }))
-      .query(async ({ input }) => db.listDocuments(input.dossierId)),
+      .input(z.object({
+        dossierId: z.number().int().positive(),
+        isExternalClient: z.boolean().optional(),
+      }))
+      .query(async ({ ctx, input }) => {
+        const isExternal = input.isExternalClient ?? (ctx.user.role === "client");
+        return db.listDocuments(input.dossierId, isExternal);
+      }),
     upload: protectedProcedure
       .input(
         z.object({
@@ -821,10 +829,13 @@ export const appRouter = router({
           fileUrl: z.string().min(1),
           fileSize: z.number().optional(),
           mimeType: z.string().optional(),
+          isPublic: z.boolean().optional().default(true),
+          description: z.string().optional().nullable(),
+          replaceExistingType: z.boolean().optional().default(false),
         })
       )
       .mutation(async ({ ctx, input }) => {
-        return db.createDocument({
+        return db.uploadDocumentWithVersion({
           ...input,
           uploadedById: ctx.user.id,
           uploaderName: ctx.user.name || "Opérateur IGS",
@@ -838,6 +849,9 @@ export const appRouter = router({
           type: z.enum(["BL", "LTA", "DDI", "Facture_Fournisseur", "Facture_Transitaire", "Bulletin_Liquidation", "BAE", "Declaration_Douane", "Photos_Marchandise", "Autre"]),
           base64Content: z.string().min(1),
           mimeType: z.string().default("application/pdf"),
+          isPublic: z.boolean().optional().default(true),
+          description: z.string().optional().nullable(),
+          replaceExistingType: z.boolean().optional().default(false),
         })
       )
       .mutation(async ({ ctx, input }) => {
@@ -850,16 +864,65 @@ export const appRouter = router({
           mimeType: input.mimeType,
         });
 
-        return db.createDocument({
+        return db.uploadDocumentWithVersion({
           dossierId: input.dossierId,
           name: input.name,
           type: input.type,
           fileUrl: uploadRes.fileUrl,
           fileSize: buffer.length,
           mimeType: input.mimeType,
+          isPublic: input.isPublic,
+          description: input.description,
+          replaceExistingType: input.replaceExistingType,
           uploadedById: ctx.user.id,
           uploaderName: ctx.user.name || "Opérateur IGS",
         });
+      }),
+    uploadMulti: protectedProcedure
+      .input(
+        z.object({
+          dossierId: z.number().int().positive(),
+          files: z.array(
+            z.object({
+              name: z.string().min(1),
+              type: z.enum(["BL", "LTA", "DDI", "Facture_Fournisseur", "Facture_Transitaire", "Bulletin_Liquidation", "BAE", "Declaration_Douane", "Photos_Marchandise", "Autre"]),
+              base64Content: z.string().min(1),
+              mimeType: z.string().default("application/pdf"),
+              isPublic: z.boolean().optional().default(true),
+              description: z.string().optional().nullable(),
+              replaceExistingType: z.boolean().optional().default(false),
+            })
+          ),
+        })
+      )
+      .mutation(async ({ ctx, input }) => {
+        const uploadedDocs = [];
+        for (const file of input.files) {
+          const cleanBase64 = file.base64Content.replace(/^data:[^;]+;base64,/, "");
+          const buffer = Buffer.from(cleanBase64, "base64");
+          const uploadRes = await uploadDossierCloudFile({
+            dossierId: input.dossierId,
+            fileName: file.name,
+            fileBuffer: buffer,
+            mimeType: file.mimeType,
+          });
+
+          const doc = await db.uploadDocumentWithVersion({
+            dossierId: input.dossierId,
+            name: file.name,
+            type: file.type,
+            fileUrl: uploadRes.fileUrl,
+            fileSize: buffer.length,
+            mimeType: file.mimeType,
+            isPublic: file.isPublic,
+            description: file.description,
+            replaceExistingType: file.replaceExistingType,
+            uploadedById: ctx.user.id,
+            uploaderName: ctx.user.name || "Opérateur IGS",
+          });
+          uploadedDocs.push(doc);
+        }
+        return { success: true, count: uploadedDocs.length, documents: uploadedDocs };
       }),
     remove: protectedProcedure
       .input(z.object({ id: z.number().int().positive() }))
@@ -1178,7 +1241,106 @@ export const appRouter = router({
       .mutation(async ({ input }) => sendDossierEmailAlert(input)),
   }),
 
-  // 11. CRON & AUTOMATISATION SURESTARIES
+  // 11. WORKFLOWS D'APPROBATION FINANCIÈRE
+  approval: router({
+    list: protectedProcedure
+      .input(
+        z.object({
+          status: z.string().optional(),
+          entityType: z.string().optional(),
+          dossierId: z.number().optional(),
+        }).optional()
+      )
+      .query(async ({ input }) => db.listApprovalRequests(input)),
+    approve: protectedProcedure
+      .input(z.object({ requestId: z.number().int().positive() }))
+      .mutation(async ({ ctx, input }) => db.approveRequest(input.requestId, ctx.user.id, ctx.user.name || "Alpha Barry (Manager)")),
+    reject: protectedProcedure
+      .input(
+        z.object({
+          requestId: z.number().int().positive(),
+          rejectionReason: z.string().min(3, "Le motif de rejet est obligatoire"),
+        })
+      )
+      .mutation(async ({ ctx, input }) => db.rejectRequest(input.requestId, ctx.user.id, ctx.user.name || "Alpha Barry (Manager)", input.rejectionReason)),
+    thresholds: protectedProcedure.query(() => db.APPROVAL_THRESHOLDS),
+  }),
+
+  // 12. RAPPORTS CONSOLIDÉS CLIENTS & COMPTES MINIERS
+  report: router({
+    getClientReport: protectedProcedure
+      .input(
+        z.object({
+          clientName: z.string().min(1),
+          periodStart: z.string().optional(),
+          periodEnd: z.string().optional(),
+        })
+      )
+      .query(async ({ input }) => {
+        const summary = await generateClientConsolidatedReport(input.clientName, {
+          periodStart: input.periodStart,
+          periodEnd: input.periodEnd,
+        });
+        const htmlLayout = generateClientReportHtml(summary);
+        return { summary, htmlLayout };
+      }),
+  }),
+
+  // 13. PRÉFÉRENCES CLIENTS & COMMUNICATIONS MULTI-CANAUX
+  clientEntity: router({
+    getPreferences: protectedProcedure
+      .input(z.object({ clientNameOrId: z.union([z.string(), z.number()]) }))
+      .query(async ({ input }) => db.getClientPreferences(input.clientNameOrId)),
+    updatePreferences: protectedProcedure
+      .input(
+        z.object({
+          clientId: z.number().int().positive(),
+          preferredChannel: z.string().optional(),
+          optInNotifications: z.boolean().optional(),
+          monthlyReportEnabled: z.boolean().optional(),
+          whatsappPhone: z.string().optional().nullable(),
+          email: z.string().optional().nullable(),
+          contactPerson: z.string().optional().nullable(),
+        })
+      )
+      .mutation(async ({ input }) => {
+        const { clientId, ...data } = input;
+        return db.updateClientPreferences(clientId, data);
+      }),
+  }),
+
+  // 14. WHATSAPP BUSINESS API (TEMPLATES HSM)
+  whatsapp: router({
+    sendHsmTemplate: protectedProcedure
+      .input(
+        z.object({
+          dossierId: z.number().optional(),
+          dossierNumber: z.string().min(1),
+          clientName: z.string().min(1),
+          recipientPhone: z.string().min(4),
+          template: z.enum(["dossier_cree", "eta_mise_a_jour", "alerte_surestarie_imminente", "dossier_regularise", "facture_disponible"]),
+          variables: z.object({
+            blLtaNumber: z.string().optional().nullable(),
+            eta: z.union([z.string(), z.date()]).optional().nullable(),
+            daysOnQuay: z.number().optional().nullable(),
+            amount: z.number().optional().nullable(),
+            currency: z.string().optional(),
+            invoiceNumber: z.string().optional(),
+            customsDeclaration: z.string().optional().nullable(),
+            directTrackingUrl: z.string().optional(),
+          }),
+        })
+      )
+      .mutation(async ({ ctx, input }) => {
+        return sendWhatsappBusinessMessage({
+          ...input,
+          userId: ctx.user.id,
+          userName: ctx.user.name || "Opérateur IGS",
+        });
+      }),
+  }),
+
+  // 15. CRON & AUTOMATISATION SURESTARIES
   cron: router({
     runDemurrageCheck: internalProcedure.mutation(async () => {
       return runDemurrageReminderJob();

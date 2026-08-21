@@ -31,9 +31,14 @@ export const clients = pgTable("clients", {
   contactPerson: varchar("contactPerson", { length: 160 }),
   email: varchar("email", { length: 320 }),
   phone: varchar("phone", { length: 32 }),
+  whatsappPhone: varchar("whatsapp_phone", { length: 32 }),
   country: varchar("country", { length: 100 }).default("Guinée"),
   taxId: varchar("taxId", { length: 80 }),
   address: text("address"),
+  preferredChannel: varchar("preferred_channel", { length: 32 }).default("whatsapp").notNull(),
+  optInNotifications: boolean("opt_in_notifications").default(true).notNull(),
+  monthlyReportEnabled: boolean("monthly_report_enabled").default(true).notNull(),
+  accountCategory: varchar("account_category", { length: 64 }).default("standard"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().notNull(),
 }, table => [
@@ -104,11 +109,16 @@ export const documents = pgTable("documents", {
   fileUrl: text("fileUrl").notNull(), // Base64 Data URI ou URL externe/S3/Supabase Storage
   fileSize: integer("fileSize").notNull().default(0), // en octets
   mimeType: varchar("mimeType", { length: 120 }),
+  version: integer("version").notNull().default(1),
+  isPublic: boolean("isPublic").notNull().default(true),
+  previousVersions: text("previousVersions").default("[]"), // JSON stringifié des versions antérieures
+  description: text("description"),
   uploadedById: integer("uploadedById"),
   uploaderName: varchar("uploaderName", { length: 120 }),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 }, table => [
   index("documents_dossier_idx").on(table.dossierId),
+  index("documents_is_public_idx").on(table.dossierId, table.isPublic),
 ]);
 
 export const dossierStatusHistory = pgTable("dossier_status_history", {
@@ -319,6 +329,48 @@ export const portalAccessLogs = pgTable("portal_access_logs", {
   index("portal_logs_code_idx").on(table.accessCodeUsed),
 ]);
 
+export const approvalRequests = pgTable("approval_requests", {
+  id: serial("id").primaryKey(),
+  entityType: varchar("entity_type", { length: 64 }).notNull(), // 'invoice' | 'disbursement'
+  entityId: integer("entity_id").notNull(),
+  dossierId: integer("dossier_id").notNull(),
+  amount: integer("amount").notNull(),
+  currency: varchar("currency", { length: 16 }).default("GNF").notNull(),
+  thresholdAmount: integer("threshold_amount").notNull(),
+  requestedById: integer("requested_by_id").notNull(),
+  requestedByName: varchar("requested_by_name", { length: 160 }).notNull(),
+  approverId: integer("approver_id"),
+  approverName: varchar("approver_name", { length: 160 }),
+  status: varchar("status", { length: 32 }).default("EN_ATTENTE").notNull(), // 'EN_ATTENTE' | 'APPROUVE' | 'REJETE'
+  rejectionReason: text("rejection_reason"),
+  comment: text("comment"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  resolvedAt: timestamp("resolved_at"),
+}, table => [
+  index("approvals_status_idx").on(table.status),
+  index("approvals_dossier_idx").on(table.dossierId),
+  index("approvals_entity_idx").on(table.entityType, table.entityId),
+]);
+
+export const whatsappMessageLogs = pgTable("whatsapp_message_logs", {
+  id: serial("id").primaryKey(),
+  dossierId: integer("dossier_id"),
+  dossierNumber: varchar("dossier_number", { length: 64 }),
+  templateName: varchar("template_name", { length: 64 }).notNull(),
+  recipientPhone: varchar("recipient_phone", { length: 64 }).notNull(),
+  clientName: varchar("client_name", { length: 255 }).notNull(),
+  renderedMessage: text("rendered_message").notNull(),
+  providerMessageId: varchar("provider_message_id", { length: 120 }),
+  status: varchar("status", { length: 32 }).default("SENT").notNull(),
+  errorDetails: text("error_details"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, table => [
+  index("whatsapp_logs_dossier_idx").on(table.dossierId),
+  index("whatsapp_logs_template_idx").on(table.templateName),
+  index("whatsapp_logs_time_idx").on(table.createdAt),
+]);
+
 export type User = typeof users.$inferSelect;
 export type InsertUser = typeof users.$inferInsert;
 export type Client = typeof clients.$inferSelect;
@@ -348,6 +400,10 @@ export type ClientAccessSession = typeof clientAccessSessions.$inferSelect;
 export type InsertClientAccessSession = typeof clientAccessSessions.$inferInsert;
 export type PortalAccessLog = typeof portalAccessLogs.$inferSelect;
 export type InsertPortalAccessLog = typeof portalAccessLogs.$inferInsert;
+export type ApprovalRequest = typeof approvalRequests.$inferSelect;
+export type InsertApprovalRequest = typeof approvalRequests.$inferInsert;
+export type WhatsappMessageLog = typeof whatsappMessageLogs.$inferSelect;
+export type InsertWhatsappMessageLog = typeof whatsappMessageLogs.$inferInsert;
 export type AuditLog = DossierStatusHistory;
 export type InsertAuditLog = InsertDossierStatusHistory;
 
