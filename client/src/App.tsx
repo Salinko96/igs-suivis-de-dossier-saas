@@ -1,4 +1,5 @@
-import { lazy, Suspense } from "react";
+import { Suspense } from "react";
+import { lazyWithRetry } from "@/lib/lazyWithRetry";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Route, Switch } from "wouter";
@@ -10,15 +11,15 @@ import PWAInstallBanner from "./components/PWAInstallBanner";
 
 import Home from "./pages/Home";
 
-const DossiersPage = lazy(() => import("./pages/DossiersPage"));
-const DossierDetailPage = lazy(() => import("./pages/DossierDetailPage"));
-const UsersPage = lazy(() => import("./pages/UsersPage"));
-const FinancesPage = lazy(() => import("./pages/FinancesPage"));
-const PlanningPage = lazy(() => import("./pages/PlanningPage"));
-const ControlsPage = lazy(() => import("./pages/ControlsPage"));
-const ClientPortalPage = lazy(() => import("./pages/ClientPortalPage"));
-const AuditPage = lazy(() => import("./pages/AuditPage"));
-const NotFound = lazy(() => import("./pages/NotFound"));
+const DossiersPage = lazyWithRetry(() => import("./pages/DossiersPage"));
+const DossierDetailPage = lazyWithRetry(() => import("./pages/DossierDetailPage"));
+const UsersPage = lazyWithRetry(() => import("./pages/UsersPage"));
+const FinancesPage = lazyWithRetry(() => import("./pages/FinancesPage"));
+const PlanningPage = lazyWithRetry(() => import("./pages/PlanningPage"));
+const ControlsPage = lazyWithRetry(() => import("./pages/ControlsPage"));
+const ClientPortalPage = lazyWithRetry(() => import("./pages/ClientPortalPage"));
+const AuditPage = lazyWithRetry(() => import("./pages/AuditPage"));
+const NotFound = lazyWithRetry(() => import("./pages/NotFound"));
 
 function PageLoading() {
   return (

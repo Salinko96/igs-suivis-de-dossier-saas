@@ -8,6 +8,15 @@ import App from "./App";
 import { startLogin } from "./const";
 import "./index.css";
 
+// Gestion automatique du rechargement transparent lors d'une nouvelle version déployée (stale chunk recovery)
+if (typeof window !== "undefined") {
+  window.addEventListener("vite:preloadError", (event) => {
+    console.warn("[Vite] Nouvelle version détectée lors du préchargement du module — rechargement...");
+    event.preventDefault();
+    window.location.reload();
+  });
+}
+
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
