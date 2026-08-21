@@ -8,906 +8,391 @@ var __export = (target, all) => {
     __defProp(target, name, { get: all[name], enumerable: true });
 };
 
-// server/terminal49Client.ts
-var terminal49Client_exports = {};
-__export(terminal49Client_exports, {
-  Terminal49Client: () => Terminal49Client,
-  detectScacFromNumber: () => detectScacFromNumber,
-  parseJsonApiShipment: () => parseJsonApiShipment,
-  terminal49: () => terminal49
-});
-function parseJsonApiShipment(resource, included = []) {
-  const attrs = resource.attributes || {};
-  const containerResources = included.filter((r) => r.type === "container");
-  const transportEventResources = included.filter(
-    (r) => r.type === "transport_event" || r.type === "port_event" || r.type === "event"
-  );
-  const events = transportEventResources.map((ev) => {
-    const evAttrs = ev.attributes || {};
-    return {
-      id: ev.id,
-      eventType: evAttrs.event_type || "status_change",
-      title: formatEventTitle(evAttrs.event_type || void 0, evAttrs.description || void 0),
-      description: evAttrs.description || evAttrs.event_type || "\xC9v\xE9nement de transport",
-      location: evAttrs.location || attrs.port_of_discharge_name || "Port Autonome de Conakry",
-      timestamp: evAttrs.timestamp || (/* @__PURE__ */ new Date()).toISOString(),
-      isActual: evAttrs.is_actual ?? true,
-      vesselName: evAttrs.vessel_name || attrs.vessel_name || null,
-      voyageNumber: evAttrs.voyage_number || attrs.voyage_number || null
-    };
-  }).sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
-  const containers = containerResources.map((c) => {
-    const cAttrs = c.attributes || {};
-    const holds = Array.isArray(cAttrs.holds_at_pod) ? cAttrs.holds_at_pod.map((h) => ({
-      name: h.name || "Contr\xF4le Douanier / Quai",
-      status: h.status || "En cours"
-    })) : [];
-    return {
-      id: c.id,
-      number: cAttrs.number || "CONT-NON-RENSEIGN\xC9",
-      sealNumber: cAttrs.seal_number || null,
-      equipmentType: cAttrs.equipment_type || cAttrs.equipment_description || "40HC",
-      equipmentDescription: cAttrs.equipment_description || null,
-      status: cAttrs.status || "in_transit",
-      availableForPickup: Boolean(cAttrs.available_for_pickup),
-      lastFreeDay: cAttrs.last_free_day_on || null,
-      hasHolds: Boolean(cAttrs.has_holds || holds.length > 0),
-      holds,
-      fees: cAttrs.fees ? {
-        total: cAttrs.fees.total || 0,
-        currency: cAttrs.fees.currency || "USD",
-        demurrage: cAttrs.fees.demurrage || 0
-      } : null,
-      dischargedAt: cAttrs.discharged_at || null,
-      gatedOutAt: cAttrs.gated_out_at || null,
-      events: events.slice(0, 5)
-    };
-  });
-  const rawStatus = (attrs.status || "in_transit").toLowerCase();
-  let normalizedStatus = "in_transit";
-  if (rawStatus.includes("arrive") || rawStatus.includes("berthed")) normalizedStatus = "arrived";
-  else if (rawStatus.includes("discharge")) normalizedStatus = "discharged";
-  else if (rawStatus.includes("complete") || rawStatus.includes("delivered")) normalizedStatus = "completed";
-  else if (rawStatus.includes("pending") || rawStatus.includes("booked")) normalizedStatus = "pending";
-  return {
-    id: resource.id,
-    billOfLadingNumber: attrs.bill_of_lading_number || "BL-NON-DISPONIBLE",
-    bookingNumber: attrs.booking_number || null,
-    shippingLine: {
-      scac: attrs.shipping_line_scac || "MSC",
-      name: attrs.shipping_line_name || attrs.shipping_line_short_name || "Armateur Partenaire"
-    },
-    status: normalizedStatus,
-    vessel: {
-      name: attrs.vessel_name || "Navire Porte-Conteneurs",
-      imo: attrs.vessel_imo || null,
-      voyage: attrs.voyage_number || null
-    },
-    origin: {
-      portName: attrs.port_of_loading_name || "Port de Chargement",
-      locode: attrs.port_of_loading_locode || null,
-      etd: attrs.etd_at || null,
-      atd: attrs.atd_at || null
-    },
-    destination: {
-      portName: attrs.port_of_discharge_name || attrs.destination_name || "Port Autonome de Conakry (PAC)",
-      locode: attrs.port_of_discharge_locode || "GNCKY",
-      eta: attrs.eta_at || null,
-      ata: attrs.ata_at || null
-    },
-    containersCount: attrs.containers_count || containers.length || 1,
-    containers,
-    events,
-    updatedAt: attrs.updated_at || (/* @__PURE__ */ new Date()).toISOString(),
-    rawAttributes: attrs
-  };
-}
-function formatEventTitle(eventType, description) {
-  if (!eventType) return description || "Mise \xE0 jour transport";
-  const map = {
-    vessel_departure: "D\xE9part navire du port de chargement",
-    vessel_arrival: "Arriv\xE9e navire au Port Autonome de Conakry",
-    container_discharge: "D\xE9chargement conteneur sur terre-plein quai",
-    customs_hold_placed: "Mise sous contr\xF4le douanier (SYDONIA)",
-    customs_hold_released: "Mainlev\xE9e douani\xE8re accord\xE9e (BAE)",
-    gate_out: "Sortie de quai / Livraison transporteur",
-    empty_container_returned: "Retour conteneur vide au parc armateur"
-  };
-  return map[eventType] || description || eventType.replace(/_/g, " ");
-}
-function detectScacFromNumber(number) {
-  const upper = number.toUpperCase().trim();
-  if (upper.startsWith("MEDU") || upper.startsWith("MSCU")) return "MSCU";
-  if (upper.startsWith("MAEU") || upper.startsWith("MSK")) return "MAEU";
-  if (upper.startsWith("CMA") || upper.startsWith("CMDU")) return "CMDU";
-  if (upper.startsWith("HLCU")) return "HLCU";
-  if (upper.startsWith("COSU") || upper.startsWith("COS")) return "COSU";
-  if (upper.startsWith("ONEY")) return "ONEY";
-  if (upper.startsWith("GRI")) return "GRIM";
-  if (upper.startsWith("EID") || upper.startsWith("EMC")) return "EGLV";
-  return "MSCU";
-}
-var TERMINAL49_BASE_URL, FETCH_TIMEOUT_MS, Terminal49Client, terminal49;
-var init_terminal49Client = __esm({
-  "server/terminal49Client.ts"() {
-    "use strict";
-    TERMINAL49_BASE_URL = "https://api.terminal49.com/v2";
-    FETCH_TIMEOUT_MS = 1e4;
-    Terminal49Client = class {
-      apiKey;
-      baseUrl;
-      constructor(apiKey, baseUrl = TERMINAL49_BASE_URL) {
-        this.apiKey = apiKey || process.env.TERMINAL49_API_KEY || "";
-        this.baseUrl = baseUrl;
-      }
-      getHeaders() {
-        return {
-          // Directives strictes: "Authorization: Token ${process.env.TERMINAL49_API_KEY}" (PAS Bearer)
-          Authorization: `Token ${this.apiKey}`,
-          "Content-Type": "application/vnd.api+json",
-          Accept: "application/vnd.api+json"
-        };
-      }
-      /**
-       * Effectue un appel HTTP fetch avec timeout de 10s via AbortController
-       */
-      async request(endpoint, options = {}) {
-        if (!this.apiKey) {
-          return {
-            data: null,
-            error: "Cl\xE9 API Terminal49 non configur\xE9e. Veuillez renseigner TERMINAL49_API_KEY."
-          };
-        }
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
-        const url = `${this.baseUrl}${endpoint.startsWith("/") ? endpoint : `/${endpoint}`}`;
-        try {
-          const response = await fetch(url, {
-            ...options,
-            signal: controller.signal,
-            headers: {
-              ...this.getHeaders(),
-              ...options.headers || {}
-            }
-          });
-          clearTimeout(timeoutId);
-          const jsonText = await response.text();
-          let parsed = null;
-          try {
-            parsed = jsonText ? JSON.parse(jsonText) : {};
-          } catch {
-            parsed = { raw: jsonText };
-          }
-          if (!response.ok) {
-            const errorDetail = parsed?.errors?.[0]?.detail || parsed?.errors?.[0]?.title || parsed?.message || `Erreur HTTP ${response.status} (${response.statusText})`;
-            return {
-              data: null,
-              error: `[Terminal49 API] ${errorDetail}`
-            };
-          }
-          return {
-            data: parsed,
-            error: null
-          };
-        } catch (err) {
-          clearTimeout(timeoutId);
-          if (err.name === "AbortError") {
-            return {
-              data: null,
-              error: "D\xE9lai d'attente d\xE9pass\xE9 (timeout 10s) lors de la requ\xEAte vers Terminal49."
-            };
-          }
-          return {
-            data: null,
-            error: `Erreur r\xE9seau Terminal49: ${err.message || String(err)}`
-          };
-        }
-      }
-      /**
-       * POST /tracking_requests
-       * Crée une demande de suivi pour un connaissement (BL), numéro de booking ou numéro de conteneur
-       */
-      async createTrackingRequest(input) {
-        const scac = input.shippingLineScac?.trim() || detectScacFromNumber(input.requestNumber);
-        const payload = {
-          data: {
-            type: "tracking_request",
-            attributes: {
-              request_number: input.requestNumber.trim(),
-              request_type: input.requestType || (input.requestNumber.trim().length === 11 && /^[A-Z]{4}\d{7}$/i.test(input.requestNumber.trim()) ? "container" : "bill_of_lading"),
-              scac,
-              shipping_line_scac: scac
-            }
-          }
-        };
-        const res = await this.request(
-          "/tracking_requests",
-          {
-            method: "POST",
-            body: JSON.stringify(payload)
-          }
-        );
-        if (res.error || !res.data) {
-          return { data: null, error: res.error };
-        }
-        const trkReq = res.data.data;
-        const trackedShipmentId = trkReq?.attributes?.tracked_object_id || trkReq?.relationships?.shipment?.data?.id;
-        if (trackedShipmentId) {
-          const shipmentRes = await this.getShipment(trackedShipmentId);
-          if (shipmentRes.data) {
-            return { data: shipmentRes.data, error: null };
-          }
-        }
-        return {
-          data: {
-            requestId: trkReq.id,
-            status: trkReq.attributes?.status || "processing"
-          },
-          error: null
-        };
-      }
-      /**
-       * GET /shipments
-       * Liste les cargaisons suivies avec leurs conteneurs et événements inclus
-       */
-      async listShipments(options = {}) {
-        const page = options.page || 1;
-        const size = Math.min(options.size || 10, 10);
-        const query = `?page[number]=${page}&page[size]=${size}&include=containers,transport_events`;
-        const res = await this.request(`/shipments${query}`, { method: "GET" });
-        if (res.error || !res.data) {
-          return { data: null, error: res.error };
-        }
-        const resources = Array.isArray(res.data.data) ? res.data.data : [];
-        const included = res.data.included || [];
-        const shipments = resources.map((r) => parseJsonApiShipment(r, included));
-        return {
-          data: shipments,
-          error: null
-        };
-      }
-      /**
-       * GET /shipments/{id}
-       * Récupère le détail complet d'un shipment incluant les conteneurs et les événements de transport
-       */
-      async getShipment(shipmentId) {
-        if (!shipmentId) {
-          return { data: null, error: "Identifiant de shipment manquant." };
-        }
-        const query = "?include=containers,transport_events,shipping_line";
-        const res = await this.request(`/shipments/${encodeURIComponent(shipmentId)}${query}`, { method: "GET" });
-        if (res.error || !res.data) {
-          return { data: null, error: res.error };
-        }
-        const shipment = parseJsonApiShipment(
-          res.data.data,
-          res.data.included || []
-        );
-        return {
-          data: shipment,
-          error: null
-        };
-      }
-      /**
-       * GET /containers/{id}
-       * Récupère les données d'un conteneur spécifique et ses événements de quai
-       */
-      async getContainer(containerId) {
-        if (!containerId) {
-          return { data: null, error: "Identifiant de conteneur manquant." };
-        }
-        const query = "?include=transport_events";
-        const res = await this.request(`/containers/${encodeURIComponent(containerId)}${query}`, { method: "GET" });
-        if (res.error || !res.data) {
-          return { data: null, error: res.error };
-        }
-        const c = res.data.data;
-        const cAttrs = c.attributes || {};
-        const events = (res.data.included || []).map((ev) => {
-          const evAttrs = ev.attributes || {};
-          return {
-            id: ev.id,
-            eventType: evAttrs.event_type || "status_update",
-            title: formatEventTitle(evAttrs.event_type || void 0, evAttrs.description || void 0),
-            description: evAttrs.description || "\xC9v\xE9nement quai",
-            location: evAttrs.location || "Port Autonome de Conakry",
-            timestamp: evAttrs.timestamp || (/* @__PURE__ */ new Date()).toISOString(),
-            isActual: evAttrs.is_actual ?? true
-          };
-        });
-        const container = {
-          id: c.id,
-          number: cAttrs.number || containerId,
-          sealNumber: cAttrs.seal_number || null,
-          equipmentType: cAttrs.equipment_type || "40HC",
-          equipmentDescription: cAttrs.equipment_description || null,
-          status: cAttrs.status || "active",
-          availableForPickup: Boolean(cAttrs.available_for_pickup),
-          lastFreeDay: cAttrs.last_free_day_on || null,
-          hasHolds: Boolean(cAttrs.has_holds || cAttrs.holds_at_pod && cAttrs.holds_at_pod.length > 0),
-          holds: Array.isArray(cAttrs.holds_at_pod) ? cAttrs.holds_at_pod.map((h) => ({ name: h.name || "Contr\xF4le", status: h.status || "Actif" })) : [],
-          fees: cAttrs.fees ? {
-            total: cAttrs.fees.total || 0,
-            currency: cAttrs.fees.currency || "USD",
-            demurrage: cAttrs.fees.demurrage || 0
-          } : null,
-          dischargedAt: cAttrs.discharged_at || null,
-          gatedOutAt: cAttrs.gated_out_at || null,
-          events
-        };
-        return {
-          data: container,
-          error: null
-        };
-      }
-      /**
-       * Recherche ou création automatique de suivi par numéro de BL / Booking / Conteneur
-       */
-      async trackByNumber(number, scac) {
-        const cleanNumber = number.trim();
-        if (!cleanNumber) {
-          return { data: null, error: "Num\xE9ro de suivi manquant." };
-        }
-        const listRes = await this.listShipments({ size: 10 });
-        if (listRes.data && listRes.data.length > 0) {
-          const match = listRes.data.find(
-            (s) => s.billOfLadingNumber.toLowerCase() === cleanNumber.toLowerCase() || s.bookingNumber && s.bookingNumber.toLowerCase() === cleanNumber.toLowerCase() || s.containers.some((c) => c.number.toLowerCase() === cleanNumber.toLowerCase())
-          );
-          if (match) {
-            return { data: match, error: null };
-          }
-        }
-        const createRes = await this.createTrackingRequest({
-          requestNumber: cleanNumber,
-          requestType: cleanNumber.length === 11 && /^[A-Z]{4}\d{7}$/i.test(cleanNumber) ? "container" : "bill_of_lading",
-          shippingLineScac: scac
-        });
-        if (createRes.error) {
-          return { data: null, error: createRes.error };
-        }
-        if (createRes.data && "billOfLadingNumber" in createRes.data) {
-          return { data: createRes.data, error: null };
-        }
-        return {
-          data: null,
-          error: `Suivi initi\xE9 pour le num\xE9ro \xAB ${cleanNumber} \xBB. Les donn\xE9es maritimes sont en cours de synchronisation aupr\xE8s de l'armateur.`
-        };
-      }
-    };
-    terminal49 = new Terminal49Client();
-  }
-});
-
-// server/supabase.ts
-var supabase_exports = {};
-__export(supabase_exports, {
-  getSignedDownloadUrl: () => getSignedDownloadUrl,
-  getSupabaseServerClient: () => getSupabaseServerClient,
-  isSupabaseConfigured: () => isSupabaseConfigured,
-  uploadInvoicePdf: () => uploadInvoicePdf,
-  uploadPaymentProof: () => uploadPaymentProof
-});
-import { createClient } from "@supabase/supabase-js";
-function getSupabaseServerClient() {
-  if (_supabaseClient) return _supabaseClient;
-  const url = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.VITE_SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY;
-  if (!url || !key) {
-    return null;
-  }
-  try {
-    _supabaseClient = createClient(url, key, {
-      auth: {
-        persistSession: false,
-        autoRefreshToken: false
-      }
-    });
-    return _supabaseClient;
-  } catch (err) {
-    console.warn("[Supabase] Failed to initialize server client:", err);
-    return null;
-  }
-}
-function isSupabaseConfigured() {
-  const url = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.VITE_SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY;
-  return Boolean(url && key);
-}
-async function uploadInvoicePdf(invoiceNumber, pdfBuffer, mimeType = "application/pdf") {
-  const supabase = getSupabaseServerClient();
-  if (!supabase) return null;
-  const cleanNumber = invoiceNumber.replace(/[^a-zA-Z0-9_-]/g, "_");
-  const fileName = `facture_${cleanNumber}_${Date.now()}.pdf`;
-  const filePath = `invoices/${fileName}`;
-  try {
-    const { data, error } = await supabase.storage.from("factures").upload(filePath, pdfBuffer, {
-      contentType: mimeType,
-      upsert: true
-    });
-    if (error) {
-      console.warn("[Supabase Storage] Error uploading invoice PDF:", error.message);
-      return null;
-    }
-    const { data: publicUrlData } = supabase.storage.from("factures").getPublicUrl(data.path);
-    return publicUrlData.publicUrl;
-  } catch (err) {
-    console.warn("[Supabase Storage] Exception during invoice PDF upload:", err);
-    return null;
-  }
-}
-async function uploadPaymentProof(invoiceId, fileBuffer, originalFileName, mimeType = "image/jpeg") {
-  const supabase = getSupabaseServerClient();
-  if (!supabase) return null;
-  const ext = originalFileName.split(".").pop() || "jpg";
-  const filePath = `payments/invoice_${invoiceId}_${Date.now()}.${ext}`;
-  try {
-    const { data, error } = await supabase.storage.from("preuves_paiement").upload(filePath, fileBuffer, {
-      contentType: mimeType,
-      upsert: true
-    });
-    if (error) {
-      console.warn("[Supabase Storage] Error uploading payment proof:", error.message);
-      return null;
-    }
-    const { data: publicUrlData } = supabase.storage.from("preuves_paiement").getPublicUrl(data.path);
-    return publicUrlData.publicUrl;
-  } catch (err) {
-    console.warn("[Supabase Storage] Exception during payment proof upload:", err);
-    return null;
-  }
-}
-async function getSignedDownloadUrl(bucket, filePath, expiresInSeconds = 3600) {
-  const supabase = getSupabaseServerClient();
-  if (!supabase) return null;
-  try {
-    const { data, error } = await supabase.storage.from(bucket).createSignedUrl(filePath, expiresInSeconds);
-    if (error || !data?.signedUrl) return null;
-    return data.signedUrl;
-  } catch {
-    return null;
-  }
-}
-var _supabaseClient;
-var init_supabase = __esm({
-  "server/supabase.ts"() {
-    "use strict";
-    _supabaseClient = null;
-  }
-});
-
-// server/_core/app.ts
-import "dotenv/config";
-import express from "express";
-import compression from "compression";
-import { createExpressMiddleware } from "@trpc/server/adapters/express";
-
-// shared/const.ts
-var COOKIE_NAME = "app_session_id";
-var ONE_YEAR_MS = 1e3 * 60 * 60 * 24 * 365;
-var AXIOS_TIMEOUT_MS = 3e4;
-var UNAUTHED_ERR_MSG = "Please login (10001)";
-var NOT_ADMIN_ERR_MSG = "You do not have required permission (10002)";
-var OAUTH_STATE_COOKIE = "__Host-oauth_state";
-var decodeOAuthState = (state) => {
-  let decoded;
-  try {
-    decoded = atob(state);
-  } catch {
-    return { redirectUri: "" };
-  }
-  try {
-    const parsed = JSON.parse(decoded);
-    if (parsed && typeof parsed.redirectUri === "string") return parsed;
-  } catch {
-  }
-  return { redirectUri: decoded };
-};
-
-// server/_core/oauth.ts
-import { parse as parseCookieHeader2 } from "cookie";
-
-// server/db.ts
-import { and, asc, desc, eq, ilike, like, or, sql } from "drizzle-orm";
-import { drizzle } from "drizzle-orm/postgres-js";
-import postgres from "postgres";
-import { TRPCError } from "@trpc/server";
-
 // drizzle/schema.ts
 import { boolean, index, integer, pgEnum, pgTable, serial, text, timestamp, uniqueIndex, varchar } from "drizzle-orm/pg-core";
-var roleEnum = pgEnum("role", ["user", "declarant", "comptable", "manager", "client", "admin"]);
-var calculatedStatusEnum = pgEnum("calculated_status", ["R\xE9gularis\xE9", "\xC0 r\xE9gulariser", "Brouillon"]);
-var calculatedPriorityEnum = pgEnum("calculated_priority", ["Haute", "Normale", "Basse"]);
-var documentTypeEnum = pgEnum("document_type", ["BL", "LTA", "DDI", "Facture_Fournisseur", "Facture_Transitaire", "Bulletin_Liquidation", "BAE", "Declaration_Douane", "Photos_Marchandise", "Autre"]);
-var invoiceStatusEnum = pgEnum("invoice_status", ["Proforma", "\xC9mise", "Pay\xE9e", "En_retard", "Annul\xE9e"]);
-var invoiceTypeEnum = pgEnum("invoice_type", ["Proforma", "Definitive"]);
-var taskStatusEnum = pgEnum("task_status", ["A_faire", "En_cours", "Termine", "Bloque"]);
-var notificationTypeEnum = pgEnum("notification_type", ["ETA_DEPASSEE", "DDI_MANQUANTE", "BULLETIN_MANQUANT", "SURESTARIES_RISQUE", "STATUT_MODIFIE", "DOCUMENT_AJOUTE", "FACTURE_GENEREE"]);
-var users = pgTable("users", {
-  id: serial("id").primaryKey(),
-  openId: varchar("openId", { length: 64 }).notNull().unique(),
-  name: text("name"),
-  email: varchar("email", { length: 320 }),
-  loginMethod: varchar("loginMethod", { length: 64 }),
-  role: roleEnum("role").default("user").notNull(),
-  clientCompany: varchar("clientCompany", { length: 255 }),
-  // Pour le portail client
-  phone: varchar("phone", { length: 32 }),
-  isActive: boolean("isActive").default(true).notNull(),
-  sessionRevokedAt: timestamp("sessionRevokedAt"),
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
-  updatedAt: timestamp("updatedAt").defaultNow().notNull(),
-  lastSignedIn: timestamp("lastSignedIn").defaultNow().notNull()
+var roleEnum, calculatedStatusEnum, calculatedPriorityEnum, documentTypeEnum, invoiceStatusEnum, invoiceTypeEnum, taskStatusEnum, notificationTypeEnum, users, clients, dossiers, documents, dossierStatusHistory, invoices, invoicePayments, pacDisbursements, exchangeRates, dossierTasks, dossierComments, notifications, referenceItems, clientAccessSessions, portalAccessLogs, approvalRequests, whatsappMessageLogs;
+var init_schema = __esm({
+  "drizzle/schema.ts"() {
+    "use strict";
+    roleEnum = pgEnum("role", ["user", "declarant", "comptable", "manager", "client", "admin"]);
+    calculatedStatusEnum = pgEnum("calculated_status", ["R\xE9gularis\xE9", "\xC0 r\xE9gulariser", "Brouillon"]);
+    calculatedPriorityEnum = pgEnum("calculated_priority", ["Haute", "Normale", "Basse"]);
+    documentTypeEnum = pgEnum("document_type", ["BL", "LTA", "DDI", "Facture_Fournisseur", "Facture_Transitaire", "Bulletin_Liquidation", "BAE", "Declaration_Douane", "Photos_Marchandise", "Autre"]);
+    invoiceStatusEnum = pgEnum("invoice_status", ["Proforma", "\xC9mise", "Pay\xE9e", "En_retard", "Annul\xE9e"]);
+    invoiceTypeEnum = pgEnum("invoice_type", ["Proforma", "Definitive"]);
+    taskStatusEnum = pgEnum("task_status", ["A_faire", "En_cours", "Termine", "Bloque"]);
+    notificationTypeEnum = pgEnum("notification_type", ["ETA_DEPASSEE", "DDI_MANQUANTE", "BULLETIN_MANQUANT", "SURESTARIES_RISQUE", "STATUT_MODIFIE", "DOCUMENT_AJOUTE", "FACTURE_GENEREE"]);
+    users = pgTable("users", {
+      id: serial("id").primaryKey(),
+      openId: varchar("openId", { length: 64 }).notNull().unique(),
+      name: text("name"),
+      email: varchar("email", { length: 320 }),
+      loginMethod: varchar("loginMethod", { length: 64 }),
+      role: roleEnum("role").default("user").notNull(),
+      clientCompany: varchar("clientCompany", { length: 255 }),
+      // Pour le portail client
+      phone: varchar("phone", { length: 32 }),
+      isActive: boolean("isActive").default(true).notNull(),
+      sessionRevokedAt: timestamp("sessionRevokedAt"),
+      createdAt: timestamp("createdAt").defaultNow().notNull(),
+      updatedAt: timestamp("updatedAt").defaultNow().notNull(),
+      lastSignedIn: timestamp("lastSignedIn").defaultNow().notNull()
+    });
+    clients = pgTable("clients", {
+      id: serial("id").primaryKey(),
+      name: varchar("name", { length: 255 }).notNull(),
+      contactPerson: varchar("contactPerson", { length: 160 }),
+      email: varchar("email", { length: 320 }),
+      phone: varchar("phone", { length: 32 }),
+      whatsappPhone: varchar("whatsapp_phone", { length: 32 }),
+      country: varchar("country", { length: 100 }).default("Guin\xE9e"),
+      taxId: varchar("taxId", { length: 80 }),
+      address: text("address"),
+      preferredChannel: varchar("preferred_channel", { length: 32 }).default("whatsapp").notNull(),
+      optInNotifications: boolean("opt_in_notifications").default(true).notNull(),
+      monthlyReportEnabled: boolean("monthly_report_enabled").default(true).notNull(),
+      accountCategory: varchar("account_category", { length: 64 }).default("standard"),
+      createdAt: timestamp("createdAt").defaultNow().notNull(),
+      updatedAt: timestamp("updatedAt").defaultNow().notNull()
+    }, (table) => [
+      uniqueIndex("clients_name_unique").on(table.name)
+    ]);
+    dossiers = pgTable("dossiers", {
+      id: serial("id").primaryKey(),
+      version: integer("version").notNull().default(1),
+      dossierNumber: varchar("dossierNumber", { length: 16 }).notNull(),
+      clientDossierNumber: varchar("clientDossierNumber", { length: 120 }),
+      clientId: integer("clientId"),
+      client: varchar("client", { length: 255 }),
+      blLtaNumber: varchar("blLtaNumber", { length: 160 }),
+      cargoNature: text("cargoNature"),
+      transportMode: varchar("transportMode", { length: 64 }),
+      eta: timestamp("eta"),
+      originPort: varchar("originPort", { length: 255 }),
+      destinationPort: varchar("destinationPort", { length: 255 }),
+      port: varchar("port", { length: 120 }).default("Port Autonome de Conakry (PAC)"),
+      container: varchar("container", { length: 255 }),
+      bulk: varchar("bulk", { length: 255 }),
+      goodsReleaseDate: timestamp("goodsReleaseDate"),
+      daysOnQuay: integer("daysOnQuay").default(0),
+      // Jours de séjour quai (alerte si > 7j)
+      declarationNumber: varchar("declarationNumber", { length: 160 }),
+      bulletinNumber: varchar("bulletinNumber", { length: 160 }),
+      finalDeclarationNumber: varchar("finalDeclarationNumber", { length: 160 }),
+      ddiGucegNumber: varchar("ddiGucegNumber", { length: 160 }),
+      badStatus: varchar("badStatus", { length: 64 }),
+      baeStatus: varchar("baeStatus", { length: 64 }),
+      calculatedStatus: calculatedStatusEnum("calculatedStatus").notNull(),
+      calculatedPriority: calculatedPriorityEnum("calculatedPriority").notNull(),
+      completionRate: integer("completionRate").notNull().default(0),
+      documentStatus: varchar("documentStatus", { length: 80 }),
+      customsStatus: varchar("customsStatus", { length: 80 }),
+      portStatus: varchar("portStatus", { length: 100 }),
+      financialStatus: varchar("financialStatus", { length: 100 }),
+      fieldOperation: varchar("fieldOperation", { length: 160 }),
+      responsible: varchar("responsible", { length: 120 }),
+      nextAction: varchar("nextAction", { length: 255 }),
+      fieldAlert: varchar("fieldAlert", { length: 120 }),
+      deliveryLocation: varchar("deliveryLocation", { length: 120 }),
+      declarant: varchar("declarant", { length: 120 }),
+      service: varchar("service", { length: 80 }),
+      regime: varchar("regime", { length: 80 }),
+      notes: text("notes"),
+      portalAccessCode: varchar("portalAccessCode", { length: 32 }),
+      // Code direct de suivi pour le client
+      createdById: integer("createdById"),
+      updatedById: integer("updatedById"),
+      createdAt: timestamp("createdAt").defaultNow().notNull(),
+      updatedAt: timestamp("updatedAt").defaultNow().notNull()
+    }, (table) => [
+      uniqueIndex("dossiers_number_unique").on(table.dossierNumber),
+      index("dossiers_client_idx").on(table.client),
+      index("dossiers_status_idx").on(table.calculatedStatus),
+      index("dossiers_priority_idx").on(table.calculatedPriority),
+      index("dossiers_eta_idx").on(table.eta),
+      index("dossiers_bl_lta_idx").on(table.blLtaNumber),
+      index("dossiers_responsible_idx").on(table.responsible),
+      index("dossiers_portal_code_idx").on(table.portalAccessCode)
+    ]);
+    documents = pgTable("documents", {
+      id: serial("id").primaryKey(),
+      dossierId: integer("dossierId").notNull(),
+      name: varchar("name", { length: 255 }).notNull(),
+      type: documentTypeEnum("type").notNull().default("Autre"),
+      fileUrl: text("fileUrl").notNull(),
+      // Base64 Data URI ou URL externe/S3/Supabase Storage
+      fileSize: integer("fileSize").notNull().default(0),
+      // en octets
+      mimeType: varchar("mimeType", { length: 120 }),
+      version: integer("version").notNull().default(1),
+      isPublic: boolean("isPublic").notNull().default(true),
+      previousVersions: text("previousVersions").default("[]"),
+      // JSON stringifié des versions antérieures
+      description: text("description"),
+      uploadedById: integer("uploadedById"),
+      uploaderName: varchar("uploaderName", { length: 120 }),
+      createdAt: timestamp("createdAt").defaultNow().notNull()
+    }, (table) => [
+      index("documents_dossier_idx").on(table.dossierId),
+      index("documents_is_public_idx").on(table.dossierId, table.isPublic)
+    ]);
+    dossierStatusHistory = pgTable("dossier_status_history", {
+      id: serial("id").primaryKey(),
+      dossierId: integer("dossierId").notNull(),
+      changedById: integer("changedById"),
+      authorName: varchar("authorName", { length: 120 }),
+      userRole: varchar("userRole", { length: 64 }),
+      action: varchar("action", { length: 120 }),
+      entityType: varchar("entityType", { length: 64 }).default("dossier"),
+      entityId: integer("entityId"),
+      fieldChanged: varchar("fieldChanged", { length: 80 }).notNull(),
+      previousValue: text("previousValue"),
+      newValue: text("newValue"),
+      beforeData: text("beforeData"),
+      afterData: text("afterData"),
+      comment: text("comment"),
+      ipAddress: varchar("ipAddress", { length: 64 }),
+      metadata: text("metadata"),
+      createdAt: timestamp("createdAt").defaultNow().notNull()
+    }, (table) => [
+      index("dossier_history_dossier_idx").on(table.dossierId),
+      index("dossier_history_action_idx").on(table.action),
+      index("dossier_history_entity_idx").on(table.entityType, table.entityId),
+      index("dossier_history_created_idx").on(table.createdAt)
+    ]);
+    invoices = pgTable("invoices", {
+      id: serial("id").primaryKey(),
+      dossierId: integer("dossierId").notNull(),
+      clientId: integer("clientId"),
+      invoiceNumber: varchar("invoiceNumber", { length: 32 }).notNull(),
+      client: varchar("client", { length: 255 }).notNull(),
+      currency: varchar("currency", { length: 8 }).notNull().default("GNF"),
+      // GNF, USD, EUR
+      invoiceType: invoiceTypeEnum("invoiceType").notNull().default("Proforma"),
+      exchangeRate: integer("exchangeRate").notNull().default(8650),
+      amountHt: integer("amountHt").notNull().default(0),
+      amountTva: integer("amountTva").notNull().default(0),
+      amountTtc: integer("amountTtc").notNull().default(0),
+      disbursementsAmount: integer("disbursementsAmount").notNull().default(0),
+      // Débours totaux (douane + PAC)
+      customsDutiesAmount: integer("customsDutiesAmount").notNull().default(0),
+      // Droits de douane
+      portFeesAmount: integer("portFeesAmount").notNull().default(0),
+      // Redevance portuaire PAC
+      storageAndDemurrageFees: integer("storageAndDemurrageFees").notNull().default(0),
+      // Surestaries / magasinage
+      estimatedMargin: integer("estimatedMargin").notNull().default(0),
+      // Marge brute estimée
+      paymentMethod: varchar("paymentMethod", { length: 64 }),
+      paymentReference: varchar("paymentReference", { length: 120 }),
+      receiptNumber: varchar("receiptNumber", { length: 64 }),
+      status: invoiceStatusEnum("status").notNull().default("Proforma"),
+      pdfUrl: text("pdfUrl"),
+      // URL Supabase Storage du PDF généré
+      dueDate: timestamp("dueDate"),
+      paidAt: timestamp("paidAt"),
+      reconciliationStatus: varchar("reconciliationStatus", { length: 32 }).default("non_rapproche"),
+      // non_rapproche, partiel, rapproche
+      reconciliationDate: timestamp("reconciliationDate"),
+      reconciliationRef: varchar("reconciliationRef", { length: 120 }),
+      notes: text("notes"),
+      rateLockedAt: timestamp("rateLockedAt"),
+      createdById: integer("createdById"),
+      createdAt: timestamp("createdAt").defaultNow().notNull(),
+      updatedAt: timestamp("updatedAt").defaultNow().notNull()
+    }, (table) => [
+      uniqueIndex("invoices_number_unique").on(table.invoiceNumber),
+      index("invoices_dossier_idx").on(table.dossierId),
+      index("invoices_client_idx").on(table.client),
+      index("invoices_status_idx").on(table.status),
+      index("invoices_reconciliation_idx").on(table.reconciliationStatus)
+    ]);
+    invoicePayments = pgTable("invoice_payments", {
+      id: serial("id").primaryKey(),
+      invoiceId: integer("invoiceId").notNull(),
+      amount: integer("amount").notNull(),
+      currency: varchar("currency", { length: 8 }).notNull().default("GNF"),
+      paymentMethod: varchar("paymentMethod", { length: 64 }).notNull(),
+      paymentReference: varchar("paymentReference", { length: 120 }),
+      paymentDate: timestamp("paymentDate").defaultNow().notNull(),
+      proofUrl: text("proofUrl"),
+      // URL Supabase Storage du justificatif bancaire / quittance
+      notes: text("notes"),
+      createdById: integer("createdById"),
+      createdAt: timestamp("createdAt").defaultNow().notNull()
+    }, (table) => [
+      index("invoice_payments_invoice_idx").on(table.invoiceId)
+    ]);
+    pacDisbursements = pgTable("pac_disbursements", {
+      id: serial("id").primaryKey(),
+      dossierId: integer("dossierId").notNull(),
+      invoiceId: integer("invoiceId"),
+      type: varchar("type", { length: 64 }).notNull().default("douane"),
+      // douane, port, surestaries, acconage, autre
+      amountAdvanced: integer("amountAdvanced").notNull().default(0),
+      // Montant avancé par IGS
+      amountReimbursed: integer("amountReimbursed").notNull().default(0),
+      // Montant remboursé par le client
+      status: varchar("status", { length: 32 }).notNull().default("avance"),
+      // avance, rembourse_partiel, rembourse_total
+      receiptNumber: varchar("receiptNumber", { length: 64 }),
+      notes: text("notes"),
+      createdById: integer("createdById"),
+      createdAt: timestamp("createdAt").defaultNow().notNull(),
+      updatedAt: timestamp("updatedAt").defaultNow().notNull()
+    }, (table) => [
+      index("pac_disbursements_dossier_idx").on(table.dossierId),
+      index("pac_disbursements_invoice_idx").on(table.invoiceId)
+    ]);
+    exchangeRates = pgTable("exchange_rates", {
+      id: serial("id").primaryKey(),
+      date: varchar("date", { length: 10 }),
+      // Format YYYY-MM-DD
+      sourceCurrency: varchar("sourceCurrency", { length: 8 }).notNull().default("USD"),
+      targetCurrency: varchar("targetCurrency", { length: 8 }).notNull().default("GNF"),
+      rate: integer("rate").notNull().default(8650),
+      provider: varchar("provider", { length: 64 }).default("BCRG"),
+      // BCRG, exchangerate.host, Manuel
+      isManualOverride: boolean("isManualOverride").default(false).notNull(),
+      overrideReason: text("overrideReason"),
+      createdById: integer("createdById"),
+      createdAt: timestamp("createdAt").defaultNow().notNull(),
+      updatedAt: timestamp("updatedAt").defaultNow().notNull()
+    }, (table) => [
+      index("exchange_rates_date_idx").on(table.date),
+      index("exchange_rates_currency_idx").on(table.sourceCurrency, table.targetCurrency)
+    ]);
+    dossierTasks = pgTable("dossier_tasks", {
+      id: serial("id").primaryKey(),
+      dossierId: integer("dossierId").notNull(),
+      title: varchar("title", { length: 255 }).notNull(),
+      assignedTo: varchar("assignedTo", { length: 120 }),
+      dueDate: timestamp("dueDate"),
+      status: taskStatusEnum("status").notNull().default("A_faire"),
+      priority: calculatedPriorityEnum("priority").notNull().default("Normale"),
+      completedAt: timestamp("completedAt"),
+      createdById: integer("createdById"),
+      createdAt: timestamp("createdAt").defaultNow().notNull()
+    }, (table) => [
+      index("dossier_tasks_dossier_idx").on(table.dossierId),
+      index("dossier_tasks_status_idx").on(table.status)
+    ]);
+    dossierComments = pgTable("dossier_comments", {
+      id: serial("id").primaryKey(),
+      dossierId: integer("dossierId").notNull(),
+      authorId: integer("authorId"),
+      authorName: varchar("authorName", { length: 120 }).notNull(),
+      message: text("message").notNull(),
+      createdAt: timestamp("createdAt").defaultNow().notNull()
+    }, (table) => [
+      index("dossier_comments_dossier_idx").on(table.dossierId)
+    ]);
+    notifications = pgTable("notifications", {
+      id: serial("id").primaryKey(),
+      dossierId: integer("dossierId"),
+      dossierNumber: varchar("dossierNumber", { length: 16 }),
+      type: notificationTypeEnum("type").notNull(),
+      title: varchar("title", { length: 255 }).notNull(),
+      message: text("message").notNull(),
+      recipientEmail: varchar("recipientEmail", { length: 320 }),
+      recipientRole: varchar("recipientRole", { length: 64 }),
+      isRead: integer("isRead").notNull().default(0),
+      // 0 ou 1
+      createdAt: timestamp("createdAt").defaultNow().notNull()
+    }, (table) => [
+      index("notifications_dossier_idx").on(table.dossierId),
+      index("notifications_is_read_idx").on(table.isRead),
+      index("notifications_created_idx").on(table.createdAt)
+    ]);
+    referenceItems = pgTable("reference_items", {
+      id: serial("id").primaryKey(),
+      category: varchar("category", { length: 64 }).notNull(),
+      label: varchar("label", { length: 255 }).notNull(),
+      sortOrder: integer("sortOrder").notNull().default(0),
+      createdAt: timestamp("createdAt").defaultNow().notNull()
+    }, (table) => [
+      uniqueIndex("reference_category_label_unique").on(table.category, table.label),
+      index("reference_category_idx").on(table.category)
+    ]);
+    clientAccessSessions = pgTable("client_access_sessions", {
+      id: serial("id").primaryKey(),
+      dossierId: integer("dossier_id"),
+      clientCompany: varchar("client_company", { length: 255 }).notNull(),
+      clientPhone: varchar("client_phone", { length: 32 }),
+      clientEmail: varchar("client_email", { length: 320 }),
+      otpCode: varchar("otp_code", { length: 12 }).notNull(),
+      sessionToken: text("session_token"),
+      expiresAt: timestamp("expires_at").notNull(),
+      verifiedAt: timestamp("verified_at"),
+      attemptsCount: integer("attempts_count").notNull().default(0),
+      createdAt: timestamp("created_at").defaultNow().notNull()
+    }, (table) => [
+      index("client_sessions_dossier_idx").on(table.dossierId),
+      index("client_sessions_phone_idx").on(table.clientPhone),
+      index("client_sessions_expires_idx").on(table.expiresAt)
+    ]);
+    portalAccessLogs = pgTable("portal_access_logs", {
+      id: serial("id").primaryKey(),
+      dossierId: integer("dossier_id"),
+      accessCodeUsed: varchar("access_code_used", { length: 64 }).notNull(),
+      tokenIdentifier: varchar("token_identifier", { length: 120 }),
+      clientCompany: varchar("client_company", { length: 255 }),
+      ipAddress: varchar("ip_address", { length: 64 }),
+      userAgent: text("user_agent"),
+      accessedAt: timestamp("accessed_at").defaultNow().notNull(),
+      success: boolean("success").notNull().default(true),
+      errorReason: text("error_reason")
+    }, (table) => [
+      index("portal_logs_dossier_idx").on(table.dossierId),
+      index("portal_logs_time_idx").on(table.accessedAt),
+      index("portal_logs_code_idx").on(table.accessCodeUsed)
+    ]);
+    approvalRequests = pgTable("approval_requests", {
+      id: serial("id").primaryKey(),
+      entityType: varchar("entity_type", { length: 64 }).notNull(),
+      // 'invoice' | 'disbursement'
+      entityId: integer("entity_id").notNull(),
+      dossierId: integer("dossier_id").notNull(),
+      amount: integer("amount").notNull(),
+      currency: varchar("currency", { length: 16 }).default("GNF").notNull(),
+      thresholdAmount: integer("threshold_amount").notNull(),
+      requestedById: integer("requested_by_id").notNull(),
+      requestedByName: varchar("requested_by_name", { length: 160 }).notNull(),
+      approverId: integer("approver_id"),
+      approverName: varchar("approver_name", { length: 160 }),
+      status: varchar("status", { length: 32 }).default("EN_ATTENTE").notNull(),
+      // 'EN_ATTENTE' | 'APPROUVE' | 'REJETE'
+      rejectionReason: text("rejection_reason"),
+      comment: text("comment"),
+      createdAt: timestamp("created_at").defaultNow().notNull(),
+      updatedAt: timestamp("updated_at").defaultNow().notNull(),
+      resolvedAt: timestamp("resolved_at")
+    }, (table) => [
+      index("approvals_status_idx").on(table.status),
+      index("approvals_dossier_idx").on(table.dossierId),
+      index("approvals_entity_idx").on(table.entityType, table.entityId)
+    ]);
+    whatsappMessageLogs = pgTable("whatsapp_message_logs", {
+      id: serial("id").primaryKey(),
+      dossierId: integer("dossier_id"),
+      dossierNumber: varchar("dossier_number", { length: 64 }),
+      templateName: varchar("template_name", { length: 64 }).notNull(),
+      recipientPhone: varchar("recipient_phone", { length: 64 }).notNull(),
+      clientName: varchar("client_name", { length: 255 }).notNull(),
+      renderedMessage: text("rendered_message").notNull(),
+      providerMessageId: varchar("provider_message_id", { length: 120 }),
+      status: varchar("status", { length: 32 }).default("SENT").notNull(),
+      errorDetails: text("error_details"),
+      createdAt: timestamp("created_at").defaultNow().notNull()
+    }, (table) => [
+      index("whatsapp_logs_dossier_idx").on(table.dossierId),
+      index("whatsapp_logs_template_idx").on(table.templateName),
+      index("whatsapp_logs_time_idx").on(table.createdAt)
+    ]);
+  }
 });
-var clients = pgTable("clients", {
-  id: serial("id").primaryKey(),
-  name: varchar("name", { length: 255 }).notNull(),
-  contactPerson: varchar("contactPerson", { length: 160 }),
-  email: varchar("email", { length: 320 }),
-  phone: varchar("phone", { length: 32 }),
-  whatsappPhone: varchar("whatsapp_phone", { length: 32 }),
-  country: varchar("country", { length: 100 }).default("Guin\xE9e"),
-  taxId: varchar("taxId", { length: 80 }),
-  address: text("address"),
-  preferredChannel: varchar("preferred_channel", { length: 32 }).default("whatsapp").notNull(),
-  optInNotifications: boolean("opt_in_notifications").default(true).notNull(),
-  monthlyReportEnabled: boolean("monthly_report_enabled").default(true).notNull(),
-  accountCategory: varchar("account_category", { length: 64 }).default("standard"),
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
-  updatedAt: timestamp("updatedAt").defaultNow().notNull()
-}, (table) => [
-  uniqueIndex("clients_name_unique").on(table.name)
-]);
-var dossiers = pgTable("dossiers", {
-  id: serial("id").primaryKey(),
-  version: integer("version").notNull().default(1),
-  dossierNumber: varchar("dossierNumber", { length: 16 }).notNull(),
-  clientDossierNumber: varchar("clientDossierNumber", { length: 120 }),
-  clientId: integer("clientId"),
-  client: varchar("client", { length: 255 }),
-  blLtaNumber: varchar("blLtaNumber", { length: 160 }),
-  cargoNature: text("cargoNature"),
-  transportMode: varchar("transportMode", { length: 64 }),
-  eta: timestamp("eta"),
-  originPort: varchar("originPort", { length: 255 }),
-  destinationPort: varchar("destinationPort", { length: 255 }),
-  port: varchar("port", { length: 120 }).default("Port Autonome de Conakry (PAC)"),
-  container: varchar("container", { length: 255 }),
-  bulk: varchar("bulk", { length: 255 }),
-  goodsReleaseDate: timestamp("goodsReleaseDate"),
-  daysOnQuay: integer("daysOnQuay").default(0),
-  // Jours de séjour quai (alerte si > 7j)
-  declarationNumber: varchar("declarationNumber", { length: 160 }),
-  bulletinNumber: varchar("bulletinNumber", { length: 160 }),
-  finalDeclarationNumber: varchar("finalDeclarationNumber", { length: 160 }),
-  ddiGucegNumber: varchar("ddiGucegNumber", { length: 160 }),
-  badStatus: varchar("badStatus", { length: 64 }),
-  baeStatus: varchar("baeStatus", { length: 64 }),
-  calculatedStatus: calculatedStatusEnum("calculatedStatus").notNull(),
-  calculatedPriority: calculatedPriorityEnum("calculatedPriority").notNull(),
-  completionRate: integer("completionRate").notNull().default(0),
-  documentStatus: varchar("documentStatus", { length: 80 }),
-  customsStatus: varchar("customsStatus", { length: 80 }),
-  portStatus: varchar("portStatus", { length: 100 }),
-  financialStatus: varchar("financialStatus", { length: 100 }),
-  fieldOperation: varchar("fieldOperation", { length: 160 }),
-  responsible: varchar("responsible", { length: 120 }),
-  nextAction: varchar("nextAction", { length: 255 }),
-  fieldAlert: varchar("fieldAlert", { length: 120 }),
-  deliveryLocation: varchar("deliveryLocation", { length: 120 }),
-  declarant: varchar("declarant", { length: 120 }),
-  service: varchar("service", { length: 80 }),
-  regime: varchar("regime", { length: 80 }),
-  notes: text("notes"),
-  portalAccessCode: varchar("portalAccessCode", { length: 32 }),
-  // Code direct de suivi pour le client
-  createdById: integer("createdById"),
-  updatedById: integer("updatedById"),
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
-  updatedAt: timestamp("updatedAt").defaultNow().notNull()
-}, (table) => [
-  uniqueIndex("dossiers_number_unique").on(table.dossierNumber),
-  index("dossiers_client_idx").on(table.client),
-  index("dossiers_status_idx").on(table.calculatedStatus),
-  index("dossiers_priority_idx").on(table.calculatedPriority),
-  index("dossiers_eta_idx").on(table.eta),
-  index("dossiers_bl_lta_idx").on(table.blLtaNumber),
-  index("dossiers_responsible_idx").on(table.responsible),
-  index("dossiers_portal_code_idx").on(table.portalAccessCode)
-]);
-var documents = pgTable("documents", {
-  id: serial("id").primaryKey(),
-  dossierId: integer("dossierId").notNull(),
-  name: varchar("name", { length: 255 }).notNull(),
-  type: documentTypeEnum("type").notNull().default("Autre"),
-  fileUrl: text("fileUrl").notNull(),
-  // Base64 Data URI ou URL externe/S3/Supabase Storage
-  fileSize: integer("fileSize").notNull().default(0),
-  // en octets
-  mimeType: varchar("mimeType", { length: 120 }),
-  version: integer("version").notNull().default(1),
-  isPublic: boolean("isPublic").notNull().default(true),
-  previousVersions: text("previousVersions").default("[]"),
-  // JSON stringifié des versions antérieures
-  description: text("description"),
-  uploadedById: integer("uploadedById"),
-  uploaderName: varchar("uploaderName", { length: 120 }),
-  createdAt: timestamp("createdAt").defaultNow().notNull()
-}, (table) => [
-  index("documents_dossier_idx").on(table.dossierId),
-  index("documents_is_public_idx").on(table.dossierId, table.isPublic)
-]);
-var dossierStatusHistory = pgTable("dossier_status_history", {
-  id: serial("id").primaryKey(),
-  dossierId: integer("dossierId").notNull(),
-  changedById: integer("changedById"),
-  authorName: varchar("authorName", { length: 120 }),
-  userRole: varchar("userRole", { length: 64 }),
-  action: varchar("action", { length: 120 }),
-  entityType: varchar("entityType", { length: 64 }).default("dossier"),
-  entityId: integer("entityId"),
-  fieldChanged: varchar("fieldChanged", { length: 80 }).notNull(),
-  previousValue: text("previousValue"),
-  newValue: text("newValue"),
-  beforeData: text("beforeData"),
-  afterData: text("afterData"),
-  comment: text("comment"),
-  ipAddress: varchar("ipAddress", { length: 64 }),
-  metadata: text("metadata"),
-  createdAt: timestamp("createdAt").defaultNow().notNull()
-}, (table) => [
-  index("dossier_history_dossier_idx").on(table.dossierId),
-  index("dossier_history_action_idx").on(table.action),
-  index("dossier_history_entity_idx").on(table.entityType, table.entityId),
-  index("dossier_history_created_idx").on(table.createdAt)
-]);
-var invoices = pgTable("invoices", {
-  id: serial("id").primaryKey(),
-  dossierId: integer("dossierId").notNull(),
-  clientId: integer("clientId"),
-  invoiceNumber: varchar("invoiceNumber", { length: 32 }).notNull(),
-  client: varchar("client", { length: 255 }).notNull(),
-  currency: varchar("currency", { length: 8 }).notNull().default("GNF"),
-  // GNF, USD, EUR
-  invoiceType: invoiceTypeEnum("invoiceType").notNull().default("Proforma"),
-  exchangeRate: integer("exchangeRate").notNull().default(8650),
-  amountHt: integer("amountHt").notNull().default(0),
-  amountTva: integer("amountTva").notNull().default(0),
-  amountTtc: integer("amountTtc").notNull().default(0),
-  disbursementsAmount: integer("disbursementsAmount").notNull().default(0),
-  // Débours totaux (douane + PAC)
-  customsDutiesAmount: integer("customsDutiesAmount").notNull().default(0),
-  // Droits de douane
-  portFeesAmount: integer("portFeesAmount").notNull().default(0),
-  // Redevance portuaire PAC
-  storageAndDemurrageFees: integer("storageAndDemurrageFees").notNull().default(0),
-  // Surestaries / magasinage
-  estimatedMargin: integer("estimatedMargin").notNull().default(0),
-  // Marge brute estimée
-  paymentMethod: varchar("paymentMethod", { length: 64 }),
-  paymentReference: varchar("paymentReference", { length: 120 }),
-  receiptNumber: varchar("receiptNumber", { length: 64 }),
-  status: invoiceStatusEnum("status").notNull().default("Proforma"),
-  pdfUrl: text("pdfUrl"),
-  // URL Supabase Storage du PDF généré
-  dueDate: timestamp("dueDate"),
-  paidAt: timestamp("paidAt"),
-  reconciliationStatus: varchar("reconciliationStatus", { length: 32 }).default("non_rapproche"),
-  // non_rapproche, partiel, rapproche
-  reconciliationDate: timestamp("reconciliationDate"),
-  reconciliationRef: varchar("reconciliationRef", { length: 120 }),
-  notes: text("notes"),
-  rateLockedAt: timestamp("rateLockedAt"),
-  createdById: integer("createdById"),
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
-  updatedAt: timestamp("updatedAt").defaultNow().notNull()
-}, (table) => [
-  uniqueIndex("invoices_number_unique").on(table.invoiceNumber),
-  index("invoices_dossier_idx").on(table.dossierId),
-  index("invoices_client_idx").on(table.client),
-  index("invoices_status_idx").on(table.status),
-  index("invoices_reconciliation_idx").on(table.reconciliationStatus)
-]);
-var invoicePayments = pgTable("invoice_payments", {
-  id: serial("id").primaryKey(),
-  invoiceId: integer("invoiceId").notNull(),
-  amount: integer("amount").notNull(),
-  currency: varchar("currency", { length: 8 }).notNull().default("GNF"),
-  paymentMethod: varchar("paymentMethod", { length: 64 }).notNull(),
-  paymentReference: varchar("paymentReference", { length: 120 }),
-  paymentDate: timestamp("paymentDate").defaultNow().notNull(),
-  proofUrl: text("proofUrl"),
-  // URL Supabase Storage du justificatif bancaire / quittance
-  notes: text("notes"),
-  createdById: integer("createdById"),
-  createdAt: timestamp("createdAt").defaultNow().notNull()
-}, (table) => [
-  index("invoice_payments_invoice_idx").on(table.invoiceId)
-]);
-var pacDisbursements = pgTable("pac_disbursements", {
-  id: serial("id").primaryKey(),
-  dossierId: integer("dossierId").notNull(),
-  invoiceId: integer("invoiceId"),
-  type: varchar("type", { length: 64 }).notNull().default("douane"),
-  // douane, port, surestaries, acconage, autre
-  amountAdvanced: integer("amountAdvanced").notNull().default(0),
-  // Montant avancé par IGS
-  amountReimbursed: integer("amountReimbursed").notNull().default(0),
-  // Montant remboursé par le client
-  status: varchar("status", { length: 32 }).notNull().default("avance"),
-  // avance, rembourse_partiel, rembourse_total
-  receiptNumber: varchar("receiptNumber", { length: 64 }),
-  notes: text("notes"),
-  createdById: integer("createdById"),
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
-  updatedAt: timestamp("updatedAt").defaultNow().notNull()
-}, (table) => [
-  index("pac_disbursements_dossier_idx").on(table.dossierId),
-  index("pac_disbursements_invoice_idx").on(table.invoiceId)
-]);
-var exchangeRates = pgTable("exchange_rates", {
-  id: serial("id").primaryKey(),
-  date: varchar("date", { length: 10 }),
-  // Format YYYY-MM-DD
-  sourceCurrency: varchar("sourceCurrency", { length: 8 }).notNull().default("USD"),
-  targetCurrency: varchar("targetCurrency", { length: 8 }).notNull().default("GNF"),
-  rate: integer("rate").notNull().default(8650),
-  provider: varchar("provider", { length: 64 }).default("BCRG"),
-  // BCRG, exchangerate.host, Manuel
-  isManualOverride: boolean("isManualOverride").default(false).notNull(),
-  overrideReason: text("overrideReason"),
-  createdById: integer("createdById"),
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
-  updatedAt: timestamp("updatedAt").defaultNow().notNull()
-}, (table) => [
-  index("exchange_rates_date_idx").on(table.date),
-  index("exchange_rates_currency_idx").on(table.sourceCurrency, table.targetCurrency)
-]);
-var dossierTasks = pgTable("dossier_tasks", {
-  id: serial("id").primaryKey(),
-  dossierId: integer("dossierId").notNull(),
-  title: varchar("title", { length: 255 }).notNull(),
-  assignedTo: varchar("assignedTo", { length: 120 }),
-  dueDate: timestamp("dueDate"),
-  status: taskStatusEnum("status").notNull().default("A_faire"),
-  priority: calculatedPriorityEnum("priority").notNull().default("Normale"),
-  completedAt: timestamp("completedAt"),
-  createdById: integer("createdById"),
-  createdAt: timestamp("createdAt").defaultNow().notNull()
-}, (table) => [
-  index("dossier_tasks_dossier_idx").on(table.dossierId),
-  index("dossier_tasks_status_idx").on(table.status)
-]);
-var dossierComments = pgTable("dossier_comments", {
-  id: serial("id").primaryKey(),
-  dossierId: integer("dossierId").notNull(),
-  authorId: integer("authorId"),
-  authorName: varchar("authorName", { length: 120 }).notNull(),
-  message: text("message").notNull(),
-  createdAt: timestamp("createdAt").defaultNow().notNull()
-}, (table) => [
-  index("dossier_comments_dossier_idx").on(table.dossierId)
-]);
-var notifications = pgTable("notifications", {
-  id: serial("id").primaryKey(),
-  dossierId: integer("dossierId"),
-  dossierNumber: varchar("dossierNumber", { length: 16 }),
-  type: notificationTypeEnum("type").notNull(),
-  title: varchar("title", { length: 255 }).notNull(),
-  message: text("message").notNull(),
-  recipientEmail: varchar("recipientEmail", { length: 320 }),
-  recipientRole: varchar("recipientRole", { length: 64 }),
-  isRead: integer("isRead").notNull().default(0),
-  // 0 ou 1
-  createdAt: timestamp("createdAt").defaultNow().notNull()
-}, (table) => [
-  index("notifications_dossier_idx").on(table.dossierId),
-  index("notifications_is_read_idx").on(table.isRead),
-  index("notifications_created_idx").on(table.createdAt)
-]);
-var referenceItems = pgTable("reference_items", {
-  id: serial("id").primaryKey(),
-  category: varchar("category", { length: 64 }).notNull(),
-  label: varchar("label", { length: 255 }).notNull(),
-  sortOrder: integer("sortOrder").notNull().default(0),
-  createdAt: timestamp("createdAt").defaultNow().notNull()
-}, (table) => [
-  uniqueIndex("reference_category_label_unique").on(table.category, table.label),
-  index("reference_category_idx").on(table.category)
-]);
-var clientAccessSessions = pgTable("client_access_sessions", {
-  id: serial("id").primaryKey(),
-  dossierId: integer("dossier_id"),
-  clientCompany: varchar("client_company", { length: 255 }).notNull(),
-  clientPhone: varchar("client_phone", { length: 32 }),
-  clientEmail: varchar("client_email", { length: 320 }),
-  otpCode: varchar("otp_code", { length: 12 }).notNull(),
-  sessionToken: text("session_token"),
-  expiresAt: timestamp("expires_at").notNull(),
-  verifiedAt: timestamp("verified_at"),
-  attemptsCount: integer("attempts_count").notNull().default(0),
-  createdAt: timestamp("created_at").defaultNow().notNull()
-}, (table) => [
-  index("client_sessions_dossier_idx").on(table.dossierId),
-  index("client_sessions_phone_idx").on(table.clientPhone),
-  index("client_sessions_expires_idx").on(table.expiresAt)
-]);
-var portalAccessLogs = pgTable("portal_access_logs", {
-  id: serial("id").primaryKey(),
-  dossierId: integer("dossier_id"),
-  accessCodeUsed: varchar("access_code_used", { length: 64 }).notNull(),
-  tokenIdentifier: varchar("token_identifier", { length: 120 }),
-  clientCompany: varchar("client_company", { length: 255 }),
-  ipAddress: varchar("ip_address", { length: 64 }),
-  userAgent: text("user_agent"),
-  accessedAt: timestamp("accessed_at").defaultNow().notNull(),
-  success: boolean("success").notNull().default(true),
-  errorReason: text("error_reason")
-}, (table) => [
-  index("portal_logs_dossier_idx").on(table.dossierId),
-  index("portal_logs_time_idx").on(table.accessedAt),
-  index("portal_logs_code_idx").on(table.accessCodeUsed)
-]);
-var approvalRequests = pgTable("approval_requests", {
-  id: serial("id").primaryKey(),
-  entityType: varchar("entity_type", { length: 64 }).notNull(),
-  // 'invoice' | 'disbursement'
-  entityId: integer("entity_id").notNull(),
-  dossierId: integer("dossier_id").notNull(),
-  amount: integer("amount").notNull(),
-  currency: varchar("currency", { length: 16 }).default("GNF").notNull(),
-  thresholdAmount: integer("threshold_amount").notNull(),
-  requestedById: integer("requested_by_id").notNull(),
-  requestedByName: varchar("requested_by_name", { length: 160 }).notNull(),
-  approverId: integer("approver_id"),
-  approverName: varchar("approver_name", { length: 160 }),
-  status: varchar("status", { length: 32 }).default("EN_ATTENTE").notNull(),
-  // 'EN_ATTENTE' | 'APPROUVE' | 'REJETE'
-  rejectionReason: text("rejection_reason"),
-  comment: text("comment"),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-  updatedAt: timestamp("updated_at").defaultNow().notNull(),
-  resolvedAt: timestamp("resolved_at")
-}, (table) => [
-  index("approvals_status_idx").on(table.status),
-  index("approvals_dossier_idx").on(table.dossierId),
-  index("approvals_entity_idx").on(table.entityType, table.entityId)
-]);
-var whatsappMessageLogs = pgTable("whatsapp_message_logs", {
-  id: serial("id").primaryKey(),
-  dossierId: integer("dossier_id"),
-  dossierNumber: varchar("dossier_number", { length: 64 }),
-  templateName: varchar("template_name", { length: 64 }).notNull(),
-  recipientPhone: varchar("recipient_phone", { length: 64 }).notNull(),
-  clientName: varchar("client_name", { length: 255 }).notNull(),
-  renderedMessage: text("rendered_message").notNull(),
-  providerMessageId: varchar("provider_message_id", { length: 120 }),
-  status: varchar("status", { length: 32 }).default("SENT").notNull(),
-  errorDetails: text("error_details"),
-  createdAt: timestamp("created_at").defaultNow().notNull()
-}, (table) => [
-  index("whatsapp_logs_dossier_idx").on(table.dossierId),
-  index("whatsapp_logs_template_idx").on(table.templateName),
-  index("whatsapp_logs_time_idx").on(table.createdAt)
-]);
-
-// server/db.ts
-import { SignJWT, jwtVerify } from "jose";
 
 // server/dossierRules.ts
-var REQUIRED_DOSSIER_FIELDS = [
-  "clientDossierNumber",
-  "client",
-  "blLtaNumber",
-  "cargoNature",
-  "transportMode",
-  "eta",
-  "originPort",
-  "destinationPort",
-  "goodsReleaseDate",
-  "declarationNumber",
-  "bulletinNumber"
-];
-var hasValue = (value) => value !== null && value !== void 0 && String(value).trim() !== "";
 function calculateDossierState(input) {
   if (input.isDraft || input.calculatedStatus === "Brouillon") {
     return {
@@ -1022,6 +507,26 @@ function calculateDemurrageRisk(eta, goodsReleaseDate, freeDays = 7, referenceDa
     urgencyLevel: "normal"
   };
 }
+var REQUIRED_DOSSIER_FIELDS, hasValue;
+var init_dossierRules = __esm({
+  "server/dossierRules.ts"() {
+    "use strict";
+    REQUIRED_DOSSIER_FIELDS = [
+      "clientDossierNumber",
+      "client",
+      "blLtaNumber",
+      "cargoNature",
+      "transportMode",
+      "eta",
+      "originPort",
+      "destinationPort",
+      "goodsReleaseDate",
+      "declarationNumber",
+      "bulletinNumber"
+    ];
+    hasValue = (value) => value !== null && value !== void 0 && String(value).trim() !== "";
+  }
+});
 
 // server/alertsService.ts
 function generateProactiveAlerts(dossiers2) {
@@ -1150,4140 +655,3913 @@ async function sendDossierEmailAlert(params) {
     sentTo: email
   };
 }
+var init_alertsService = __esm({
+  "server/alertsService.ts"() {
+    "use strict";
+  }
+});
 
 // server/initialImportData.ts
-var initialImportData = {
-  "dossiers": [
-    {
-      "dossierNumber": "DOS-0001",
-      "clientDossierNumber": "CKYSI26000340",
-      "client": "Guinean Birimian Gold S.A",
-      "blLtaNumber": "HLCUNG12604AUQG1",
-      "cargoNature": "Cyanure",
-      "transportMode": "Maritime",
-      "eta": "2026-07-31",
-      "originPort": "Ningbo port-china",
-      "destinationPort": "Conakry",
-      "container": "04TC20'",
-      "bulk": null,
-      "goodsReleaseDate": null,
-      "declarationNumber": "S 142- 27/07/2026",
-      "bulletinNumber": "L 1774 Du 28/07/2026",
-      "finalDeclarationNumber": null
-    },
-    {
-      "dossierNumber": "DOS-0002",
-      "clientDossierNumber": "CKYSI26000342",
-      "client": "Guinee Gold Exploration S.A",
-      "blLtaNumber": "HLCUNG12604AVHK6",
-      "cargoNature": "Cyanure",
-      "transportMode": "Maritime",
-      "eta": "2026-07-31",
-      "originPort": "Ningbo port-china",
-      "destinationPort": "Conakry",
-      "container": "06TC20'",
-      "bulk": null,
-      "goodsReleaseDate": null,
-      "declarationNumber": "S 143- 27/07/2026",
-      "bulletinNumber": "L 1773 Du 28/07/2026",
-      "finalDeclarationNumber": null
-    },
-    {
-      "dossierNumber": "DOS-0003",
-      "clientDossierNumber": null,
-      "client": "Guinee Yongchuang Shipbuilding LTD - Sarl",
-      "blLtaNumber": "JH260LYG11",
-      "cargoNature": "Hot- Rolled Steel Plates",
-      "transportMode": "Maritime",
-      "eta": "2026-07-21",
-      "originPort": "Lianyunggang-China",
-      "destinationPort": "Boffa-Conakry",
-      "container": null,
-      "bulk": "56 PKG",
-      "goodsReleaseDate": null,
-      "declarationNumber": null,
-      "bulletinNumber": null,
-      "finalDeclarationNumber": null
-    },
-    {
-      "dossierNumber": "DOS-0004",
-      "clientDossierNumber": null,
-      "client": "Guinee Yongchuang Shipbuilding LTD - Sarl",
-      "blLtaNumber": "JH260LYG12",
-      "cargoNature": "Galvanized Steel Tubes",
-      "transportMode": "Maritime",
-      "eta": "2026-07-21",
-      "originPort": "Lianyunggang-China",
-      "destinationPort": "Boffa-Conakry",
-      "container": null,
-      "bulk": "6 PKG",
-      "goodsReleaseDate": null,
-      "declarationNumber": null,
-      "bulletinNumber": null,
-      "finalDeclarationNumber": null
-    },
-    {
-      "dossierNumber": "DOS-0005",
-      "clientDossierNumber": null,
-      "client": "Guinee Yongchuang Shipbuilding LTD - Sarl",
-      "blLtaNumber": "JH260LYG13",
-      "cargoNature": "H-Beam Steel",
-      "transportMode": "Maritime",
-      "eta": "2026-07-21",
-      "originPort": "Lianyunggang-China",
-      "destinationPort": "Boffa-Conakry",
-      "container": null,
-      "bulk": "2 PKG",
-      "goodsReleaseDate": null,
-      "declarationNumber": null,
-      "bulletinNumber": null,
-      "finalDeclarationNumber": null
-    },
-    {
-      "dossierNumber": "DOS-0006",
-      "clientDossierNumber": null,
-      "client": "Guinee Yongchuang Shipbuilding LTD - Sarl",
-      "blLtaNumber": "JH260LYG14",
-      "cargoNature": "Angle Steel",
-      "transportMode": "Maritime",
-      "eta": "2026-07-21",
-      "originPort": "Lianyunggang-China",
-      "destinationPort": "Boffa-Conakry",
-      "container": null,
-      "bulk": "2 PKG",
-      "goodsReleaseDate": null,
-      "declarationNumber": null,
-      "bulletinNumber": null,
-      "finalDeclarationNumber": null
-    },
-    {
-      "dossierNumber": "DOS-0007",
-      "clientDossierNumber": null,
-      "client": "New Japon Mining Company S.A",
-      "blLtaNumber": "NFFN017C000101",
-      "cargoNature": "Environmental Gold Leaching Agent",
-      "transportMode": "Maritime",
-      "eta": "2026-07-21",
-      "originPort": "Rizhao-china",
-      "destinationPort": "Port Autonome de Conakry",
-      "container": "20 TC20'",
-      "bulk": "22 400 kgs",
-      "goodsReleaseDate": null,
-      "declarationNumber": null,
-      "bulletinNumber": null,
-      "finalDeclarationNumber": null
-    },
-    {
-      "dossierNumber": "DOS-0008",
-      "clientDossierNumber": null,
-      "client": "Guinean Birimian Gold S.A",
-      "blLtaNumber": "NFFN017C000102",
-      "cargoNature": "H-Beam Channel Steel, Angle Steel, Patterned Plate, Flat-Opened",
-      "transportMode": "Maritime",
-      "eta": "2026-07-21",
-      "originPort": "Rizhao-china",
-      "destinationPort": "Boffa-Conakry",
-      "container": null,
-      "bulk": "15 PKG",
-      "goodsReleaseDate": null,
-      "declarationNumber": null,
-      "bulletinNumber": null,
-      "finalDeclarationNumber": null
-    },
-    {
-      "dossierNumber": "DOS-0009",
-      "clientDossierNumber": "CKY8126000377",
-      "client": "Guinean Birimian Gold S.A",
-      "blLtaNumber": "NGP3626648",
-      "cargoNature": "Cyanure de sodium",
-      "transportMode": "Maritime",
-      "eta": "2026-07-30",
-      "originPort": "Ningbo port-china",
-      "destinationPort": "Port Autonome de Conakry",
-      "container": "5x 20 st",
-      "bulk": null,
-      "goodsReleaseDate": "2026-08-01",
-      "declarationNumber": "S 132- 20/07/2026",
-      "bulletinNumber": "L 1723 Du 21/07/2026",
-      "finalDeclarationNumber": "C 1317-2026"
-    },
-    {
-      "dossierNumber": "DOS-0010",
-      "clientDossierNumber": "CKY8126000378",
-      "client": "Guinee Gold Exploration S.A",
-      "blLtaNumber": "NGP3651868",
-      "cargoNature": "Cyanure de sodium",
-      "transportMode": "Maritime",
-      "eta": "2026-07-30",
-      "originPort": "Ningbo port-china",
-      "destinationPort": "Port Autonome de Conakry",
-      "container": "5x 20 st",
-      "bulk": null,
-      "goodsReleaseDate": "2026-08-01",
-      "declarationNumber": "S 133- 20/07/2026",
-      "bulletinNumber": "L 1729 Du 21/07/2026",
-      "finalDeclarationNumber": "C 1319-2026"
-    },
-    {
-      "dossierNumber": "DOS-0011",
-      "clientDossierNumber": "CKY8126000380",
-      "client": "Guinee Gold Exploration S.A",
-      "blLtaNumber": "NGP3654574",
-      "cargoNature": "Cyanure de sodium",
-      "transportMode": "Maritime",
-      "eta": "2026-07-30",
-      "originPort": "Ningbo port-china",
-      "destinationPort": "Port Autonome de Conakry",
-      "container": "4x 20 st",
-      "bulk": null,
-      "goodsReleaseDate": "2026-08-01",
-      "declarationNumber": "S 135- 20/07/2026",
-      "bulletinNumber": "L 1725 Du 21/07/2026",
-      "finalDeclarationNumber": "C 1322-2026"
-    },
-    {
-      "dossierNumber": "DOS-0012",
-      "clientDossierNumber": "CKY8126000379",
-      "client": "Guinee Gold Exploration S.A",
-      "blLtaNumber": "NGP3654656",
-      "cargoNature": "Cyanure de sodium",
-      "transportMode": "Maritime",
-      "eta": "2026-07-30",
-      "originPort": "Ningbo port-china",
-      "destinationPort": "Port Autonome de Conakry",
-      "container": "6x",
-      "bulk": null,
-      "goodsReleaseDate": "2026-08-01",
-      "declarationNumber": "S 134- 20/07/2026",
-      "bulletinNumber": "L 1728 Du 21/07/2026",
-      "finalDeclarationNumber": "C 1323-2026"
-    },
-    {
-      "dossierNumber": "DOS-0013",
-      "clientDossierNumber": "CKY8126000409",
-      "client": "New Japon Mining Company S.A",
-      "blLtaNumber": "NGP3711076",
-      "cargoNature": "Sodium Cyanide Solide",
-      "transportMode": "Maritime",
-      "eta": "2026-08-13",
-      "originPort": "Ningbo port-china",
-      "destinationPort": "Port Autonome de Conakry",
-      "container": "5x 20 st",
-      "bulk": null,
-      "goodsReleaseDate": null,
-      "declarationNumber": "S 162- 08/08/2026",
-      "bulletinNumber": null,
-      "finalDeclarationNumber": null
-    },
-    {
-      "dossierNumber": "DOS-0014",
-      "clientDossierNumber": "CKYSI26000364",
-      "client": "Capdrill",
-      "blLtaNumber": "S04019953",
-      "cargoNature": "Mining Parts",
-      "transportMode": "Maritime",
-      "eta": "2026-08-20",
-      "originPort": null,
-      "destinationPort": "Conakry",
-      "container": "01TC40'",
-      "bulk": null,
-      "goodsReleaseDate": null,
-      "declarationNumber": null,
-      "bulletinNumber": null,
-      "finalDeclarationNumber": null
-    },
-    {
-      "dossierNumber": "DOS-0015",
-      "clientDossierNumber": "CKYSI26000350",
-      "client": "Rabotec",
-      "blLtaNumber": "PRORO19/2026",
-      "cargoNature": "Prorogation AT",
-      "transportMode": "Domestique",
-      "eta": null,
-      "originPort": null,
-      "destinationPort": null,
-      "container": null,
-      "bulk": null,
-      "goodsReleaseDate": null,
-      "declarationNumber": null,
-      "bulletinNumber": null,
-      "finalDeclarationNumber": null
-    },
-    {
-      "dossierNumber": "DOS-0016",
-      "clientDossierNumber": "CKYSE26000348",
-      "client": "BelAir",
-      "blLtaNumber": "NF VISION",
-      "cargoNature": "Bauxite",
-      "transportMode": "Maritime",
-      "eta": null,
-      "originPort": null,
-      "destinationPort": null,
-      "container": null,
-      "bulk": null,
-      "goodsReleaseDate": null,
-      "declarationNumber": null,
-      "bulletinNumber": null,
-      "finalDeclarationNumber": null
-    },
-    {
-      "dossierNumber": "DOS-0017",
-      "clientDossierNumber": "CKYSI26000347",
-      "client": "New Japon Mining Company S.A",
-      "blLtaNumber": "NGP3574724",
-      "cargoNature": "Cyanure",
-      "transportMode": "Maritime",
-      "eta": "2026-07-22",
-      "originPort": "china",
-      "destinationPort": "conakry",
-      "container": "05TC20'",
-      "bulk": null,
-      "goodsReleaseDate": "2026-07-28",
-      "declarationNumber": "S117 du 08/07/26",
-      "bulletinNumber": "L1597 du 09/07/2026",
-      "finalDeclarationNumber": null
-    },
-    {
-      "dossierNumber": "DOS-0018",
-      "clientDossierNumber": "CKYSI26000346",
-      "client": "New Japon Mining Company S.A",
-      "blLtaNumber": "NGP3572754",
-      "cargoNature": "Cyanure",
-      "transportMode": "Maritime",
-      "eta": "2026-07-22",
-      "originPort": "china",
-      "destinationPort": "conakry",
-      "container": "05TC20'",
-      "bulk": null,
-      "goodsReleaseDate": "2026-07-28",
-      "declarationNumber": "S119 du 08/07/26",
-      "bulletinNumber": null,
-      "finalDeclarationNumber": null
-    },
-    {
-      "dossierNumber": "DOS-0019",
-      "clientDossierNumber": "CKYSI26000345",
-      "client": "New Japon Mining Company S.A",
-      "blLtaNumber": "NGP3583958",
-      "cargoNature": "Cyanure",
-      "transportMode": "Maritime",
-      "eta": "2026-07-22",
-      "originPort": "china",
-      "destinationPort": "Conakry",
-      "container": "05TC20'",
-      "bulk": null,
-      "goodsReleaseDate": null,
-      "declarationNumber": null,
-      "bulletinNumber": null,
-      "finalDeclarationNumber": null
-    },
-    {
-      "dossierNumber": "DOS-0020",
-      "clientDossierNumber": "CKYSI26000344",
-      "client": "Guinee Gold Exploration S.A",
-      "blLtaNumber": "HLCUNG12604ATCF6",
-      "cargoNature": "Cyanure",
-      "transportMode": "Maritime",
-      "eta": "2026-07-19",
-      "originPort": "china",
-      "destinationPort": "Conakry",
-      "container": "06TC20'",
-      "bulk": null,
-      "goodsReleaseDate": "2026-07-20",
-      "declarationNumber": "S114 du 08/07/26",
-      "bulletinNumber": null,
-      "finalDeclarationNumber": null
-    },
-    {
-      "dossierNumber": "DOS-0021",
-      "clientDossierNumber": "CKYSI26000343",
-      "client": "Guinee Gold Exploration S.A",
-      "blLtaNumber": "HLCUNG1260478795",
-      "cargoNature": "Cyanure",
-      "transportMode": "Maritime",
-      "eta": "2026-07-18",
-      "originPort": "china",
-      "destinationPort": "Conakry",
-      "container": "06TC20'",
-      "bulk": null,
-      "goodsReleaseDate": "2026-07-20",
-      "declarationNumber": "S116 du 08/07/26",
-      "bulletinNumber": null,
-      "finalDeclarationNumber": null
-    },
-    {
-      "dossierNumber": "DOS-0022",
-      "clientDossierNumber": "CKYSI26000341",
-      "client": "Guinee Gold Exploration S.A",
-      "blLtaNumber": "NGP3583949",
-      "cargoNature": "Cyanure",
-      "transportMode": "Maritime",
-      "eta": "2026-07-25",
-      "originPort": "china",
-      "destinationPort": "Conakry",
-      "container": "05TC20'",
-      "bulk": null,
-      "goodsReleaseDate": "2026-07-28",
-      "declarationNumber": "S115 du 08/07/26",
-      "bulletinNumber": "L1589 du 09/07/2026",
-      "finalDeclarationNumber": null
-    },
-    {
-      "dossierNumber": "DOS-0023",
-      "clientDossierNumber": "CKYSI26000339",
-      "client": "Guinean Birimian Gold S.A",
-      "blLtaNumber": "HLCUNG1260470029",
-      "cargoNature": "Cyanure",
-      "transportMode": "Maritime",
-      "eta": "2026-07-18",
-      "originPort": "china",
-      "destinationPort": "Conakry",
-      "container": "04TC20'",
-      "bulk": null,
-      "goodsReleaseDate": "2026-07-20",
-      "declarationNumber": "S121 du 08/07/26",
-      "bulletinNumber": null,
-      "finalDeclarationNumber": null
-    },
-    {
-      "dossierNumber": "DOS-0024",
-      "clientDossierNumber": "CKYSI26000338",
-      "client": "Guinean Birimian Gold S.A",
-      "blLtaNumber": "NGP3626633",
-      "cargoNature": "Cyanure",
-      "transportMode": "Maritime",
-      "eta": "2026-07-25",
-      "originPort": "china",
-      "destinationPort": "Conakry",
-      "container": "05TC20'",
-      "bulk": null,
-      "goodsReleaseDate": null,
-      "declarationNumber": null,
-      "bulletinNumber": null,
-      "finalDeclarationNumber": null
-    },
-    {
-      "dossierNumber": "DOS-0025",
-      "clientDossierNumber": "CKYSI26000337",
-      "client": "Guinean Birimian Gold S.A",
-      "blLtaNumber": "NFVS01C000101",
-      "cargoNature": "Machine foreuse et \xE9quipements",
-      "transportMode": "Maritime",
-      "eta": null,
-      "originPort": "china",
-      "destinationPort": "Boffa",
-      "container": null,
-      "bulk": "31 colis",
-      "goodsReleaseDate": null,
-      "declarationNumber": null,
-      "bulletinNumber": null,
-      "finalDeclarationNumber": null
-    },
-    {
-      "dossierNumber": "DOS-0026",
-      "clientDossierNumber": "CKYSI26000336",
-      "client": "Guinean Birimian Gold S.A",
-      "blLtaNumber": "NFVS01J000102",
-      "cargoNature": "Steel Ball",
-      "transportMode": "Maritime",
-      "eta": null,
-      "originPort": "china",
-      "destinationPort": "Boffa",
-      "container": "40TC20'",
-      "bulk": null,
-      "goodsReleaseDate": null,
-      "declarationNumber": null,
-      "bulletinNumber": null,
-      "finalDeclarationNumber": null
-    },
-    {
-      "dossierNumber": "DOS-0027",
-      "clientDossierNumber": "CKYSI26000335",
-      "client": "Guinean Birimian Gold S.A",
-      "blLtaNumber": "NFVS01H000302",
-      "cargoNature": "Calcium oxide",
-      "transportMode": "Maritime",
-      "eta": null,
-      "originPort": "china",
-      "destinationPort": "Boffa",
-      "container": "43TC20'",
-      "bulk": null,
-      "goodsReleaseDate": null,
-      "declarationNumber": null,
-      "bulletinNumber": null,
-      "finalDeclarationNumber": null
-    },
-    {
-      "dossierNumber": "DOS-0028",
-      "clientDossierNumber": "CKYSI26000334",
-      "client": "New Japon Mining Company S.A",
-      "blLtaNumber": "NFVS01H000301",
-      "cargoNature": "Quick Lime",
-      "transportMode": "Maritime",
-      "eta": null,
-      "originPort": "china",
-      "destinationPort": "Boffa",
-      "container": "46TC20'",
-      "bulk": null,
-      "goodsReleaseDate": null,
-      "declarationNumber": null,
-      "bulletinNumber": null,
-      "finalDeclarationNumber": null
-    },
-    {
-      "dossierNumber": "DOS-0029",
-      "clientDossierNumber": "CKYSI26000333",
-      "client": null,
-      "blLtaNumber": "NFVS01C000301",
-      "cargoNature": "Trommel Screen",
-      "transportMode": null,
-      "eta": null,
-      "originPort": null,
-      "destinationPort": null,
-      "container": null,
-      "bulk": "6 Pkg",
-      "goodsReleaseDate": null,
-      "declarationNumber": null,
-      "bulletinNumber": null,
-      "finalDeclarationNumber": null
-    },
-    {
-      "dossierNumber": "DOS-0030",
-      "clientDossierNumber": "CKYSI26000331",
-      "client": null,
-      "blLtaNumber": "NFVS01J000101",
-      "cargoNature": null,
-      "transportMode": null,
-      "eta": null,
-      "originPort": null,
-      "destinationPort": null,
-      "container": null,
-      "bulk": null,
-      "goodsReleaseDate": null,
-      "declarationNumber": null,
-      "bulletinNumber": null,
-      "finalDeclarationNumber": null
-    },
-    {
-      "dossierNumber": "DOS-0031",
-      "clientDossierNumber": "CKYSI26000330",
-      "client": null,
-      "blLtaNumber": "NFVS01H000201",
-      "cargoNature": null,
-      "transportMode": null,
-      "eta": null,
-      "originPort": null,
-      "destinationPort": null,
-      "container": null,
-      "bulk": null,
-      "goodsReleaseDate": null,
-      "declarationNumber": null,
-      "bulletinNumber": null,
-      "finalDeclarationNumber": null
-    },
-    {
-      "dossierNumber": "DOS-0032",
-      "clientDossierNumber": "CKYSI26000329",
-      "client": null,
-      "blLtaNumber": "NFVS01C000201",
-      "cargoNature": null,
-      "transportMode": null,
-      "eta": null,
-      "originPort": null,
-      "destinationPort": null,
-      "container": null,
-      "bulk": null,
-      "goodsReleaseDate": null,
-      "declarationNumber": null,
-      "bulletinNumber": null,
-      "finalDeclarationNumber": null
-    },
-    {
-      "dossierNumber": "DOS-0033",
-      "clientDossierNumber": "CKY8126000432",
-      "client": "Guinean Birimian Gold S.A",
-      "blLtaNumber": "NGP3696879",
-      "cargoNature": "Cyanure",
-      "transportMode": "Maritime",
-      "eta": "2026-08-12",
-      "originPort": "Ningbo port-china",
-      "destinationPort": "Conakry, GN",
-      "container": "06TC20'",
-      "bulk": null,
-      "goodsReleaseDate": null,
-      "declarationNumber": "S 161- 08/08/2026",
-      "bulletinNumber": null,
-      "finalDeclarationNumber": null
-    },
-    {
-      "dossierNumber": "DOS-0034",
-      "clientDossierNumber": "CKY8126000431",
-      "client": "Guinean Birimian Gold S.A",
-      "blLtaNumber": "NGP3768278",
-      "cargoNature": "Cyanure",
-      "transportMode": "Maritime",
-      "eta": "2026-08-12",
-      "originPort": "Ningbo port-china",
-      "destinationPort": "Conakry, GN",
-      "container": "06TC20'",
-      "bulk": null,
-      "goodsReleaseDate": null,
-      "declarationNumber": "S 160- 08/08/2026",
-      "bulletinNumber": null,
-      "finalDeclarationNumber": null
-    },
-    {
-      "dossierNumber": "DOS-0035",
-      "clientDossierNumber": "CKY8126000407",
-      "client": "Guinean Birimian Gold S.A",
-      "blLtaNumber": "NGP3768351",
-      "cargoNature": "Cyanure",
-      "transportMode": "Maritime",
-      "eta": "2026-08-13",
-      "originPort": "Ningbo port-china",
-      "destinationPort": "Conakry, GN",
-      "container": "06TC20'",
-      "bulk": null,
-      "goodsReleaseDate": null,
-      "declarationNumber": "S 157- 08/08/2026",
-      "bulletinNumber": null,
-      "finalDeclarationNumber": null
-    },
-    {
-      "dossierNumber": "DOS-0036",
-      "clientDossierNumber": "CKY8126000408",
-      "client": "New Japon Mining Company S.A",
-      "blLtaNumber": "MEDUY4002885",
-      "cargoNature": "Cyanure",
-      "transportMode": "Maritime",
-      "eta": "2026-08-18",
-      "originPort": "Ningbo, CN",
-      "destinationPort": "Conakry, GN",
-      "container": "05TC20'",
-      "bulk": null,
-      "goodsReleaseDate": null,
-      "declarationNumber": null,
-      "bulletinNumber": null,
-      "finalDeclarationNumber": null
-    },
-    {
-      "dossierNumber": "DOS-0037",
-      "clientDossierNumber": "CKY8126000413",
-      "client": "Guinean Birimian Gold S.A",
-      "blLtaNumber": "NGP3670655",
-      "cargoNature": "Cyanure de sodium",
-      "transportMode": "Maritime",
-      "eta": "2026-08-13",
-      "originPort": null,
-      "destinationPort": null,
-      "container": "04TC20'",
-      "bulk": null,
-      "goodsReleaseDate": null,
-      "declarationNumber": "S 158- 08/08/2026",
-      "bulletinNumber": null,
-      "finalDeclarationNumber": null
-    },
-    {
-      "dossierNumber": "DOS-0038",
-      "clientDossierNumber": "CKY8126000414",
-      "client": "Guinean Birimian Gold S.A",
-      "blLtaNumber": "NGP3677538",
-      "cargoNature": "Cyanure",
-      "transportMode": "Maritime",
-      "eta": "2026-08-13",
-      "originPort": null,
-      "destinationPort": null,
-      "container": "06TC20'",
-      "bulk": null,
-      "goodsReleaseDate": null,
-      "declarationNumber": "S 159- 08/08/2026",
-      "bulletinNumber": null,
-      "finalDeclarationNumber": null
-    },
-    {
-      "dossierNumber": "DOS-0039",
-      "clientDossierNumber": "CKY8126000412",
-      "client": "Guinee Gold Exploration S.A",
-      "blLtaNumber": "NGP3669558",
-      "cargoNature": "Cyanure",
-      "transportMode": "Maritime",
-      "eta": "2026-08-13",
-      "originPort": "CHINE",
-      "destinationPort": "Conakry, GN",
-      "container": "04TC20'",
-      "bulk": null,
-      "goodsReleaseDate": null,
-      "declarationNumber": "S 156- 08/08/2026",
-      "bulletinNumber": null,
-      "finalDeclarationNumber": null
-    },
-    {
-      "dossierNumber": "DOS-0040",
-      "clientDossierNumber": "CKYSI26000324",
-      "client": "Fabrimetal",
-      "blLtaNumber": "MEDUXO787576",
-      "cargoNature": "Bar bending machine",
-      "transportMode": "Maritime",
-      "eta": "2026-08-03",
-      "originPort": "Nhava Sheva, IndiA",
-      "destinationPort": "Conakry, GN",
-      "container": "01TC40'",
-      "bulk": null,
-      "goodsReleaseDate": null,
-      "declarationNumber": null,
-      "bulletinNumber": null,
-      "finalDeclarationNumber": null
-    },
-    {
-      "dossierNumber": "DOS-0041",
-      "clientDossierNumber": "CKYSI26000323",
-      "client": "Fabrimetal",
-      "blLtaNumber": "MEDUXO733307",
-      "cargoNature": "Spare parts for induction furnace",
-      "transportMode": "Maritime",
-      "eta": "2026-08-04",
-      "originPort": "Mundra,India",
-      "destinationPort": "Conakry, GN",
-      "container": "02TC40';01TC20'",
-      "bulk": null,
-      "goodsReleaseDate": null,
-      "declarationNumber": null,
-      "bulletinNumber": null,
-      "finalDeclarationNumber": null
-    },
-    {
-      "dossierNumber": "DOS-0042",
-      "clientDossierNumber": "CKYSI26000318",
-      "client": "Fabrimetal",
-      "blLtaNumber": "MEDUJ7763785",
-      "cargoNature": "006054796h91-genset 250kva AMF 3P STD",
-      "transportMode": "Maritime",
-      "eta": "2026-08-07",
-      "originPort": "Nhava Sheva, IndiA",
-      "destinationPort": "Conakry, GN",
-      "container": "01TC40'",
-      "bulk": null,
-      "goodsReleaseDate": null,
-      "declarationNumber": null,
-      "bulletinNumber": null,
-      "finalDeclarationNumber": null
-    },
-    {
-      "dossierNumber": "DOS-0043",
-      "clientDossierNumber": null,
-      "client": "Fabrimetal",
-      "blLtaNumber": "HLCUBO12606CGXW0",
-      "cargoNature": "Africa steel dynamics LTd",
-      "transportMode": "Maritime",
-      "eta": null,
-      "originPort": "Mundra,India",
-      "destinationPort": "Conakry, GN",
-      "container": "01TC40'",
-      "bulk": null,
-      "goodsReleaseDate": null,
-      "declarationNumber": null,
-      "bulletinNumber": null,
-      "finalDeclarationNumber": null
-    },
-    {
-      "dossierNumber": "DOS-0044",
-      "clientDossierNumber": "CKYSI26000320",
-      "client": "Fabrimetal",
-      "blLtaNumber": "EID0951355",
-      "cargoNature": "Escort Back loader",
-      "transportMode": "Maritime",
-      "eta": "2026-08-13",
-      "originPort": "Mundra,India",
-      "destinationPort": "Conakry, GN",
-      "container": "01TC40'",
-      "bulk": null,
-      "goodsReleaseDate": null,
-      "declarationNumber": null,
-      "bulletinNumber": null,
-      "finalDeclarationNumber": null
-    },
-    {
-      "dossierNumber": "DOS-0045",
-      "clientDossierNumber": "CKYSI26000363",
-      "client": "Fabrimetal",
-      "blLtaNumber": "EID0951814",
-      "cargoNature": "Meubles, Mobilier, etc",
-      "transportMode": "Maritime",
-      "eta": "2026-09-20",
-      "originPort": "Mundra,India",
-      "destinationPort": "Conakry, GN",
-      "container": "01TC20'",
-      "bulk": null,
-      "goodsReleaseDate": null,
-      "declarationNumber": null,
-      "bulletinNumber": null,
-      "finalDeclarationNumber": null
-    },
-    {
-      "dossierNumber": "DOS-0046",
-      "clientDossierNumber": "CKY8126000411",
-      "client": "Guinee Gold Exploration S.A",
-      "blLtaNumber": "NGP3711084",
-      "cargoNature": "Cyanure de sodium",
-      "transportMode": "Maritime",
-      "eta": "2026-08-13",
-      "originPort": "Ningbo, CN",
-      "destinationPort": "Conakry, GN",
-      "container": "04TC20'",
-      "bulk": null,
-      "goodsReleaseDate": null,
-      "declarationNumber": "S 155- 08/08/2026",
-      "bulletinNumber": null,
-      "finalDeclarationNumber": null
-    },
-    {
-      "dossierNumber": "DOS-0047",
-      "clientDossierNumber": "CKY8126000410",
-      "client": "Guinee Gold Exploration S.A",
-      "blLtaNumber": "NGP3669057",
-      "cargoNature": "Cyanure de sodium",
-      "transportMode": "Maritime",
-      "eta": "2026-08-13",
-      "originPort": "Ningbo, CN",
-      "destinationPort": "Conakry, GN",
-      "container": "04TC20'",
-      "bulk": null,
-      "goodsReleaseDate": null,
-      "declarationNumber": "S 154- 08/08/2026",
-      "bulletinNumber": null,
-      "finalDeclarationNumber": null
-    },
-    {
-      "dossierNumber": "DOS-0048",
-      "clientDossierNumber": "CKYSI26000293",
-      "client": "Capdrill",
-      "blLtaNumber": "S329450131",
-      "cargoNature": "New unpacked vehicule",
-      "transportMode": "Maritime",
-      "eta": "2026-08-07",
-      "originPort": "Atwerp",
-      "destinationPort": "Conakry, GN",
-      "container": null,
-      "bulk": "2 PKG",
-      "goodsReleaseDate": null,
-      "declarationNumber": null,
-      "bulletinNumber": null,
-      "finalDeclarationNumber": null
-    },
-    {
-      "dossierNumber": "DOS-0049",
-      "clientDossierNumber": "CKY8126000439",
-      "client": "Guinee Gold Exploration S.A",
-      "blLtaNumber": "VTHC20260803-6-SGGE-HCL",
-      "cargoNature": "Acide chlorhydrique",
-      "transportMode": "Routier",
-      "eta": "2026-08-13",
-      "originPort": "Accra, Guinea",
-      "destinationPort": "Siguiri, GN",
-      "container": null,
-      "bulk": "83.52 tonnes",
-      "goodsReleaseDate": null,
-      "declarationNumber": null,
-      "bulletinNumber": null,
-      "finalDeclarationNumber": null
-    },
-    {
-      "dossierNumber": "DOS-0050",
-      "clientDossierNumber": "CKY8126000298",
-      "client": "Rabotec",
-      "blLtaNumber": "MEDUXs477883",
-      "cargoNature": "Flexible rubber pipes",
-      "transportMode": "Maritime",
-      "eta": "2026-08-18",
-      "originPort": "Qingdao, china",
-      "destinationPort": "Conakry, GN",
-      "container": "01TC40'",
-      "bulk": null,
-      "goodsReleaseDate": null,
-      "declarationNumber": null,
-      "bulletinNumber": null,
-      "finalDeclarationNumber": null
-    },
-    {
-      "dossierNumber": "DOS-0051",
-      "clientDossierNumber": "CKY8126000318",
-      "client": "Fabrimetal",
-      "blLtaNumber": "MEDUJ7763785",
-      "cargoNature": null,
-      "transportMode": null,
-      "eta": null,
-      "originPort": null,
-      "destinationPort": null,
-      "container": null,
-      "bulk": null,
-      "goodsReleaseDate": null,
-      "declarationNumber": null,
-      "bulletinNumber": null,
-      "finalDeclarationNumber": null
-    },
-    {
-      "dossierNumber": "DOS-0052",
-      "clientDossierNumber": "CKY8126000441",
-      "client": "New Japon Mining Company S.A",
-      "blLtaNumber": "NGP3876679",
-      "cargoNature": "Sodium Cyanide Solide",
-      "transportMode": "Maritime",
-      "eta": "2026-09-26",
-      "originPort": "Ningbo port-china",
-      "destinationPort": "Port Autonome de Conakry",
-      "container": "06TC20'",
-      "bulk": null,
-      "goodsReleaseDate": null,
-      "declarationNumber": null,
-      "bulletinNumber": null,
-      "finalDeclarationNumber": null
-    },
-    {
-      "dossierNumber": "DOS-0053",
-      "clientDossierNumber": "CKY8126000440",
-      "client": "New Japon Mining Company S.A",
-      "blLtaNumber": "NGP3796299",
-      "cargoNature": "Sodium Cyanide Solide",
-      "transportMode": "Maritime",
-      "eta": "2026-09-26",
-      "originPort": "Ningbo port-china",
-      "destinationPort": "Port Autonome de Conakry",
-      "container": "04TC20'",
-      "bulk": null,
-      "goodsReleaseDate": null,
-      "declarationNumber": null,
-      "bulletinNumber": null,
-      "finalDeclarationNumber": null
-    },
-    {
-      "dossierNumber": "DOS-0054",
-      "clientDossierNumber": "CKY8126000280",
-      "client": "New Japon Mining Company S.A",
-      "blLtaNumber": "293961486",
-      "cargoNature": "Cyanure de sodium",
-      "transportMode": "Maritime",
-      "eta": "2026-06-16",
-      "originPort": "Ningbo port-china",
-      "destinationPort": "Port Autonome de Conakry",
-      "container": "05TC20'",
-      "bulk": null,
-      "goodsReleaseDate": null,
-      "declarationNumber": "S 97- 17/06/2026",
-      "bulletinNumber": "L 1911 Du 10/08/2026",
-      "finalDeclarationNumber": "C 1398-2026"
-    }
-  ],
-  "referenceItems": [
-    {
-      "category": "statut",
-      "label": "R\xE9gularis\xE9",
-      "sortOrder": 1
-    },
-    {
-      "category": "statut",
-      "label": "\xC0 r\xE9gulariser",
-      "sortOrder": 2
-    },
-    {
-      "category": "priorite",
-      "label": "Haute",
-      "sortOrder": 1
-    },
-    {
-      "category": "priorite",
-      "label": "Normale",
-      "sortOrder": 2
-    },
-    {
-      "category": "priorite",
-      "label": "Basse",
-      "sortOrder": 3
-    },
-    {
-      "category": "document_recu",
-      "label": "Oui",
-      "sortOrder": 1
-    },
-    {
-      "category": "document_recu",
-      "label": "Non",
-      "sortOrder": 2
-    },
-    {
-      "category": "document_recu",
-      "label": "Partiel",
-      "sortOrder": 3
-    },
-    {
-      "category": "document_recu",
-      "label": "Non applicable",
-      "sortOrder": 4
-    },
-    {
-      "category": "mode_transport",
-      "label": "Maritime",
-      "sortOrder": 1
-    },
-    {
-      "category": "mode_transport",
-      "label": "A\xE9rien",
-      "sortOrder": 2
-    },
-    {
-      "category": "mode_transport",
-      "label": "Routier",
-      "sortOrder": 3
-    },
-    {
-      "category": "mode_transport",
-      "label": "Mixte",
-      "sortOrder": 4
-    },
-    {
-      "category": "mode_transport",
-      "label": "Domestique",
-      "sortOrder": 5
-    },
-    {
-      "category": "declarant",
-      "label": "Interne",
-      "sortOrder": 1
-    },
-    {
-      "category": "declarant",
-      "label": "Client",
-      "sortOrder": 2
-    },
-    {
-      "category": "declarant",
-      "label": "Partenaire",
-      "sortOrder": 3
-    },
-    {
-      "category": "declarant",
-      "label": "\xC0 d\xE9finir",
-      "sortOrder": 4
-    },
-    {
-      "category": "type_operation",
-      "label": "Maritime",
-      "sortOrder": 1
-    },
-    {
-      "category": "type_operation",
-      "label": "Terrestre",
-      "sortOrder": 2
-    },
-    {
-      "category": "type_operation",
-      "label": "Domestique",
-      "sortOrder": 3
-    },
-    {
-      "category": "client",
-      "label": "Tesmec",
-      "sortOrder": 1
-    },
-    {
-      "category": "client",
-      "label": "Kalpataru",
-      "sortOrder": 2
-    },
-    {
-      "category": "client",
-      "label": "Rabotec",
-      "sortOrder": 3
-    },
-    {
-      "category": "client",
-      "label": "Mohan",
-      "sortOrder": 4
-    },
-    {
-      "category": "client",
-      "label": "Fabrimetal",
-      "sortOrder": 5
-    },
-    {
-      "category": "client",
-      "label": "GGE",
-      "sortOrder": 6
-    },
-    {
-      "category": "client",
-      "label": "NJP",
-      "sortOrder": 7
-    },
-    {
-      "category": "client",
-      "label": "GBG",
-      "sortOrder": 8
-    },
-    {
-      "category": "client",
-      "label": "Fauveder",
-      "sortOrder": 9
-    },
-    {
-      "category": "client",
-      "label": "Capdrill",
-      "sortOrder": 10
-    },
-    {
-      "category": "client",
-      "label": "BelAir",
-      "sortOrder": 11
-    },
-    {
-      "category": "statut_financier",
-      "label": "Non \xE9tablis",
-      "sortOrder": 1
-    },
-    {
-      "category": "statut_financier",
-      "label": "Fact. D\xE9finitive",
-      "sortOrder": 2
-    },
-    {
-      "category": "statut_financier",
-      "label": "Fact. Partiel",
-      "sortOrder": 3
-    },
-    {
-      "category": "statut_financier",
-      "label": "Fact. Proforma",
-      "sortOrder": 4
-    },
-    {
-      "category": "statut_financier",
-      "label": "D\xE9charg\xE9",
-      "sortOrder": 5
-    },
-    {
-      "category": "operation_terrain",
-      "label": "R\xE9ception documents client",
-      "sortOrder": 1
-    },
-    {
-      "category": "operation_terrain",
-      "label": "V\xE9rification documents",
-      "sortOrder": 2
-    },
-    {
-      "category": "operation_terrain",
-      "label": "D\xE9claration douane",
-      "sortOrder": 3
-    },
-    {
-      "category": "operation_terrain",
-      "label": "Suivi r\xE9pertoire / bulletin / attestation",
-      "sortOrder": 4
-    },
-    {
-      "category": "operation_terrain",
-      "label": "Paiement droits et frais",
-      "sortOrder": 5
-    },
-    {
-      "category": "operation_terrain",
-      "label": "Sortie port",
-      "sortOrder": 6
-    },
-    {
-      "category": "operation_terrain",
-      "label": "Livraison client",
-      "sortOrder": 7
-    },
-    {
-      "category": "operation_terrain",
-      "label": "Facturation",
-      "sortOrder": 8
-    },
-    {
-      "category": "operation_terrain",
-      "label": "Cl\xF4ture dossier",
-      "sortOrder": 9
-    },
-    {
-      "category": "statut_carnet",
-      "label": "\xC9tablis",
-      "sortOrder": 1
-    },
-    {
-      "category": "statut_carnet",
-      "label": "Partiel",
-      "sortOrder": 2
-    },
-    {
-      "category": "statut_carnet",
-      "label": "Non \xE9tablis",
-      "sortOrder": 3
-    },
-    {
-      "category": "responsable",
-      "label": "Amine",
-      "sortOrder": 1
-    },
-    {
-      "category": "responsable",
-      "label": "Hadja",
-      "sortOrder": 2
-    },
-    {
-      "category": "responsable",
-      "label": "Tawel",
-      "sortOrder": 3
-    },
-    {
-      "category": "priorite_source",
-      "label": "Bas",
-      "sortOrder": 1
-    },
-    {
-      "category": "priorite_source",
-      "label": "Moyen",
-      "sortOrder": 2
-    },
-    {
-      "category": "priorite_source",
-      "label": "\xC9lev\xE9e",
-      "sortOrder": 3
-    },
-    {
-      "category": "regime",
-      "label": "TTC",
-      "sortOrder": 1
-    },
-    {
-      "category": "regime",
-      "label": "EXO",
-      "sortOrder": 2
-    },
-    {
-      "category": "regime",
-      "label": "AT",
-      "sortOrder": 3
-    },
-    {
-      "category": "declarant_igs",
-      "label": "Interne",
-      "sortOrder": 1
-    },
-    {
-      "category": "declarant_igs",
-      "label": "Client",
-      "sortOrder": 2
-    },
-    {
-      "category": "declarant_igs",
-      "label": "Partenaire",
-      "sortOrder": 3
-    },
-    {
-      "category": "declarant_igs",
-      "label": "\xC0 d\xE9finir",
-      "sortOrder": 4
-    },
-    {
-      "category": "declarant_igs",
-      "label": "Sow",
-      "sortOrder": 5
-    },
-    {
-      "category": "declarant_igs",
-      "label": "Amine",
-      "sortOrder": 6
-    },
-    {
-      "category": "declarant_igs",
-      "label": "Tawel",
-      "sortOrder": 7
-    },
-    {
-      "category": "livreur",
-      "label": "Hadja",
-      "sortOrder": 1
-    },
-    {
-      "category": "livreur",
-      "label": "Tawel",
-      "sortOrder": 2
-    },
-    {
-      "category": "livreur",
-      "label": "\xC9quipe IGS",
-      "sortOrder": 3
-    },
-    {
-      "category": "livreur",
-      "label": "Transporteur externe",
-      "sortOrder": 4
-    },
-    {
-      "category": "livreur",
-      "label": "Client",
-      "sortOrder": 5
-    },
-    {
-      "category": "lieu_livraison",
-      "label": "Conakry",
-      "sortOrder": 1
-    },
-    {
-      "category": "lieu_livraison",
-      "label": "Port Autonome de Conakry",
-      "sortOrder": 2
-    },
-    {
-      "category": "lieu_livraison",
-      "label": "Boffa",
-      "sortOrder": 3
-    },
-    {
-      "category": "lieu_livraison",
-      "label": "Kamsar",
-      "sortOrder": 4
-    },
-    {
-      "category": "lieu_livraison",
-      "label": "Sangaredi",
-      "sortOrder": 5
-    },
-    {
-      "category": "lieu_livraison",
-      "label": "Kaloum",
-      "sortOrder": 6
-    },
-    {
-      "category": "lieu_livraison",
-      "label": "Matoto",
-      "sortOrder": 7
-    },
-    {
-      "category": "lieu_livraison",
-      "label": "Dixinn",
-      "sortOrder": 8
-    },
-    {
-      "category": "document_guinee",
-      "label": "BL / LTA",
-      "sortOrder": 1
-    },
-    {
-      "category": "document_guinee",
-      "label": "Facture commerciale",
-      "sortOrder": 2
-    },
-    {
-      "category": "document_guinee",
-      "label": "Packing list",
-      "sortOrder": 3
-    },
-    {
-      "category": "document_guinee",
-      "label": "Certificat d\u2019origine",
-      "sortOrder": 4
-    },
-    {
-      "category": "document_guinee",
-      "label": "D\xE9claration douane",
-      "sortOrder": 5
-    },
-    {
-      "category": "document_guinee",
-      "label": "N\xB0 r\xE9pertoire",
-      "sortOrder": 6
-    },
-    {
-      "category": "document_guinee",
-      "label": "N\xB0 bulletin",
-      "sortOrder": 7
-    },
-    {
-      "category": "document_guinee",
-      "label": "N\xB0 attestation",
-      "sortOrder": 8
-    },
-    {
-      "category": "document_guinee",
-      "label": "Bordereau de livraison",
-      "sortOrder": 9
-    },
-    {
-      "category": "document_guinee",
-      "label": "Bon de sortie port",
-      "sortOrder": 10
-    },
-    {
-      "category": "document_guinee",
-      "label": "Quitus / preuve de paiement si applicable",
-      "sortOrder": 11
-    },
-    {
-      "category": "document_guinee",
-      "label": "Autorisation ou document sp\xE9cial selon marchandise",
-      "sortOrder": 12
-    },
-    {
-      "category": "responsable_igs",
-      "label": "Amine",
-      "sortOrder": 1
-    },
-    {
-      "category": "responsable_igs",
-      "label": "Hadja",
-      "sortOrder": 2
-    },
-    {
-      "category": "responsable_igs",
-      "label": "Tawel",
-      "sortOrder": 3
-    },
-    {
-      "category": "responsable_igs",
-      "label": "Sow",
-      "sortOrder": 4
-    },
-    {
-      "category": "responsable_igs",
-      "label": "Direction",
-      "sortOrder": 5
-    },
-    {
-      "category": "alerte_terrain",
-      "label": "OK",
-      "sortOrder": 1
-    },
-    {
-      "category": "alerte_terrain",
-      "label": "ETA d\xE9pass\xE9e",
-      "sortOrder": 2
-    },
-    {
-      "category": "alerte_terrain",
-      "label": "Documents incomplets",
-      "sortOrder": 3
-    },
-    {
-      "category": "alerte_terrain",
-      "label": "Action urgente",
-      "sortOrder": 4
-    },
-    {
-      "category": "alerte_terrain",
-      "label": "Blocage douane",
-      "sortOrder": 5
-    },
-    {
-      "category": "alerte_terrain",
-      "label": "Blocage port",
-      "sortOrder": 6
-    },
-    {
-      "category": "alerte_terrain",
-      "label": "Paiement en attente",
-      "sortOrder": 7
-    },
-    {
-      "category": "alerte_terrain",
-      "label": "Document sp\xE9cial requis",
-      "sortOrder": 8
-    },
-    {
-      "category": "prochaine_action",
-      "label": "Relancer le client",
-      "sortOrder": 1
-    },
-    {
-      "category": "prochaine_action",
-      "label": "V\xE9rifier les documents",
-      "sortOrder": 2
-    },
-    {
-      "category": "prochaine_action",
-      "label": "Pr\xE9parer la d\xE9claration",
-      "sortOrder": 3
-    },
-    {
-      "category": "prochaine_action",
-      "label": "Suivre r\xE9pertoire / bulletin / attestation",
-      "sortOrder": 4
-    },
-    {
-      "category": "prochaine_action",
-      "label": "Faire payer droits et frais",
-      "sortOrder": 5
-    },
-    {
-      "category": "prochaine_action",
-      "label": "Obtenir le bon de sortie port",
-      "sortOrder": 6
-    },
-    {
-      "category": "prochaine_action",
-      "label": "Organiser la livraison",
-      "sortOrder": 7
-    },
-    {
-      "category": "prochaine_action",
-      "label": "\xC9mettre la facture",
-      "sortOrder": 8
-    },
-    {
-      "category": "prochaine_action",
-      "label": "Cl\xF4turer le dossier",
-      "sortOrder": 9
-    },
-    {
-      "category": "statut_documentaire",
-      "label": "En attente",
-      "sortOrder": 1
-    },
-    {
-      "category": "statut_documentaire",
-      "label": "Documents re\xE7us",
-      "sortOrder": 2
-    },
-    {
-      "category": "statut_documentaire",
-      "label": "Documents incomplets",
-      "sortOrder": 3
-    },
-    {
-      "category": "statut_documentaire",
-      "label": "Non applicable",
-      "sortOrder": 4
-    },
-    {
-      "category": "statut_douane",
-      "label": "Non d\xE9marr\xE9",
-      "sortOrder": 1
-    },
-    {
-      "category": "statut_douane",
-      "label": "\xC0 d\xE9douaner",
-      "sortOrder": 2
-    },
-    {
-      "category": "statut_douane",
-      "label": "En d\xE9claration",
-      "sortOrder": 3
-    },
-    {
-      "category": "statut_douane",
-      "label": "D\xE9clar\xE9",
-      "sortOrder": 4
-    },
-    {
-      "category": "statut_douane",
-      "label": "En attente paiement",
-      "sortOrder": 5
-    },
-    {
-      "category": "statut_douane",
-      "label": "Paiement effectu\xE9",
-      "sortOrder": 6
-    },
-    {
-      "category": "statut_douane",
-      "label": "D\xE9douan\xE9",
-      "sortOrder": 7
-    },
-    {
-      "category": "statut_douane",
-      "label": "Termin\xE9",
-      "sortOrder": 8
-    },
-    {
-      "category": "statut_douane",
-      "label": "Bloqu\xE9",
-      "sortOrder": 9
-    },
-    {
-      "category": "statut_douane",
-      "label": "R\xE9gulariser",
-      "sortOrder": 10
-    },
-    {
-      "category": "statut_port",
-      "label": "Non concern\xE9",
-      "sortOrder": 1
-    },
-    {
-      "category": "statut_port",
-      "label": "En attente",
-      "sortOrder": 2
-    },
-    {
-      "category": "statut_port",
-      "label": "Arriv\xE9 au port",
-      "sortOrder": 3
-    },
-    {
-      "category": "statut_port",
-      "label": "En attente bon de sortie",
-      "sortOrder": 4
-    },
-    {
-      "category": "statut_port",
-      "label": "Bon de sortie port",
-      "sortOrder": 5
-    },
-    {
-      "category": "statut_port",
-      "label": "Sorti du port",
-      "sortOrder": 6
-    },
-    {
-      "category": "statut_port",
-      "label": "Bloqu\xE9",
-      "sortOrder": 7
-    },
-    {
-      "category": "service",
-      "label": "Import",
-      "sortOrder": 1
-    },
-    {
-      "category": "service",
-      "label": "Transit",
-      "sortOrder": 2
-    },
-    {
-      "category": "service",
-      "label": "D\xE9douanement",
-      "sortOrder": 3
-    },
-    {
-      "category": "service",
-      "label": "Op\xE9ration portuaire",
-      "sortOrder": 4
-    },
-    {
-      "category": "service",
-      "label": "Livraison",
-      "sortOrder": 5
-    },
-    {
-      "category": "service",
-      "label": "Suivi client",
-      "sortOrder": 6
-    },
-    {
-      "category": "port_origine",
-      "label": "Port Autonome de Conakry (PAC)",
-      "sortOrder": 1
-    },
-    {
-      "category": "port_origine",
-      "label": "Port Min\xE9ralier de Kamsar",
-      "sortOrder": 2
-    },
-    {
-      "category": "port_origine",
-      "label": "Port de Boffa",
-      "sortOrder": 3
-    },
-    {
-      "category": "port_origine",
-      "label": "Port Autonome de San Pedro (C\xF4te d'Ivoire)",
-      "sortOrder": 4
-    },
-    {
-      "category": "port_origine",
-      "label": "Port Autonome d'Abidjan (C\xF4te d'Ivoire)",
-      "sortOrder": 5
-    },
-    {
-      "category": "port_origine",
-      "label": "Port Autonome de Dakar (S\xE9n\xE9gal)",
-      "sortOrder": 6
-    },
-    {
-      "category": "port_origine",
-      "label": "Port de Tema (Ghana)",
-      "sortOrder": 7
-    },
-    {
-      "category": "port_origine",
-      "label": "Port de Lom\xE9 (Togo)",
-      "sortOrder": 8
-    },
-    {
-      "category": "port_origine",
-      "label": "Port de Cotonou (B\xE9nin)",
-      "sortOrder": 9
-    },
-    {
-      "category": "port_origine",
-      "label": "Ningbo port-china",
-      "sortOrder": 10
-    },
-    {
-      "category": "port_origine",
-      "label": "Shanghai Port (Chine)",
-      "sortOrder": 11
-    },
-    {
-      "category": "port_origine",
-      "label": "Qingdao Port (Chine)",
-      "sortOrder": 12
-    },
-    {
-      "category": "port_origine",
-      "label": "Tianjin Port (Chine)",
-      "sortOrder": 13
-    },
-    {
-      "category": "port_origine",
-      "label": "Lianyunggang-China",
-      "sortOrder": 14
-    },
-    {
-      "category": "port_origine",
-      "label": "Port d'Anvers (Belgique)",
-      "sortOrder": 15
-    },
-    {
-      "category": "port_origine",
-      "label": "Port de Rotterdam (Pays-Bas)",
-      "sortOrder": 16
-    },
-    {
-      "category": "port_origine",
-      "label": "Port de Valence (Espagne)",
-      "sortOrder": 17
-    },
-    {
-      "category": "port_origine",
-      "label": "Port de Duba\xEF (Jebel Ali)",
-      "sortOrder": 18
-    },
-    {
-      "category": "port_origine",
-      "label": "Port d'Istanbul (Turquie)",
-      "sortOrder": 19
-    },
-    {
-      "category": "port_destination",
-      "label": "Port Autonome de Conakry",
-      "sortOrder": 1
-    },
-    {
-      "category": "port_destination",
-      "label": "Port Min\xE9ralier de Kamsar",
-      "sortOrder": 2
-    },
-    {
-      "category": "port_destination",
-      "label": "Port de Boffa",
-      "sortOrder": 3
-    },
-    {
-      "category": "port_destination",
-      "label": "Port de Bok\xE9",
-      "sortOrder": 4
-    },
-    {
-      "category": "port_destination",
-      "label": "Port de Taressa",
-      "sortOrder": 5
-    },
-    {
-      "category": "port_destination",
-      "label": "Port de Konta",
-      "sortOrder": 6
-    },
-    {
-      "category": "port_destination",
-      "label": "Boffa-Conakry",
-      "sortOrder": 7
-    },
-    {
-      "category": "port_destination",
-      "label": "Conakry",
-      "sortOrder": 8
-    },
-    {
-      "category": "port_destination",
-      "label": "Port Autonome de San Pedro (C\xF4te d'Ivoire)",
-      "sortOrder": 9
-    },
-    {
-      "category": "port_destination",
-      "label": "Port Autonome d'Abidjan (C\xF4te d'Ivoire)",
-      "sortOrder": 10
-    },
-    {
-      "category": "port_destination",
-      "label": "Port Autonome de Dakar (S\xE9n\xE9gal)",
-      "sortOrder": 11
-    },
-    {
-      "category": "port_destination",
-      "label": "A\xE9roport International Ahmed S\xE9kou Tour\xE9 (Conakry)",
-      "sortOrder": 12
-    },
-    {
-      "category": "devise",
-      "label": "GNF (Franc Guin\xE9en)",
-      "sortOrder": 1
-    },
-    {
-      "category": "devise",
-      "label": "USD (Dollar US)",
-      "sortOrder": 2
-    },
-    {
-      "category": "devise",
-      "label": "EUR (Euro)",
-      "sortOrder": 3
-    },
-    {
-      "category": "devise",
-      "label": "XOF (Franc CFA)",
-      "sortOrder": 4
-    },
-    {
-      "category": "regime",
-      "label": "Mise \xE0 la consommation directe (IM4 - TTC)",
-      "sortOrder": 4
-    },
-    {
-      "category": "regime",
-      "label": "Mise \xE0 la consommation sous exon\xE9ration (IM4 - EXO)",
-      "sortOrder": 5
-    },
-    {
-      "category": "regime",
-      "label": "R\xE9gime Minier / Convention (EXO-MIN)",
-      "sortOrder": 6
-    },
-    {
-      "category": "regime",
-      "label": "Transit National / International (IM8 - DDI / TRIE)",
-      "sortOrder": 7
-    },
-    {
-      "category": "regime",
-      "label": "Admission Temporaire (IM5 - AT)",
-      "sortOrder": 8
-    },
-    {
-      "category": "regime",
-      "label": "Entrep\xF4t de Douane (IM7 - ED)",
-      "sortOrder": 9
-    },
-    {
-      "category": "regime",
-      "label": "Exportation / R\xE9exportation (EX)",
-      "sortOrder": 10
-    },
-    {
-      "category": "statut_douane",
-      "label": "DDI initi\xE9e (GUCEG)",
-      "sortOrder": 11
-    },
-    {
-      "category": "statut_douane",
-      "label": "DDI approuv\xE9e",
-      "sortOrder": 12
-    },
-    {
-      "category": "statut_douane",
-      "label": "En cours de d\xE9claration (SYDONIA)",
-      "sortOrder": 13
-    },
-    {
-      "category": "statut_douane",
-      "label": "Bulletin de liquidation \xE9mis",
-      "sortOrder": 14
-    },
-    {
-      "category": "statut_douane",
-      "label": "Visite douane / Scanner",
-      "sortOrder": 15
-    },
-    {
-      "category": "statut_douane",
-      "label": "Bon \xE0 Enlever (BAE) obtenu",
-      "sortOrder": 16
-    },
-    {
-      "category": "statut_port",
-      "label": "Navire en rade",
-      "sortOrder": 8
-    },
-    {
-      "category": "statut_port",
-      "label": "Navire \xE0 quai / D\xE9chargement",
-      "sortOrder": 9
-    },
-    {
-      "category": "statut_port",
-      "label": "Conteneur sous douane (Terre-plein)",
-      "sortOrder": 10
-    },
-    {
-      "category": "statut_port",
-      "label": "Frais portuaires r\xE9gl\xE9s (PAC / ALPORT / Bollor\xE9)",
-      "sortOrder": 11
-    },
-    {
-      "category": "statut_port",
-      "label": "Surestaries en cours",
-      "sortOrder": 12
-    },
-    {
-      "category": "statut_financier",
-      "label": "Avance re\xE7ue",
-      "sortOrder": 6
-    },
-    {
-      "category": "statut_financier",
-      "label": "Paiement droits & taxes effectu\xE9",
-      "sortOrder": 7
-    },
-    {
-      "category": "statut_financier",
-      "label": "Pay\xE9 int\xE9gralement (GNF / USD)",
-      "sortOrder": 8
-    },
-    {
-      "category": "statut_financier",
-      "label": "En attente quitus client",
-      "sortOrder": 9
-    },
-    {
-      "category": "document_guinee",
-      "label": "DDI - Demande de D\xE9claration d'Importation (GUCEG)",
-      "sortOrder": 13
-    },
-    {
-      "category": "document_guinee",
-      "label": "Bordereau de suivi des cargaisons (BSC / BESC Guin\xE9e)",
-      "sortOrder": 14
-    },
-    {
-      "category": "document_guinee",
-      "label": "D\xE9claration douane SYDONIA World",
-      "sortOrder": 15
-    },
-    {
-      "category": "document_guinee",
-      "label": "Quittance / Preuve de paiement douane",
-      "sortOrder": 16
-    },
-    {
-      "category": "document_guinee",
-      "label": "Bon \xE0 Enlever douane (BAE)",
-      "sortOrder": 17
-    },
-    {
-      "category": "document_guinee",
-      "label": "Bon de sortie port PAC",
-      "sortOrder": 18
-    },
-    {
-      "category": "document_guinee",
-      "label": "Autorisation sp\xE9ciale mati\xE8res dangereuses / Cyanure",
-      "sortOrder": 19
-    },
-    {
-      "category": "alerte_terrain",
-      "label": "ETA imminente (< 48h)",
-      "sortOrder": 9
-    },
-    {
-      "category": "alerte_terrain",
-      "label": "DDI manquante ou expir\xE9e",
-      "sortOrder": 10
-    },
-    {
-      "category": "alerte_terrain",
-      "label": "Surestaries / Magasinage risque \xE9lev\xE9",
-      "sortOrder": 11
-    },
-    {
-      "category": "alerte_terrain",
-      "label": "Blocage visite Douane / Scanner",
-      "sortOrder": 12
-    },
-    {
-      "category": "alerte_terrain",
-      "label": "Document sp\xE9cial requis (Cyanure/Minier)",
-      "sortOrder": 13
-    },
-    {
-      "category": "prochaine_action",
-      "label": "Soumettre la DDI sur GUCEG",
-      "sortOrder": 10
-    },
-    {
-      "category": "prochaine_action",
-      "label": "Pr\xE9parer la d\xE9claration SYDONIA",
-      "sortOrder": 11
-    },
-    {
-      "category": "prochaine_action",
-      "label": "Effectuer passage scanner / Visite",
-      "sortOrder": 12
-    },
-    {
-      "category": "prochaine_action",
-      "label": "Obtenir le Bon \xE0 Enlever (BAE)",
-      "sortOrder": 13
-    },
-    {
-      "category": "prochaine_action",
-      "label": "\xC9mettre la facture (GNF / USD)",
-      "sortOrder": 14
-    },
-    {
-      "category": "lieu_livraison",
-      "label": "Zone Industrielle Kagb\xE9len",
-      "sortOrder": 9
-    },
-    {
-      "category": "lieu_livraison",
-      "label": "Ratoma",
-      "sortOrder": 10
-    },
-    {
-      "category": "lieu_livraison",
-      "label": "Bok\xE9",
-      "sortOrder": 11
-    },
-    {
-      "category": "lieu_livraison",
-      "label": "Siguiri (Zone mini\xE8re)",
-      "sortOrder": 12
-    },
-    {
-      "category": "lieu_livraison",
-      "label": "Kindia",
-      "sortOrder": 13
-    },
-    {
-      "category": "lieu_livraison",
-      "label": "Mamou",
-      "sortOrder": 14
-    },
-    {
-      "category": "lieu_livraison",
-      "label": "Kankan",
-      "sortOrder": 15
-    }
-  ]
-};
+var initialImportData;
+var init_initialImportData = __esm({
+  "server/initialImportData.ts"() {
+    "use strict";
+    initialImportData = {
+      "dossiers": [
+        {
+          "dossierNumber": "DOS-0001",
+          "clientDossierNumber": "CKYSI26000340",
+          "client": "Guinean Birimian Gold S.A",
+          "blLtaNumber": "HLCUNG12604AUQG1",
+          "cargoNature": "Cyanure",
+          "transportMode": "Maritime",
+          "eta": "2026-07-31",
+          "originPort": "Ningbo port-china",
+          "destinationPort": "Conakry",
+          "container": "04TC20'",
+          "bulk": null,
+          "goodsReleaseDate": null,
+          "declarationNumber": "S 142- 27/07/2026",
+          "bulletinNumber": "L 1774 Du 28/07/2026",
+          "finalDeclarationNumber": null
+        },
+        {
+          "dossierNumber": "DOS-0002",
+          "clientDossierNumber": "CKYSI26000342",
+          "client": "Guinee Gold Exploration S.A",
+          "blLtaNumber": "HLCUNG12604AVHK6",
+          "cargoNature": "Cyanure",
+          "transportMode": "Maritime",
+          "eta": "2026-07-31",
+          "originPort": "Ningbo port-china",
+          "destinationPort": "Conakry",
+          "container": "06TC20'",
+          "bulk": null,
+          "goodsReleaseDate": null,
+          "declarationNumber": "S 143- 27/07/2026",
+          "bulletinNumber": "L 1773 Du 28/07/2026",
+          "finalDeclarationNumber": null
+        },
+        {
+          "dossierNumber": "DOS-0003",
+          "clientDossierNumber": null,
+          "client": "Guinee Yongchuang Shipbuilding LTD - Sarl",
+          "blLtaNumber": "JH260LYG11",
+          "cargoNature": "Hot- Rolled Steel Plates",
+          "transportMode": "Maritime",
+          "eta": "2026-07-21",
+          "originPort": "Lianyunggang-China",
+          "destinationPort": "Boffa-Conakry",
+          "container": null,
+          "bulk": "56 PKG",
+          "goodsReleaseDate": null,
+          "declarationNumber": null,
+          "bulletinNumber": null,
+          "finalDeclarationNumber": null
+        },
+        {
+          "dossierNumber": "DOS-0004",
+          "clientDossierNumber": null,
+          "client": "Guinee Yongchuang Shipbuilding LTD - Sarl",
+          "blLtaNumber": "JH260LYG12",
+          "cargoNature": "Galvanized Steel Tubes",
+          "transportMode": "Maritime",
+          "eta": "2026-07-21",
+          "originPort": "Lianyunggang-China",
+          "destinationPort": "Boffa-Conakry",
+          "container": null,
+          "bulk": "6 PKG",
+          "goodsReleaseDate": null,
+          "declarationNumber": null,
+          "bulletinNumber": null,
+          "finalDeclarationNumber": null
+        },
+        {
+          "dossierNumber": "DOS-0005",
+          "clientDossierNumber": null,
+          "client": "Guinee Yongchuang Shipbuilding LTD - Sarl",
+          "blLtaNumber": "JH260LYG13",
+          "cargoNature": "H-Beam Steel",
+          "transportMode": "Maritime",
+          "eta": "2026-07-21",
+          "originPort": "Lianyunggang-China",
+          "destinationPort": "Boffa-Conakry",
+          "container": null,
+          "bulk": "2 PKG",
+          "goodsReleaseDate": null,
+          "declarationNumber": null,
+          "bulletinNumber": null,
+          "finalDeclarationNumber": null
+        },
+        {
+          "dossierNumber": "DOS-0006",
+          "clientDossierNumber": null,
+          "client": "Guinee Yongchuang Shipbuilding LTD - Sarl",
+          "blLtaNumber": "JH260LYG14",
+          "cargoNature": "Angle Steel",
+          "transportMode": "Maritime",
+          "eta": "2026-07-21",
+          "originPort": "Lianyunggang-China",
+          "destinationPort": "Boffa-Conakry",
+          "container": null,
+          "bulk": "2 PKG",
+          "goodsReleaseDate": null,
+          "declarationNumber": null,
+          "bulletinNumber": null,
+          "finalDeclarationNumber": null
+        },
+        {
+          "dossierNumber": "DOS-0007",
+          "clientDossierNumber": null,
+          "client": "New Japon Mining Company S.A",
+          "blLtaNumber": "NFFN017C000101",
+          "cargoNature": "Environmental Gold Leaching Agent",
+          "transportMode": "Maritime",
+          "eta": "2026-07-21",
+          "originPort": "Rizhao-china",
+          "destinationPort": "Port Autonome de Conakry",
+          "container": "20 TC20'",
+          "bulk": "22 400 kgs",
+          "goodsReleaseDate": null,
+          "declarationNumber": null,
+          "bulletinNumber": null,
+          "finalDeclarationNumber": null
+        },
+        {
+          "dossierNumber": "DOS-0008",
+          "clientDossierNumber": null,
+          "client": "Guinean Birimian Gold S.A",
+          "blLtaNumber": "NFFN017C000102",
+          "cargoNature": "H-Beam Channel Steel, Angle Steel, Patterned Plate, Flat-Opened",
+          "transportMode": "Maritime",
+          "eta": "2026-07-21",
+          "originPort": "Rizhao-china",
+          "destinationPort": "Boffa-Conakry",
+          "container": null,
+          "bulk": "15 PKG",
+          "goodsReleaseDate": null,
+          "declarationNumber": null,
+          "bulletinNumber": null,
+          "finalDeclarationNumber": null
+        },
+        {
+          "dossierNumber": "DOS-0009",
+          "clientDossierNumber": "CKY8126000377",
+          "client": "Guinean Birimian Gold S.A",
+          "blLtaNumber": "NGP3626648",
+          "cargoNature": "Cyanure de sodium",
+          "transportMode": "Maritime",
+          "eta": "2026-07-30",
+          "originPort": "Ningbo port-china",
+          "destinationPort": "Port Autonome de Conakry",
+          "container": "5x 20 st",
+          "bulk": null,
+          "goodsReleaseDate": "2026-08-01",
+          "declarationNumber": "S 132- 20/07/2026",
+          "bulletinNumber": "L 1723 Du 21/07/2026",
+          "finalDeclarationNumber": "C 1317-2026"
+        },
+        {
+          "dossierNumber": "DOS-0010",
+          "clientDossierNumber": "CKY8126000378",
+          "client": "Guinee Gold Exploration S.A",
+          "blLtaNumber": "NGP3651868",
+          "cargoNature": "Cyanure de sodium",
+          "transportMode": "Maritime",
+          "eta": "2026-07-30",
+          "originPort": "Ningbo port-china",
+          "destinationPort": "Port Autonome de Conakry",
+          "container": "5x 20 st",
+          "bulk": null,
+          "goodsReleaseDate": "2026-08-01",
+          "declarationNumber": "S 133- 20/07/2026",
+          "bulletinNumber": "L 1729 Du 21/07/2026",
+          "finalDeclarationNumber": "C 1319-2026"
+        },
+        {
+          "dossierNumber": "DOS-0011",
+          "clientDossierNumber": "CKY8126000380",
+          "client": "Guinee Gold Exploration S.A",
+          "blLtaNumber": "NGP3654574",
+          "cargoNature": "Cyanure de sodium",
+          "transportMode": "Maritime",
+          "eta": "2026-07-30",
+          "originPort": "Ningbo port-china",
+          "destinationPort": "Port Autonome de Conakry",
+          "container": "4x 20 st",
+          "bulk": null,
+          "goodsReleaseDate": "2026-08-01",
+          "declarationNumber": "S 135- 20/07/2026",
+          "bulletinNumber": "L 1725 Du 21/07/2026",
+          "finalDeclarationNumber": "C 1322-2026"
+        },
+        {
+          "dossierNumber": "DOS-0012",
+          "clientDossierNumber": "CKY8126000379",
+          "client": "Guinee Gold Exploration S.A",
+          "blLtaNumber": "NGP3654656",
+          "cargoNature": "Cyanure de sodium",
+          "transportMode": "Maritime",
+          "eta": "2026-07-30",
+          "originPort": "Ningbo port-china",
+          "destinationPort": "Port Autonome de Conakry",
+          "container": "6x",
+          "bulk": null,
+          "goodsReleaseDate": "2026-08-01",
+          "declarationNumber": "S 134- 20/07/2026",
+          "bulletinNumber": "L 1728 Du 21/07/2026",
+          "finalDeclarationNumber": "C 1323-2026"
+        },
+        {
+          "dossierNumber": "DOS-0013",
+          "clientDossierNumber": "CKY8126000409",
+          "client": "New Japon Mining Company S.A",
+          "blLtaNumber": "NGP3711076",
+          "cargoNature": "Sodium Cyanide Solide",
+          "transportMode": "Maritime",
+          "eta": "2026-08-13",
+          "originPort": "Ningbo port-china",
+          "destinationPort": "Port Autonome de Conakry",
+          "container": "5x 20 st",
+          "bulk": null,
+          "goodsReleaseDate": null,
+          "declarationNumber": "S 162- 08/08/2026",
+          "bulletinNumber": null,
+          "finalDeclarationNumber": null
+        },
+        {
+          "dossierNumber": "DOS-0014",
+          "clientDossierNumber": "CKYSI26000364",
+          "client": "Capdrill",
+          "blLtaNumber": "S04019953",
+          "cargoNature": "Mining Parts",
+          "transportMode": "Maritime",
+          "eta": "2026-08-20",
+          "originPort": null,
+          "destinationPort": "Conakry",
+          "container": "01TC40'",
+          "bulk": null,
+          "goodsReleaseDate": null,
+          "declarationNumber": null,
+          "bulletinNumber": null,
+          "finalDeclarationNumber": null
+        },
+        {
+          "dossierNumber": "DOS-0015",
+          "clientDossierNumber": "CKYSI26000350",
+          "client": "Rabotec",
+          "blLtaNumber": "PRORO19/2026",
+          "cargoNature": "Prorogation AT",
+          "transportMode": "Domestique",
+          "eta": null,
+          "originPort": null,
+          "destinationPort": null,
+          "container": null,
+          "bulk": null,
+          "goodsReleaseDate": null,
+          "declarationNumber": null,
+          "bulletinNumber": null,
+          "finalDeclarationNumber": null
+        },
+        {
+          "dossierNumber": "DOS-0016",
+          "clientDossierNumber": "CKYSE26000348",
+          "client": "BelAir",
+          "blLtaNumber": "NF VISION",
+          "cargoNature": "Bauxite",
+          "transportMode": "Maritime",
+          "eta": null,
+          "originPort": null,
+          "destinationPort": null,
+          "container": null,
+          "bulk": null,
+          "goodsReleaseDate": null,
+          "declarationNumber": null,
+          "bulletinNumber": null,
+          "finalDeclarationNumber": null
+        },
+        {
+          "dossierNumber": "DOS-0017",
+          "clientDossierNumber": "CKYSI26000347",
+          "client": "New Japon Mining Company S.A",
+          "blLtaNumber": "NGP3574724",
+          "cargoNature": "Cyanure",
+          "transportMode": "Maritime",
+          "eta": "2026-07-22",
+          "originPort": "china",
+          "destinationPort": "conakry",
+          "container": "05TC20'",
+          "bulk": null,
+          "goodsReleaseDate": "2026-07-28",
+          "declarationNumber": "S117 du 08/07/26",
+          "bulletinNumber": "L1597 du 09/07/2026",
+          "finalDeclarationNumber": null
+        },
+        {
+          "dossierNumber": "DOS-0018",
+          "clientDossierNumber": "CKYSI26000346",
+          "client": "New Japon Mining Company S.A",
+          "blLtaNumber": "NGP3572754",
+          "cargoNature": "Cyanure",
+          "transportMode": "Maritime",
+          "eta": "2026-07-22",
+          "originPort": "china",
+          "destinationPort": "conakry",
+          "container": "05TC20'",
+          "bulk": null,
+          "goodsReleaseDate": "2026-07-28",
+          "declarationNumber": "S119 du 08/07/26",
+          "bulletinNumber": null,
+          "finalDeclarationNumber": null
+        },
+        {
+          "dossierNumber": "DOS-0019",
+          "clientDossierNumber": "CKYSI26000345",
+          "client": "New Japon Mining Company S.A",
+          "blLtaNumber": "NGP3583958",
+          "cargoNature": "Cyanure",
+          "transportMode": "Maritime",
+          "eta": "2026-07-22",
+          "originPort": "china",
+          "destinationPort": "Conakry",
+          "container": "05TC20'",
+          "bulk": null,
+          "goodsReleaseDate": null,
+          "declarationNumber": null,
+          "bulletinNumber": null,
+          "finalDeclarationNumber": null
+        },
+        {
+          "dossierNumber": "DOS-0020",
+          "clientDossierNumber": "CKYSI26000344",
+          "client": "Guinee Gold Exploration S.A",
+          "blLtaNumber": "HLCUNG12604ATCF6",
+          "cargoNature": "Cyanure",
+          "transportMode": "Maritime",
+          "eta": "2026-07-19",
+          "originPort": "china",
+          "destinationPort": "Conakry",
+          "container": "06TC20'",
+          "bulk": null,
+          "goodsReleaseDate": "2026-07-20",
+          "declarationNumber": "S114 du 08/07/26",
+          "bulletinNumber": null,
+          "finalDeclarationNumber": null
+        },
+        {
+          "dossierNumber": "DOS-0021",
+          "clientDossierNumber": "CKYSI26000343",
+          "client": "Guinee Gold Exploration S.A",
+          "blLtaNumber": "HLCUNG1260478795",
+          "cargoNature": "Cyanure",
+          "transportMode": "Maritime",
+          "eta": "2026-07-18",
+          "originPort": "china",
+          "destinationPort": "Conakry",
+          "container": "06TC20'",
+          "bulk": null,
+          "goodsReleaseDate": "2026-07-20",
+          "declarationNumber": "S116 du 08/07/26",
+          "bulletinNumber": null,
+          "finalDeclarationNumber": null
+        },
+        {
+          "dossierNumber": "DOS-0022",
+          "clientDossierNumber": "CKYSI26000341",
+          "client": "Guinee Gold Exploration S.A",
+          "blLtaNumber": "NGP3583949",
+          "cargoNature": "Cyanure",
+          "transportMode": "Maritime",
+          "eta": "2026-07-25",
+          "originPort": "china",
+          "destinationPort": "Conakry",
+          "container": "05TC20'",
+          "bulk": null,
+          "goodsReleaseDate": "2026-07-28",
+          "declarationNumber": "S115 du 08/07/26",
+          "bulletinNumber": "L1589 du 09/07/2026",
+          "finalDeclarationNumber": null
+        },
+        {
+          "dossierNumber": "DOS-0023",
+          "clientDossierNumber": "CKYSI26000339",
+          "client": "Guinean Birimian Gold S.A",
+          "blLtaNumber": "HLCUNG1260470029",
+          "cargoNature": "Cyanure",
+          "transportMode": "Maritime",
+          "eta": "2026-07-18",
+          "originPort": "china",
+          "destinationPort": "Conakry",
+          "container": "04TC20'",
+          "bulk": null,
+          "goodsReleaseDate": "2026-07-20",
+          "declarationNumber": "S121 du 08/07/26",
+          "bulletinNumber": null,
+          "finalDeclarationNumber": null
+        },
+        {
+          "dossierNumber": "DOS-0024",
+          "clientDossierNumber": "CKYSI26000338",
+          "client": "Guinean Birimian Gold S.A",
+          "blLtaNumber": "NGP3626633",
+          "cargoNature": "Cyanure",
+          "transportMode": "Maritime",
+          "eta": "2026-07-25",
+          "originPort": "china",
+          "destinationPort": "Conakry",
+          "container": "05TC20'",
+          "bulk": null,
+          "goodsReleaseDate": null,
+          "declarationNumber": null,
+          "bulletinNumber": null,
+          "finalDeclarationNumber": null
+        },
+        {
+          "dossierNumber": "DOS-0025",
+          "clientDossierNumber": "CKYSI26000337",
+          "client": "Guinean Birimian Gold S.A",
+          "blLtaNumber": "NFVS01C000101",
+          "cargoNature": "Machine foreuse et \xE9quipements",
+          "transportMode": "Maritime",
+          "eta": null,
+          "originPort": "china",
+          "destinationPort": "Boffa",
+          "container": null,
+          "bulk": "31 colis",
+          "goodsReleaseDate": null,
+          "declarationNumber": null,
+          "bulletinNumber": null,
+          "finalDeclarationNumber": null
+        },
+        {
+          "dossierNumber": "DOS-0026",
+          "clientDossierNumber": "CKYSI26000336",
+          "client": "Guinean Birimian Gold S.A",
+          "blLtaNumber": "NFVS01J000102",
+          "cargoNature": "Steel Ball",
+          "transportMode": "Maritime",
+          "eta": null,
+          "originPort": "china",
+          "destinationPort": "Boffa",
+          "container": "40TC20'",
+          "bulk": null,
+          "goodsReleaseDate": null,
+          "declarationNumber": null,
+          "bulletinNumber": null,
+          "finalDeclarationNumber": null
+        },
+        {
+          "dossierNumber": "DOS-0027",
+          "clientDossierNumber": "CKYSI26000335",
+          "client": "Guinean Birimian Gold S.A",
+          "blLtaNumber": "NFVS01H000302",
+          "cargoNature": "Calcium oxide",
+          "transportMode": "Maritime",
+          "eta": null,
+          "originPort": "china",
+          "destinationPort": "Boffa",
+          "container": "43TC20'",
+          "bulk": null,
+          "goodsReleaseDate": null,
+          "declarationNumber": null,
+          "bulletinNumber": null,
+          "finalDeclarationNumber": null
+        },
+        {
+          "dossierNumber": "DOS-0028",
+          "clientDossierNumber": "CKYSI26000334",
+          "client": "New Japon Mining Company S.A",
+          "blLtaNumber": "NFVS01H000301",
+          "cargoNature": "Quick Lime",
+          "transportMode": "Maritime",
+          "eta": null,
+          "originPort": "china",
+          "destinationPort": "Boffa",
+          "container": "46TC20'",
+          "bulk": null,
+          "goodsReleaseDate": null,
+          "declarationNumber": null,
+          "bulletinNumber": null,
+          "finalDeclarationNumber": null
+        },
+        {
+          "dossierNumber": "DOS-0029",
+          "clientDossierNumber": "CKYSI26000333",
+          "client": null,
+          "blLtaNumber": "NFVS01C000301",
+          "cargoNature": "Trommel Screen",
+          "transportMode": null,
+          "eta": null,
+          "originPort": null,
+          "destinationPort": null,
+          "container": null,
+          "bulk": "6 Pkg",
+          "goodsReleaseDate": null,
+          "declarationNumber": null,
+          "bulletinNumber": null,
+          "finalDeclarationNumber": null
+        },
+        {
+          "dossierNumber": "DOS-0030",
+          "clientDossierNumber": "CKYSI26000331",
+          "client": null,
+          "blLtaNumber": "NFVS01J000101",
+          "cargoNature": null,
+          "transportMode": null,
+          "eta": null,
+          "originPort": null,
+          "destinationPort": null,
+          "container": null,
+          "bulk": null,
+          "goodsReleaseDate": null,
+          "declarationNumber": null,
+          "bulletinNumber": null,
+          "finalDeclarationNumber": null
+        },
+        {
+          "dossierNumber": "DOS-0031",
+          "clientDossierNumber": "CKYSI26000330",
+          "client": null,
+          "blLtaNumber": "NFVS01H000201",
+          "cargoNature": null,
+          "transportMode": null,
+          "eta": null,
+          "originPort": null,
+          "destinationPort": null,
+          "container": null,
+          "bulk": null,
+          "goodsReleaseDate": null,
+          "declarationNumber": null,
+          "bulletinNumber": null,
+          "finalDeclarationNumber": null
+        },
+        {
+          "dossierNumber": "DOS-0032",
+          "clientDossierNumber": "CKYSI26000329",
+          "client": null,
+          "blLtaNumber": "NFVS01C000201",
+          "cargoNature": null,
+          "transportMode": null,
+          "eta": null,
+          "originPort": null,
+          "destinationPort": null,
+          "container": null,
+          "bulk": null,
+          "goodsReleaseDate": null,
+          "declarationNumber": null,
+          "bulletinNumber": null,
+          "finalDeclarationNumber": null
+        },
+        {
+          "dossierNumber": "DOS-0033",
+          "clientDossierNumber": "CKY8126000432",
+          "client": "Guinean Birimian Gold S.A",
+          "blLtaNumber": "NGP3696879",
+          "cargoNature": "Cyanure",
+          "transportMode": "Maritime",
+          "eta": "2026-08-12",
+          "originPort": "Ningbo port-china",
+          "destinationPort": "Conakry, GN",
+          "container": "06TC20'",
+          "bulk": null,
+          "goodsReleaseDate": null,
+          "declarationNumber": "S 161- 08/08/2026",
+          "bulletinNumber": null,
+          "finalDeclarationNumber": null
+        },
+        {
+          "dossierNumber": "DOS-0034",
+          "clientDossierNumber": "CKY8126000431",
+          "client": "Guinean Birimian Gold S.A",
+          "blLtaNumber": "NGP3768278",
+          "cargoNature": "Cyanure",
+          "transportMode": "Maritime",
+          "eta": "2026-08-12",
+          "originPort": "Ningbo port-china",
+          "destinationPort": "Conakry, GN",
+          "container": "06TC20'",
+          "bulk": null,
+          "goodsReleaseDate": null,
+          "declarationNumber": "S 160- 08/08/2026",
+          "bulletinNumber": null,
+          "finalDeclarationNumber": null
+        },
+        {
+          "dossierNumber": "DOS-0035",
+          "clientDossierNumber": "CKY8126000407",
+          "client": "Guinean Birimian Gold S.A",
+          "blLtaNumber": "NGP3768351",
+          "cargoNature": "Cyanure",
+          "transportMode": "Maritime",
+          "eta": "2026-08-13",
+          "originPort": "Ningbo port-china",
+          "destinationPort": "Conakry, GN",
+          "container": "06TC20'",
+          "bulk": null,
+          "goodsReleaseDate": null,
+          "declarationNumber": "S 157- 08/08/2026",
+          "bulletinNumber": null,
+          "finalDeclarationNumber": null
+        },
+        {
+          "dossierNumber": "DOS-0036",
+          "clientDossierNumber": "CKY8126000408",
+          "client": "New Japon Mining Company S.A",
+          "blLtaNumber": "MEDUY4002885",
+          "cargoNature": "Cyanure",
+          "transportMode": "Maritime",
+          "eta": "2026-08-18",
+          "originPort": "Ningbo, CN",
+          "destinationPort": "Conakry, GN",
+          "container": "05TC20'",
+          "bulk": null,
+          "goodsReleaseDate": null,
+          "declarationNumber": null,
+          "bulletinNumber": null,
+          "finalDeclarationNumber": null
+        },
+        {
+          "dossierNumber": "DOS-0037",
+          "clientDossierNumber": "CKY8126000413",
+          "client": "Guinean Birimian Gold S.A",
+          "blLtaNumber": "NGP3670655",
+          "cargoNature": "Cyanure de sodium",
+          "transportMode": "Maritime",
+          "eta": "2026-08-13",
+          "originPort": null,
+          "destinationPort": null,
+          "container": "04TC20'",
+          "bulk": null,
+          "goodsReleaseDate": null,
+          "declarationNumber": "S 158- 08/08/2026",
+          "bulletinNumber": null,
+          "finalDeclarationNumber": null
+        },
+        {
+          "dossierNumber": "DOS-0038",
+          "clientDossierNumber": "CKY8126000414",
+          "client": "Guinean Birimian Gold S.A",
+          "blLtaNumber": "NGP3677538",
+          "cargoNature": "Cyanure",
+          "transportMode": "Maritime",
+          "eta": "2026-08-13",
+          "originPort": null,
+          "destinationPort": null,
+          "container": "06TC20'",
+          "bulk": null,
+          "goodsReleaseDate": null,
+          "declarationNumber": "S 159- 08/08/2026",
+          "bulletinNumber": null,
+          "finalDeclarationNumber": null
+        },
+        {
+          "dossierNumber": "DOS-0039",
+          "clientDossierNumber": "CKY8126000412",
+          "client": "Guinee Gold Exploration S.A",
+          "blLtaNumber": "NGP3669558",
+          "cargoNature": "Cyanure",
+          "transportMode": "Maritime",
+          "eta": "2026-08-13",
+          "originPort": "CHINE",
+          "destinationPort": "Conakry, GN",
+          "container": "04TC20'",
+          "bulk": null,
+          "goodsReleaseDate": null,
+          "declarationNumber": "S 156- 08/08/2026",
+          "bulletinNumber": null,
+          "finalDeclarationNumber": null
+        },
+        {
+          "dossierNumber": "DOS-0040",
+          "clientDossierNumber": "CKYSI26000324",
+          "client": "Fabrimetal",
+          "blLtaNumber": "MEDUXO787576",
+          "cargoNature": "Bar bending machine",
+          "transportMode": "Maritime",
+          "eta": "2026-08-03",
+          "originPort": "Nhava Sheva, IndiA",
+          "destinationPort": "Conakry, GN",
+          "container": "01TC40'",
+          "bulk": null,
+          "goodsReleaseDate": null,
+          "declarationNumber": null,
+          "bulletinNumber": null,
+          "finalDeclarationNumber": null
+        },
+        {
+          "dossierNumber": "DOS-0041",
+          "clientDossierNumber": "CKYSI26000323",
+          "client": "Fabrimetal",
+          "blLtaNumber": "MEDUXO733307",
+          "cargoNature": "Spare parts for induction furnace",
+          "transportMode": "Maritime",
+          "eta": "2026-08-04",
+          "originPort": "Mundra,India",
+          "destinationPort": "Conakry, GN",
+          "container": "02TC40';01TC20'",
+          "bulk": null,
+          "goodsReleaseDate": null,
+          "declarationNumber": null,
+          "bulletinNumber": null,
+          "finalDeclarationNumber": null
+        },
+        {
+          "dossierNumber": "DOS-0042",
+          "clientDossierNumber": "CKYSI26000318",
+          "client": "Fabrimetal",
+          "blLtaNumber": "MEDUJ7763785",
+          "cargoNature": "006054796h91-genset 250kva AMF 3P STD",
+          "transportMode": "Maritime",
+          "eta": "2026-08-07",
+          "originPort": "Nhava Sheva, IndiA",
+          "destinationPort": "Conakry, GN",
+          "container": "01TC40'",
+          "bulk": null,
+          "goodsReleaseDate": null,
+          "declarationNumber": null,
+          "bulletinNumber": null,
+          "finalDeclarationNumber": null
+        },
+        {
+          "dossierNumber": "DOS-0043",
+          "clientDossierNumber": null,
+          "client": "Fabrimetal",
+          "blLtaNumber": "HLCUBO12606CGXW0",
+          "cargoNature": "Africa steel dynamics LTd",
+          "transportMode": "Maritime",
+          "eta": null,
+          "originPort": "Mundra,India",
+          "destinationPort": "Conakry, GN",
+          "container": "01TC40'",
+          "bulk": null,
+          "goodsReleaseDate": null,
+          "declarationNumber": null,
+          "bulletinNumber": null,
+          "finalDeclarationNumber": null
+        },
+        {
+          "dossierNumber": "DOS-0044",
+          "clientDossierNumber": "CKYSI26000320",
+          "client": "Fabrimetal",
+          "blLtaNumber": "EID0951355",
+          "cargoNature": "Escort Back loader",
+          "transportMode": "Maritime",
+          "eta": "2026-08-13",
+          "originPort": "Mundra,India",
+          "destinationPort": "Conakry, GN",
+          "container": "01TC40'",
+          "bulk": null,
+          "goodsReleaseDate": null,
+          "declarationNumber": null,
+          "bulletinNumber": null,
+          "finalDeclarationNumber": null
+        },
+        {
+          "dossierNumber": "DOS-0045",
+          "clientDossierNumber": "CKYSI26000363",
+          "client": "Fabrimetal",
+          "blLtaNumber": "EID0951814",
+          "cargoNature": "Meubles, Mobilier, etc",
+          "transportMode": "Maritime",
+          "eta": "2026-09-20",
+          "originPort": "Mundra,India",
+          "destinationPort": "Conakry, GN",
+          "container": "01TC20'",
+          "bulk": null,
+          "goodsReleaseDate": null,
+          "declarationNumber": null,
+          "bulletinNumber": null,
+          "finalDeclarationNumber": null
+        },
+        {
+          "dossierNumber": "DOS-0046",
+          "clientDossierNumber": "CKY8126000411",
+          "client": "Guinee Gold Exploration S.A",
+          "blLtaNumber": "NGP3711084",
+          "cargoNature": "Cyanure de sodium",
+          "transportMode": "Maritime",
+          "eta": "2026-08-13",
+          "originPort": "Ningbo, CN",
+          "destinationPort": "Conakry, GN",
+          "container": "04TC20'",
+          "bulk": null,
+          "goodsReleaseDate": null,
+          "declarationNumber": "S 155- 08/08/2026",
+          "bulletinNumber": null,
+          "finalDeclarationNumber": null
+        },
+        {
+          "dossierNumber": "DOS-0047",
+          "clientDossierNumber": "CKY8126000410",
+          "client": "Guinee Gold Exploration S.A",
+          "blLtaNumber": "NGP3669057",
+          "cargoNature": "Cyanure de sodium",
+          "transportMode": "Maritime",
+          "eta": "2026-08-13",
+          "originPort": "Ningbo, CN",
+          "destinationPort": "Conakry, GN",
+          "container": "04TC20'",
+          "bulk": null,
+          "goodsReleaseDate": null,
+          "declarationNumber": "S 154- 08/08/2026",
+          "bulletinNumber": null,
+          "finalDeclarationNumber": null
+        },
+        {
+          "dossierNumber": "DOS-0048",
+          "clientDossierNumber": "CKYSI26000293",
+          "client": "Capdrill",
+          "blLtaNumber": "S329450131",
+          "cargoNature": "New unpacked vehicule",
+          "transportMode": "Maritime",
+          "eta": "2026-08-07",
+          "originPort": "Atwerp",
+          "destinationPort": "Conakry, GN",
+          "container": null,
+          "bulk": "2 PKG",
+          "goodsReleaseDate": null,
+          "declarationNumber": null,
+          "bulletinNumber": null,
+          "finalDeclarationNumber": null
+        },
+        {
+          "dossierNumber": "DOS-0049",
+          "clientDossierNumber": "CKY8126000439",
+          "client": "Guinee Gold Exploration S.A",
+          "blLtaNumber": "VTHC20260803-6-SGGE-HCL",
+          "cargoNature": "Acide chlorhydrique",
+          "transportMode": "Routier",
+          "eta": "2026-08-13",
+          "originPort": "Accra, Guinea",
+          "destinationPort": "Siguiri, GN",
+          "container": null,
+          "bulk": "83.52 tonnes",
+          "goodsReleaseDate": null,
+          "declarationNumber": null,
+          "bulletinNumber": null,
+          "finalDeclarationNumber": null
+        },
+        {
+          "dossierNumber": "DOS-0050",
+          "clientDossierNumber": "CKY8126000298",
+          "client": "Rabotec",
+          "blLtaNumber": "MEDUXs477883",
+          "cargoNature": "Flexible rubber pipes",
+          "transportMode": "Maritime",
+          "eta": "2026-08-18",
+          "originPort": "Qingdao, china",
+          "destinationPort": "Conakry, GN",
+          "container": "01TC40'",
+          "bulk": null,
+          "goodsReleaseDate": null,
+          "declarationNumber": null,
+          "bulletinNumber": null,
+          "finalDeclarationNumber": null
+        },
+        {
+          "dossierNumber": "DOS-0051",
+          "clientDossierNumber": "CKY8126000318",
+          "client": "Fabrimetal",
+          "blLtaNumber": "MEDUJ7763785",
+          "cargoNature": null,
+          "transportMode": null,
+          "eta": null,
+          "originPort": null,
+          "destinationPort": null,
+          "container": null,
+          "bulk": null,
+          "goodsReleaseDate": null,
+          "declarationNumber": null,
+          "bulletinNumber": null,
+          "finalDeclarationNumber": null
+        },
+        {
+          "dossierNumber": "DOS-0052",
+          "clientDossierNumber": "CKY8126000441",
+          "client": "New Japon Mining Company S.A",
+          "blLtaNumber": "NGP3876679",
+          "cargoNature": "Sodium Cyanide Solide",
+          "transportMode": "Maritime",
+          "eta": "2026-09-26",
+          "originPort": "Ningbo port-china",
+          "destinationPort": "Port Autonome de Conakry",
+          "container": "06TC20'",
+          "bulk": null,
+          "goodsReleaseDate": null,
+          "declarationNumber": null,
+          "bulletinNumber": null,
+          "finalDeclarationNumber": null
+        },
+        {
+          "dossierNumber": "DOS-0053",
+          "clientDossierNumber": "CKY8126000440",
+          "client": "New Japon Mining Company S.A",
+          "blLtaNumber": "NGP3796299",
+          "cargoNature": "Sodium Cyanide Solide",
+          "transportMode": "Maritime",
+          "eta": "2026-09-26",
+          "originPort": "Ningbo port-china",
+          "destinationPort": "Port Autonome de Conakry",
+          "container": "04TC20'",
+          "bulk": null,
+          "goodsReleaseDate": null,
+          "declarationNumber": null,
+          "bulletinNumber": null,
+          "finalDeclarationNumber": null
+        },
+        {
+          "dossierNumber": "DOS-0054",
+          "clientDossierNumber": "CKY8126000280",
+          "client": "New Japon Mining Company S.A",
+          "blLtaNumber": "293961486",
+          "cargoNature": "Cyanure de sodium",
+          "transportMode": "Maritime",
+          "eta": "2026-06-16",
+          "originPort": "Ningbo port-china",
+          "destinationPort": "Port Autonome de Conakry",
+          "container": "05TC20'",
+          "bulk": null,
+          "goodsReleaseDate": null,
+          "declarationNumber": "S 97- 17/06/2026",
+          "bulletinNumber": "L 1911 Du 10/08/2026",
+          "finalDeclarationNumber": "C 1398-2026"
+        }
+      ],
+      "referenceItems": [
+        {
+          "category": "statut",
+          "label": "R\xE9gularis\xE9",
+          "sortOrder": 1
+        },
+        {
+          "category": "statut",
+          "label": "\xC0 r\xE9gulariser",
+          "sortOrder": 2
+        },
+        {
+          "category": "priorite",
+          "label": "Haute",
+          "sortOrder": 1
+        },
+        {
+          "category": "priorite",
+          "label": "Normale",
+          "sortOrder": 2
+        },
+        {
+          "category": "priorite",
+          "label": "Basse",
+          "sortOrder": 3
+        },
+        {
+          "category": "document_recu",
+          "label": "Oui",
+          "sortOrder": 1
+        },
+        {
+          "category": "document_recu",
+          "label": "Non",
+          "sortOrder": 2
+        },
+        {
+          "category": "document_recu",
+          "label": "Partiel",
+          "sortOrder": 3
+        },
+        {
+          "category": "document_recu",
+          "label": "Non applicable",
+          "sortOrder": 4
+        },
+        {
+          "category": "mode_transport",
+          "label": "Maritime",
+          "sortOrder": 1
+        },
+        {
+          "category": "mode_transport",
+          "label": "A\xE9rien",
+          "sortOrder": 2
+        },
+        {
+          "category": "mode_transport",
+          "label": "Routier",
+          "sortOrder": 3
+        },
+        {
+          "category": "mode_transport",
+          "label": "Mixte",
+          "sortOrder": 4
+        },
+        {
+          "category": "mode_transport",
+          "label": "Domestique",
+          "sortOrder": 5
+        },
+        {
+          "category": "declarant",
+          "label": "Interne",
+          "sortOrder": 1
+        },
+        {
+          "category": "declarant",
+          "label": "Client",
+          "sortOrder": 2
+        },
+        {
+          "category": "declarant",
+          "label": "Partenaire",
+          "sortOrder": 3
+        },
+        {
+          "category": "declarant",
+          "label": "\xC0 d\xE9finir",
+          "sortOrder": 4
+        },
+        {
+          "category": "type_operation",
+          "label": "Maritime",
+          "sortOrder": 1
+        },
+        {
+          "category": "type_operation",
+          "label": "Terrestre",
+          "sortOrder": 2
+        },
+        {
+          "category": "type_operation",
+          "label": "Domestique",
+          "sortOrder": 3
+        },
+        {
+          "category": "client",
+          "label": "Tesmec",
+          "sortOrder": 1
+        },
+        {
+          "category": "client",
+          "label": "Kalpataru",
+          "sortOrder": 2
+        },
+        {
+          "category": "client",
+          "label": "Rabotec",
+          "sortOrder": 3
+        },
+        {
+          "category": "client",
+          "label": "Mohan",
+          "sortOrder": 4
+        },
+        {
+          "category": "client",
+          "label": "Fabrimetal",
+          "sortOrder": 5
+        },
+        {
+          "category": "client",
+          "label": "GGE",
+          "sortOrder": 6
+        },
+        {
+          "category": "client",
+          "label": "NJP",
+          "sortOrder": 7
+        },
+        {
+          "category": "client",
+          "label": "GBG",
+          "sortOrder": 8
+        },
+        {
+          "category": "client",
+          "label": "Fauveder",
+          "sortOrder": 9
+        },
+        {
+          "category": "client",
+          "label": "Capdrill",
+          "sortOrder": 10
+        },
+        {
+          "category": "client",
+          "label": "BelAir",
+          "sortOrder": 11
+        },
+        {
+          "category": "statut_financier",
+          "label": "Non \xE9tablis",
+          "sortOrder": 1
+        },
+        {
+          "category": "statut_financier",
+          "label": "Fact. D\xE9finitive",
+          "sortOrder": 2
+        },
+        {
+          "category": "statut_financier",
+          "label": "Fact. Partiel",
+          "sortOrder": 3
+        },
+        {
+          "category": "statut_financier",
+          "label": "Fact. Proforma",
+          "sortOrder": 4
+        },
+        {
+          "category": "statut_financier",
+          "label": "D\xE9charg\xE9",
+          "sortOrder": 5
+        },
+        {
+          "category": "operation_terrain",
+          "label": "R\xE9ception documents client",
+          "sortOrder": 1
+        },
+        {
+          "category": "operation_terrain",
+          "label": "V\xE9rification documents",
+          "sortOrder": 2
+        },
+        {
+          "category": "operation_terrain",
+          "label": "D\xE9claration douane",
+          "sortOrder": 3
+        },
+        {
+          "category": "operation_terrain",
+          "label": "Suivi r\xE9pertoire / bulletin / attestation",
+          "sortOrder": 4
+        },
+        {
+          "category": "operation_terrain",
+          "label": "Paiement droits et frais",
+          "sortOrder": 5
+        },
+        {
+          "category": "operation_terrain",
+          "label": "Sortie port",
+          "sortOrder": 6
+        },
+        {
+          "category": "operation_terrain",
+          "label": "Livraison client",
+          "sortOrder": 7
+        },
+        {
+          "category": "operation_terrain",
+          "label": "Facturation",
+          "sortOrder": 8
+        },
+        {
+          "category": "operation_terrain",
+          "label": "Cl\xF4ture dossier",
+          "sortOrder": 9
+        },
+        {
+          "category": "statut_carnet",
+          "label": "\xC9tablis",
+          "sortOrder": 1
+        },
+        {
+          "category": "statut_carnet",
+          "label": "Partiel",
+          "sortOrder": 2
+        },
+        {
+          "category": "statut_carnet",
+          "label": "Non \xE9tablis",
+          "sortOrder": 3
+        },
+        {
+          "category": "responsable",
+          "label": "Amine",
+          "sortOrder": 1
+        },
+        {
+          "category": "responsable",
+          "label": "Hadja",
+          "sortOrder": 2
+        },
+        {
+          "category": "responsable",
+          "label": "Tawel",
+          "sortOrder": 3
+        },
+        {
+          "category": "priorite_source",
+          "label": "Bas",
+          "sortOrder": 1
+        },
+        {
+          "category": "priorite_source",
+          "label": "Moyen",
+          "sortOrder": 2
+        },
+        {
+          "category": "priorite_source",
+          "label": "\xC9lev\xE9e",
+          "sortOrder": 3
+        },
+        {
+          "category": "regime",
+          "label": "TTC",
+          "sortOrder": 1
+        },
+        {
+          "category": "regime",
+          "label": "EXO",
+          "sortOrder": 2
+        },
+        {
+          "category": "regime",
+          "label": "AT",
+          "sortOrder": 3
+        },
+        {
+          "category": "declarant_igs",
+          "label": "Interne",
+          "sortOrder": 1
+        },
+        {
+          "category": "declarant_igs",
+          "label": "Client",
+          "sortOrder": 2
+        },
+        {
+          "category": "declarant_igs",
+          "label": "Partenaire",
+          "sortOrder": 3
+        },
+        {
+          "category": "declarant_igs",
+          "label": "\xC0 d\xE9finir",
+          "sortOrder": 4
+        },
+        {
+          "category": "declarant_igs",
+          "label": "Sow",
+          "sortOrder": 5
+        },
+        {
+          "category": "declarant_igs",
+          "label": "Amine",
+          "sortOrder": 6
+        },
+        {
+          "category": "declarant_igs",
+          "label": "Tawel",
+          "sortOrder": 7
+        },
+        {
+          "category": "livreur",
+          "label": "Hadja",
+          "sortOrder": 1
+        },
+        {
+          "category": "livreur",
+          "label": "Tawel",
+          "sortOrder": 2
+        },
+        {
+          "category": "livreur",
+          "label": "\xC9quipe IGS",
+          "sortOrder": 3
+        },
+        {
+          "category": "livreur",
+          "label": "Transporteur externe",
+          "sortOrder": 4
+        },
+        {
+          "category": "livreur",
+          "label": "Client",
+          "sortOrder": 5
+        },
+        {
+          "category": "lieu_livraison",
+          "label": "Conakry",
+          "sortOrder": 1
+        },
+        {
+          "category": "lieu_livraison",
+          "label": "Port Autonome de Conakry",
+          "sortOrder": 2
+        },
+        {
+          "category": "lieu_livraison",
+          "label": "Boffa",
+          "sortOrder": 3
+        },
+        {
+          "category": "lieu_livraison",
+          "label": "Kamsar",
+          "sortOrder": 4
+        },
+        {
+          "category": "lieu_livraison",
+          "label": "Sangaredi",
+          "sortOrder": 5
+        },
+        {
+          "category": "lieu_livraison",
+          "label": "Kaloum",
+          "sortOrder": 6
+        },
+        {
+          "category": "lieu_livraison",
+          "label": "Matoto",
+          "sortOrder": 7
+        },
+        {
+          "category": "lieu_livraison",
+          "label": "Dixinn",
+          "sortOrder": 8
+        },
+        {
+          "category": "document_guinee",
+          "label": "BL / LTA",
+          "sortOrder": 1
+        },
+        {
+          "category": "document_guinee",
+          "label": "Facture commerciale",
+          "sortOrder": 2
+        },
+        {
+          "category": "document_guinee",
+          "label": "Packing list",
+          "sortOrder": 3
+        },
+        {
+          "category": "document_guinee",
+          "label": "Certificat d\u2019origine",
+          "sortOrder": 4
+        },
+        {
+          "category": "document_guinee",
+          "label": "D\xE9claration douane",
+          "sortOrder": 5
+        },
+        {
+          "category": "document_guinee",
+          "label": "N\xB0 r\xE9pertoire",
+          "sortOrder": 6
+        },
+        {
+          "category": "document_guinee",
+          "label": "N\xB0 bulletin",
+          "sortOrder": 7
+        },
+        {
+          "category": "document_guinee",
+          "label": "N\xB0 attestation",
+          "sortOrder": 8
+        },
+        {
+          "category": "document_guinee",
+          "label": "Bordereau de livraison",
+          "sortOrder": 9
+        },
+        {
+          "category": "document_guinee",
+          "label": "Bon de sortie port",
+          "sortOrder": 10
+        },
+        {
+          "category": "document_guinee",
+          "label": "Quitus / preuve de paiement si applicable",
+          "sortOrder": 11
+        },
+        {
+          "category": "document_guinee",
+          "label": "Autorisation ou document sp\xE9cial selon marchandise",
+          "sortOrder": 12
+        },
+        {
+          "category": "responsable_igs",
+          "label": "Amine",
+          "sortOrder": 1
+        },
+        {
+          "category": "responsable_igs",
+          "label": "Hadja",
+          "sortOrder": 2
+        },
+        {
+          "category": "responsable_igs",
+          "label": "Tawel",
+          "sortOrder": 3
+        },
+        {
+          "category": "responsable_igs",
+          "label": "Sow",
+          "sortOrder": 4
+        },
+        {
+          "category": "responsable_igs",
+          "label": "Direction",
+          "sortOrder": 5
+        },
+        {
+          "category": "alerte_terrain",
+          "label": "OK",
+          "sortOrder": 1
+        },
+        {
+          "category": "alerte_terrain",
+          "label": "ETA d\xE9pass\xE9e",
+          "sortOrder": 2
+        },
+        {
+          "category": "alerte_terrain",
+          "label": "Documents incomplets",
+          "sortOrder": 3
+        },
+        {
+          "category": "alerte_terrain",
+          "label": "Action urgente",
+          "sortOrder": 4
+        },
+        {
+          "category": "alerte_terrain",
+          "label": "Blocage douane",
+          "sortOrder": 5
+        },
+        {
+          "category": "alerte_terrain",
+          "label": "Blocage port",
+          "sortOrder": 6
+        },
+        {
+          "category": "alerte_terrain",
+          "label": "Paiement en attente",
+          "sortOrder": 7
+        },
+        {
+          "category": "alerte_terrain",
+          "label": "Document sp\xE9cial requis",
+          "sortOrder": 8
+        },
+        {
+          "category": "prochaine_action",
+          "label": "Relancer le client",
+          "sortOrder": 1
+        },
+        {
+          "category": "prochaine_action",
+          "label": "V\xE9rifier les documents",
+          "sortOrder": 2
+        },
+        {
+          "category": "prochaine_action",
+          "label": "Pr\xE9parer la d\xE9claration",
+          "sortOrder": 3
+        },
+        {
+          "category": "prochaine_action",
+          "label": "Suivre r\xE9pertoire / bulletin / attestation",
+          "sortOrder": 4
+        },
+        {
+          "category": "prochaine_action",
+          "label": "Faire payer droits et frais",
+          "sortOrder": 5
+        },
+        {
+          "category": "prochaine_action",
+          "label": "Obtenir le bon de sortie port",
+          "sortOrder": 6
+        },
+        {
+          "category": "prochaine_action",
+          "label": "Organiser la livraison",
+          "sortOrder": 7
+        },
+        {
+          "category": "prochaine_action",
+          "label": "\xC9mettre la facture",
+          "sortOrder": 8
+        },
+        {
+          "category": "prochaine_action",
+          "label": "Cl\xF4turer le dossier",
+          "sortOrder": 9
+        },
+        {
+          "category": "statut_documentaire",
+          "label": "En attente",
+          "sortOrder": 1
+        },
+        {
+          "category": "statut_documentaire",
+          "label": "Documents re\xE7us",
+          "sortOrder": 2
+        },
+        {
+          "category": "statut_documentaire",
+          "label": "Documents incomplets",
+          "sortOrder": 3
+        },
+        {
+          "category": "statut_documentaire",
+          "label": "Non applicable",
+          "sortOrder": 4
+        },
+        {
+          "category": "statut_douane",
+          "label": "Non d\xE9marr\xE9",
+          "sortOrder": 1
+        },
+        {
+          "category": "statut_douane",
+          "label": "\xC0 d\xE9douaner",
+          "sortOrder": 2
+        },
+        {
+          "category": "statut_douane",
+          "label": "En d\xE9claration",
+          "sortOrder": 3
+        },
+        {
+          "category": "statut_douane",
+          "label": "D\xE9clar\xE9",
+          "sortOrder": 4
+        },
+        {
+          "category": "statut_douane",
+          "label": "En attente paiement",
+          "sortOrder": 5
+        },
+        {
+          "category": "statut_douane",
+          "label": "Paiement effectu\xE9",
+          "sortOrder": 6
+        },
+        {
+          "category": "statut_douane",
+          "label": "D\xE9douan\xE9",
+          "sortOrder": 7
+        },
+        {
+          "category": "statut_douane",
+          "label": "Termin\xE9",
+          "sortOrder": 8
+        },
+        {
+          "category": "statut_douane",
+          "label": "Bloqu\xE9",
+          "sortOrder": 9
+        },
+        {
+          "category": "statut_douane",
+          "label": "R\xE9gulariser",
+          "sortOrder": 10
+        },
+        {
+          "category": "statut_port",
+          "label": "Non concern\xE9",
+          "sortOrder": 1
+        },
+        {
+          "category": "statut_port",
+          "label": "En attente",
+          "sortOrder": 2
+        },
+        {
+          "category": "statut_port",
+          "label": "Arriv\xE9 au port",
+          "sortOrder": 3
+        },
+        {
+          "category": "statut_port",
+          "label": "En attente bon de sortie",
+          "sortOrder": 4
+        },
+        {
+          "category": "statut_port",
+          "label": "Bon de sortie port",
+          "sortOrder": 5
+        },
+        {
+          "category": "statut_port",
+          "label": "Sorti du port",
+          "sortOrder": 6
+        },
+        {
+          "category": "statut_port",
+          "label": "Bloqu\xE9",
+          "sortOrder": 7
+        },
+        {
+          "category": "service",
+          "label": "Import",
+          "sortOrder": 1
+        },
+        {
+          "category": "service",
+          "label": "Transit",
+          "sortOrder": 2
+        },
+        {
+          "category": "service",
+          "label": "D\xE9douanement",
+          "sortOrder": 3
+        },
+        {
+          "category": "service",
+          "label": "Op\xE9ration portuaire",
+          "sortOrder": 4
+        },
+        {
+          "category": "service",
+          "label": "Livraison",
+          "sortOrder": 5
+        },
+        {
+          "category": "service",
+          "label": "Suivi client",
+          "sortOrder": 6
+        },
+        {
+          "category": "port_origine",
+          "label": "Port Autonome de Conakry (PAC)",
+          "sortOrder": 1
+        },
+        {
+          "category": "port_origine",
+          "label": "Port Min\xE9ralier de Kamsar",
+          "sortOrder": 2
+        },
+        {
+          "category": "port_origine",
+          "label": "Port de Boffa",
+          "sortOrder": 3
+        },
+        {
+          "category": "port_origine",
+          "label": "Port Autonome de San Pedro (C\xF4te d'Ivoire)",
+          "sortOrder": 4
+        },
+        {
+          "category": "port_origine",
+          "label": "Port Autonome d'Abidjan (C\xF4te d'Ivoire)",
+          "sortOrder": 5
+        },
+        {
+          "category": "port_origine",
+          "label": "Port Autonome de Dakar (S\xE9n\xE9gal)",
+          "sortOrder": 6
+        },
+        {
+          "category": "port_origine",
+          "label": "Port de Tema (Ghana)",
+          "sortOrder": 7
+        },
+        {
+          "category": "port_origine",
+          "label": "Port de Lom\xE9 (Togo)",
+          "sortOrder": 8
+        },
+        {
+          "category": "port_origine",
+          "label": "Port de Cotonou (B\xE9nin)",
+          "sortOrder": 9
+        },
+        {
+          "category": "port_origine",
+          "label": "Ningbo port-china",
+          "sortOrder": 10
+        },
+        {
+          "category": "port_origine",
+          "label": "Shanghai Port (Chine)",
+          "sortOrder": 11
+        },
+        {
+          "category": "port_origine",
+          "label": "Qingdao Port (Chine)",
+          "sortOrder": 12
+        },
+        {
+          "category": "port_origine",
+          "label": "Tianjin Port (Chine)",
+          "sortOrder": 13
+        },
+        {
+          "category": "port_origine",
+          "label": "Lianyunggang-China",
+          "sortOrder": 14
+        },
+        {
+          "category": "port_origine",
+          "label": "Port d'Anvers (Belgique)",
+          "sortOrder": 15
+        },
+        {
+          "category": "port_origine",
+          "label": "Port de Rotterdam (Pays-Bas)",
+          "sortOrder": 16
+        },
+        {
+          "category": "port_origine",
+          "label": "Port de Valence (Espagne)",
+          "sortOrder": 17
+        },
+        {
+          "category": "port_origine",
+          "label": "Port de Duba\xEF (Jebel Ali)",
+          "sortOrder": 18
+        },
+        {
+          "category": "port_origine",
+          "label": "Port d'Istanbul (Turquie)",
+          "sortOrder": 19
+        },
+        {
+          "category": "port_destination",
+          "label": "Port Autonome de Conakry",
+          "sortOrder": 1
+        },
+        {
+          "category": "port_destination",
+          "label": "Port Min\xE9ralier de Kamsar",
+          "sortOrder": 2
+        },
+        {
+          "category": "port_destination",
+          "label": "Port de Boffa",
+          "sortOrder": 3
+        },
+        {
+          "category": "port_destination",
+          "label": "Port de Bok\xE9",
+          "sortOrder": 4
+        },
+        {
+          "category": "port_destination",
+          "label": "Port de Taressa",
+          "sortOrder": 5
+        },
+        {
+          "category": "port_destination",
+          "label": "Port de Konta",
+          "sortOrder": 6
+        },
+        {
+          "category": "port_destination",
+          "label": "Boffa-Conakry",
+          "sortOrder": 7
+        },
+        {
+          "category": "port_destination",
+          "label": "Conakry",
+          "sortOrder": 8
+        },
+        {
+          "category": "port_destination",
+          "label": "Port Autonome de San Pedro (C\xF4te d'Ivoire)",
+          "sortOrder": 9
+        },
+        {
+          "category": "port_destination",
+          "label": "Port Autonome d'Abidjan (C\xF4te d'Ivoire)",
+          "sortOrder": 10
+        },
+        {
+          "category": "port_destination",
+          "label": "Port Autonome de Dakar (S\xE9n\xE9gal)",
+          "sortOrder": 11
+        },
+        {
+          "category": "port_destination",
+          "label": "A\xE9roport International Ahmed S\xE9kou Tour\xE9 (Conakry)",
+          "sortOrder": 12
+        },
+        {
+          "category": "devise",
+          "label": "GNF (Franc Guin\xE9en)",
+          "sortOrder": 1
+        },
+        {
+          "category": "devise",
+          "label": "USD (Dollar US)",
+          "sortOrder": 2
+        },
+        {
+          "category": "devise",
+          "label": "EUR (Euro)",
+          "sortOrder": 3
+        },
+        {
+          "category": "devise",
+          "label": "XOF (Franc CFA)",
+          "sortOrder": 4
+        },
+        {
+          "category": "regime",
+          "label": "Mise \xE0 la consommation directe (IM4 - TTC)",
+          "sortOrder": 4
+        },
+        {
+          "category": "regime",
+          "label": "Mise \xE0 la consommation sous exon\xE9ration (IM4 - EXO)",
+          "sortOrder": 5
+        },
+        {
+          "category": "regime",
+          "label": "R\xE9gime Minier / Convention (EXO-MIN)",
+          "sortOrder": 6
+        },
+        {
+          "category": "regime",
+          "label": "Transit National / International (IM8 - DDI / TRIE)",
+          "sortOrder": 7
+        },
+        {
+          "category": "regime",
+          "label": "Admission Temporaire (IM5 - AT)",
+          "sortOrder": 8
+        },
+        {
+          "category": "regime",
+          "label": "Entrep\xF4t de Douane (IM7 - ED)",
+          "sortOrder": 9
+        },
+        {
+          "category": "regime",
+          "label": "Exportation / R\xE9exportation (EX)",
+          "sortOrder": 10
+        },
+        {
+          "category": "statut_douane",
+          "label": "DDI initi\xE9e (GUCEG)",
+          "sortOrder": 11
+        },
+        {
+          "category": "statut_douane",
+          "label": "DDI approuv\xE9e",
+          "sortOrder": 12
+        },
+        {
+          "category": "statut_douane",
+          "label": "En cours de d\xE9claration (SYDONIA)",
+          "sortOrder": 13
+        },
+        {
+          "category": "statut_douane",
+          "label": "Bulletin de liquidation \xE9mis",
+          "sortOrder": 14
+        },
+        {
+          "category": "statut_douane",
+          "label": "Visite douane / Scanner",
+          "sortOrder": 15
+        },
+        {
+          "category": "statut_douane",
+          "label": "Bon \xE0 Enlever (BAE) obtenu",
+          "sortOrder": 16
+        },
+        {
+          "category": "statut_port",
+          "label": "Navire en rade",
+          "sortOrder": 8
+        },
+        {
+          "category": "statut_port",
+          "label": "Navire \xE0 quai / D\xE9chargement",
+          "sortOrder": 9
+        },
+        {
+          "category": "statut_port",
+          "label": "Conteneur sous douane (Terre-plein)",
+          "sortOrder": 10
+        },
+        {
+          "category": "statut_port",
+          "label": "Frais portuaires r\xE9gl\xE9s (PAC / ALPORT / Bollor\xE9)",
+          "sortOrder": 11
+        },
+        {
+          "category": "statut_port",
+          "label": "Surestaries en cours",
+          "sortOrder": 12
+        },
+        {
+          "category": "statut_financier",
+          "label": "Avance re\xE7ue",
+          "sortOrder": 6
+        },
+        {
+          "category": "statut_financier",
+          "label": "Paiement droits & taxes effectu\xE9",
+          "sortOrder": 7
+        },
+        {
+          "category": "statut_financier",
+          "label": "Pay\xE9 int\xE9gralement (GNF / USD)",
+          "sortOrder": 8
+        },
+        {
+          "category": "statut_financier",
+          "label": "En attente quitus client",
+          "sortOrder": 9
+        },
+        {
+          "category": "document_guinee",
+          "label": "DDI - Demande de D\xE9claration d'Importation (GUCEG)",
+          "sortOrder": 13
+        },
+        {
+          "category": "document_guinee",
+          "label": "Bordereau de suivi des cargaisons (BSC / BESC Guin\xE9e)",
+          "sortOrder": 14
+        },
+        {
+          "category": "document_guinee",
+          "label": "D\xE9claration douane SYDONIA World",
+          "sortOrder": 15
+        },
+        {
+          "category": "document_guinee",
+          "label": "Quittance / Preuve de paiement douane",
+          "sortOrder": 16
+        },
+        {
+          "category": "document_guinee",
+          "label": "Bon \xE0 Enlever douane (BAE)",
+          "sortOrder": 17
+        },
+        {
+          "category": "document_guinee",
+          "label": "Bon de sortie port PAC",
+          "sortOrder": 18
+        },
+        {
+          "category": "document_guinee",
+          "label": "Autorisation sp\xE9ciale mati\xE8res dangereuses / Cyanure",
+          "sortOrder": 19
+        },
+        {
+          "category": "alerte_terrain",
+          "label": "ETA imminente (< 48h)",
+          "sortOrder": 9
+        },
+        {
+          "category": "alerte_terrain",
+          "label": "DDI manquante ou expir\xE9e",
+          "sortOrder": 10
+        },
+        {
+          "category": "alerte_terrain",
+          "label": "Surestaries / Magasinage risque \xE9lev\xE9",
+          "sortOrder": 11
+        },
+        {
+          "category": "alerte_terrain",
+          "label": "Blocage visite Douane / Scanner",
+          "sortOrder": 12
+        },
+        {
+          "category": "alerte_terrain",
+          "label": "Document sp\xE9cial requis (Cyanure/Minier)",
+          "sortOrder": 13
+        },
+        {
+          "category": "prochaine_action",
+          "label": "Soumettre la DDI sur GUCEG",
+          "sortOrder": 10
+        },
+        {
+          "category": "prochaine_action",
+          "label": "Pr\xE9parer la d\xE9claration SYDONIA",
+          "sortOrder": 11
+        },
+        {
+          "category": "prochaine_action",
+          "label": "Effectuer passage scanner / Visite",
+          "sortOrder": 12
+        },
+        {
+          "category": "prochaine_action",
+          "label": "Obtenir le Bon \xE0 Enlever (BAE)",
+          "sortOrder": 13
+        },
+        {
+          "category": "prochaine_action",
+          "label": "\xC9mettre la facture (GNF / USD)",
+          "sortOrder": 14
+        },
+        {
+          "category": "lieu_livraison",
+          "label": "Zone Industrielle Kagb\xE9len",
+          "sortOrder": 9
+        },
+        {
+          "category": "lieu_livraison",
+          "label": "Ratoma",
+          "sortOrder": 10
+        },
+        {
+          "category": "lieu_livraison",
+          "label": "Bok\xE9",
+          "sortOrder": 11
+        },
+        {
+          "category": "lieu_livraison",
+          "label": "Siguiri (Zone mini\xE8re)",
+          "sortOrder": 12
+        },
+        {
+          "category": "lieu_livraison",
+          "label": "Kindia",
+          "sortOrder": 13
+        },
+        {
+          "category": "lieu_livraison",
+          "label": "Mamou",
+          "sortOrder": 14
+        },
+        {
+          "category": "lieu_livraison",
+          "label": "Kankan",
+          "sortOrder": 15
+        }
+      ]
+    };
+  }
+});
 
 // server/initialUsersData.ts
-var initialUsersData = [
-  // --- 1. CORE PROFILES ---
-  {
-    id: 1,
-    openId: "igs_admin_conakry",
-    name: "Ibrahima Gold Service (Admin)",
-    email: "contact@igs-logistics.gn",
-    loginMethod: "direct",
-    role: "admin",
-    clientCompany: null,
-    phone: "+224 620 00 00 00",
-    isActive: true,
-    sessionRevokedAt: null,
-    createdAt: /* @__PURE__ */ new Date("2025-01-01T08:00:00Z"),
-    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
-    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T10:30:00Z")
-  },
-  {
-    id: 2,
-    openId: "declarant_conakry",
-    name: "Mamadou Diallo (D\xE9clarant PAC)",
-    email: "declarant@igs-logistics.gn",
-    loginMethod: "direct",
-    role: "declarant",
-    clientCompany: null,
-    phone: "+224 621 11 22 33",
-    isActive: true,
-    sessionRevokedAt: null,
-    createdAt: /* @__PURE__ */ new Date("2025-01-05T08:00:00Z"),
-    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
-    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T11:15:00Z")
-  },
-  {
-    id: 3,
-    openId: "comptable_conakry",
-    name: "Fatoumata Camara (Comptable)",
-    email: "finance@igs-logistics.gn",
-    loginMethod: "direct",
-    role: "comptable",
-    clientCompany: null,
-    phone: "+224 622 44 55 66",
-    isActive: true,
-    sessionRevokedAt: null,
-    createdAt: /* @__PURE__ */ new Date("2025-01-10T08:00:00Z"),
-    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
-    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T09:45:00Z")
-  },
-  {
-    id: 4,
-    openId: "client_birimian",
-    name: "Guinean Birimian Gold (Portail)",
-    email: "logistique@birimian-gold.gn",
-    loginMethod: "direct",
-    role: "client",
-    clientCompany: "Guinean Birimian Gold S.A",
-    phone: "+224 623 77 88 99",
-    isActive: true,
-    sessionRevokedAt: null,
-    createdAt: /* @__PURE__ */ new Date("2025-02-01T08:00:00Z"),
-    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
-    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T12:00:00Z")
-  },
-  // --- 2. ADMINS & MANAGERS D'EXPLOITATION (12) ---
-  {
-    id: 5,
-    openId: "igs_manager_alpha_barry",
-    name: "Alpha Barry (Directeur des Op\xE9rations)",
-    email: "alpha.barry@igs-logistics.gn",
-    loginMethod: "direct",
-    role: "manager",
-    clientCompany: null,
-    phone: "+224 620 12 34 56",
-    isActive: true,
-    sessionRevokedAt: null,
-    createdAt: /* @__PURE__ */ new Date("2025-01-15T08:00:00Z"),
-    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
-    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T11:50:00Z")
-  },
-  {
-    id: 6,
-    openId: "igs_admin_mariama_kourouma",
-    name: "Mariama Kourouma (Directrice G\xE9n\xE9rale Adjointe)",
-    email: "m.kourouma@igs-logistics.gn",
-    loginMethod: "direct",
-    role: "admin",
-    clientCompany: null,
-    phone: "+224 620 98 76 54",
-    isActive: true,
-    sessionRevokedAt: null,
-    createdAt: /* @__PURE__ */ new Date("2025-01-15T08:00:00Z"),
-    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
-    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T10:10:00Z")
-  },
-  {
-    id: 7,
-    openId: "igs_admin_sekouba_keita",
-    name: "Sekouba Keita (Responsable Sydonia & GUCEG)",
-    email: "s.keita@igs-logistics.gn",
-    loginMethod: "direct",
-    role: "admin",
-    clientCompany: null,
-    phone: "+224 621 33 44 55",
-    isActive: true,
-    sessionRevokedAt: null,
-    createdAt: /* @__PURE__ */ new Date("2025-02-01T08:00:00Z"),
-    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
-    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T08:30:00Z")
-  },
-  {
-    id: 8,
-    openId: "igs_manager_hadja_diallo",
-    name: "Hadja Aissatou Diallo (Superviseur Port Kamsar)",
-    email: "a.diallo.kamsar@igs-logistics.gn",
-    loginMethod: "direct",
-    role: "manager",
-    clientCompany: null,
-    phone: "+224 622 77 88 99",
-    isActive: true,
-    sessionRevokedAt: null,
-    createdAt: /* @__PURE__ */ new Date("2025-02-10T08:00:00Z"),
-    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
-    lastSignedIn: /* @__PURE__ */ new Date("2026-08-19T16:40:00Z")
-  },
-  {
-    id: 9,
-    openId: "igs_admin_ousmane_bah",
-    name: "Ousmane Bah (Directeur Transit Maritime)",
-    email: "o.bah@igs-logistics.gn",
-    loginMethod: "direct",
-    role: "admin",
-    clientCompany: null,
-    phone: "+224 623 11 22 44",
-    isActive: true,
-    sessionRevokedAt: null,
-    createdAt: /* @__PURE__ */ new Date("2025-02-15T08:00:00Z"),
-    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
-    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T09:15:00Z")
-  },
-  {
-    id: 10,
-    openId: "igs_manager_fatoumata_balde",
-    name: "Fatoumata Binta Balde (Audit Interne & Qualit\xE9)",
-    email: "fb.balde@igs-logistics.gn",
-    loginMethod: "direct",
-    role: "manager",
-    clientCompany: null,
-    phone: "+224 624 55 66 77",
-    isActive: true,
-    sessionRevokedAt: null,
-    createdAt: /* @__PURE__ */ new Date("2025-03-01T08:00:00Z"),
-    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
-    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T10:55:00Z")
-  },
-  {
-    id: 11,
-    openId: "igs_admin_mohamed_cisse",
-    name: "Mohamed Lamine Cisse (Chef des Relations Douane)",
-    email: "ml.cisse@igs-logistics.gn",
-    loginMethod: "direct",
-    role: "admin",
-    clientCompany: null,
-    phone: "+224 625 22 33 66",
-    isActive: true,
-    sessionRevokedAt: null,
-    createdAt: /* @__PURE__ */ new Date("2025-03-10T08:00:00Z"),
-    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
-    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T11:05:00Z")
-  },
-  {
-    id: 12,
-    openId: "igs_manager_kadiatou_sylla",
-    name: "Kadiatou Sylla (Superviseur Quai Nord PAC)",
-    email: "k.sylla@igs-logistics.gn",
-    loginMethod: "direct",
-    role: "manager",
-    clientCompany: null,
-    phone: "+224 626 44 88 11",
-    isActive: true,
-    sessionRevokedAt: null,
-    createdAt: /* @__PURE__ */ new Date("2025-03-15T08:00:00Z"),
-    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
-    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T08:15:00Z")
-  },
-  {
-    id: 13,
-    openId: "igs_manager_thierno_diallo",
-    name: "Thierno Sadou Diallo (Chef d'Agence Kamsar)",
-    email: "ts.diallo@igs-logistics.gn",
-    loginMethod: "direct",
-    role: "manager",
-    clientCompany: null,
-    phone: "+224 627 99 00 11",
-    isActive: true,
-    sessionRevokedAt: null,
-    createdAt: /* @__PURE__ */ new Date("2025-03-20T08:00:00Z"),
-    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
-    lastSignedIn: /* @__PURE__ */ new Date("2026-08-19T14:20:00Z")
-  },
-  {
-    id: 14,
-    openId: "igs_admin_ibrahima_bangoura",
-    name: "Ibrahima Sory Bangoura (Responsable IT & S\xE9curit\xE9)",
-    email: "is.bangoura@igs-logistics.gn",
-    loginMethod: "direct",
-    role: "admin",
-    clientCompany: null,
-    phone: "+224 628 33 55 77",
-    isActive: true,
-    sessionRevokedAt: null,
-    createdAt: /* @__PURE__ */ new Date("2025-04-01T08:00:00Z"),
-    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
-    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T12:10:00Z")
-  },
-  {
-    id: 15,
-    openId: "igs_manager_djiba_camara",
-    name: "Djiba Camara (Manager Relations GUCEG PAC)",
-    email: "d.camara@igs-logistics.gn",
-    loginMethod: "direct",
-    role: "manager",
-    clientCompany: null,
-    phone: "+224 629 11 44 88",
-    isActive: true,
-    sessionRevokedAt: null,
-    createdAt: /* @__PURE__ */ new Date("2025-04-10T08:00:00Z"),
-    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
-    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T07:45:00Z")
-  },
-  {
-    id: 16,
-    openId: "igs_manager_cellou_diallo",
-    name: "Mamadou Cellou Diallo (Responsable HSE Portuaire)",
-    email: "mc.diallo@igs-logistics.gn",
-    loginMethod: "direct",
-    role: "manager",
-    clientCompany: null,
-    phone: "+224 660 55 66 88",
-    isActive: true,
-    sessionRevokedAt: null,
-    createdAt: /* @__PURE__ */ new Date("2025-04-15T08:00:00Z"),
-    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
-    lastSignedIn: /* @__PURE__ */ new Date("2026-08-18T16:30:00Z")
-  },
-  // --- 3. DÉCLARANTS DOUANE PAC & PORTS (45) ---
-  {
-    id: 17,
-    openId: "igs_declarant_lamarana_diallo",
-    name: "Mamadou Lamarana Diallo (Quai Nord)",
-    email: "ml.diallo@igs-logistics.gn",
-    loginMethod: "direct",
-    role: "declarant",
-    clientCompany: null,
-    phone: "+224 621 44 11 22",
-    isActive: true,
-    sessionRevokedAt: null,
-    createdAt: /* @__PURE__ */ new Date("2025-01-20T08:00:00Z"),
-    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
-    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T11:40:00Z")
-  },
-  {
-    id: 18,
-    openId: "igs_declarant_aboubacar_soumah",
-    name: "Aboubacar Soumah (Terminal Conteneurs PAC)",
-    email: "a.soumah@igs-logistics.gn",
-    loginMethod: "direct",
-    role: "declarant",
-    clientCompany: null,
-    phone: "+224 622 33 22 11",
-    isActive: true,
-    sessionRevokedAt: null,
-    createdAt: /* @__PURE__ */ new Date("2025-01-22T08:00:00Z"),
-    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
-    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T10:25:00Z")
-  },
-  {
-    id: 19,
-    openId: "igs_declarant_amadou_barry",
-    name: "Amadou Tidiane Barry (SYDONIA PAC)",
-    email: "at.barry@igs-logistics.gn",
-    loginMethod: "direct",
-    role: "declarant",
-    clientCompany: null,
-    phone: "+224 623 55 66 11",
-    isActive: true,
-    sessionRevokedAt: null,
-    createdAt: /* @__PURE__ */ new Date("2025-01-25T08:00:00Z"),
-    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
-    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T09:30:00Z")
-  },
-  {
-    id: 20,
-    openId: "igs_declarant_mohamed_camara",
-    name: "Mohamed Camara (Quai Sud PAC)",
-    email: "m.camara@igs-logistics.gn",
-    loginMethod: "direct",
-    role: "declarant",
-    clientCompany: null,
-    phone: "+224 624 88 99 00",
-    isActive: true,
-    sessionRevokedAt: null,
-    createdAt: /* @__PURE__ */ new Date("2025-02-01T08:00:00Z"),
-    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
-    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T08:45:00Z")
-  },
-  {
-    id: 21,
-    openId: "igs_declarant_sekou_conde",
-    name: "Sekou Conde (Terminal Ro-Ro)",
-    email: "s.conde@igs-logistics.gn",
-    loginMethod: "direct",
-    role: "declarant",
-    clientCompany: null,
-    phone: "+224 625 77 11 33",
-    isActive: true,
-    sessionRevokedAt: null,
-    createdAt: /* @__PURE__ */ new Date("2025-02-05T08:00:00Z"),
-    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
-    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T11:10:00Z")
-  },
-  {
-    id: 22,
-    openId: "igs_declarant_alpha_oumar_diallo",
-    name: "Alpha Oumar Diallo (Port Min\xE9ralier Kamsar)",
-    email: "ao.diallo@igs-logistics.gn",
-    loginMethod: "direct",
-    role: "declarant",
-    clientCompany: null,
-    phone: "+224 626 22 44 66",
-    isActive: true,
-    sessionRevokedAt: null,
-    createdAt: /* @__PURE__ */ new Date("2025-02-10T08:00:00Z"),
-    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
-    lastSignedIn: /* @__PURE__ */ new Date("2026-08-19T17:15:00Z")
-  },
-  {
-    id: 23,
-    openId: "igs_declarant_kalil_traore",
-    name: "Ibrahima Kalil Traore (Bureau Douane PAC)",
-    email: "ik.traore@igs-logistics.gn",
-    loginMethod: "direct",
-    role: "declarant",
-    clientCompany: null,
-    phone: "+224 627 66 88 00",
-    isActive: true,
-    sessionRevokedAt: null,
-    createdAt: /* @__PURE__ */ new Date("2025-02-12T08:00:00Z"),
-    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
-    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T10:40:00Z")
-  },
-  {
-    id: 24,
-    openId: "igs_declarant_morlaye_sylla",
-    name: "Morlaye Sylla (Terminal Vraquier)",
-    email: "m.sylla@igs-logistics.gn",
-    loginMethod: "direct",
-    role: "declarant",
-    clientCompany: null,
-    phone: "+224 628 44 99 11",
-    isActive: true,
-    sessionRevokedAt: null,
-    createdAt: /* @__PURE__ */ new Date("2025-02-15T08:00:00Z"),
-    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
-    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T09:20:00Z")
-  },
-  {
-    id: 25,
-    openId: "igs_declarant_fode_bangoura",
-    name: "Fode Bangoura (Bureau GUCEG Conakry)",
-    email: "f.bangoura@igs-logistics.gn",
-    loginMethod: "direct",
-    role: "declarant",
-    clientCompany: null,
-    phone: "+224 629 88 22 44",
-    isActive: true,
-    sessionRevokedAt: null,
-    createdAt: /* @__PURE__ */ new Date("2025-02-18T08:00:00Z"),
-    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
-    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T12:05:00Z")
-  },
-  {
-    id: 26,
-    openId: "igs_declarant_cheick_toure",
-    name: "Cheick Ahmed Toure (Terminal P\xE9trolier)",
-    email: "ca.toure@igs-logistics.gn",
-    loginMethod: "direct",
-    role: "declarant",
-    clientCompany: null,
-    phone: "+224 660 11 33 55",
-    isActive: true,
-    sessionRevokedAt: null,
-    createdAt: /* @__PURE__ */ new Date("2025-02-20T08:00:00Z"),
-    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
-    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z")
-  },
-  {
-    id: 27,
-    openId: "igs_declarant_abdoulaye_balde",
-    name: "Abdoulaye Balde (Quai Commercial PAC)",
-    email: "a.balde@igs-logistics.gn",
-    loginMethod: "direct",
-    role: "declarant",
-    clientCompany: null,
-    phone: "+224 661 44 77 99",
-    isActive: true,
-    sessionRevokedAt: null,
-    createdAt: /* @__PURE__ */ new Date("2025-02-25T08:00:00Z"),
-    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
-    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T11:25:00Z")
-  },
-  {
-    id: 28,
-    openId: "igs_declarant_lansana_keita",
-    name: "Lansana Keita (Sydonia BAE/BL)",
-    email: "l.keita@igs-logistics.gn",
-    loginMethod: "direct",
-    role: "declarant",
-    clientCompany: null,
-    phone: "+224 662 22 55 88",
-    isActive: true,
-    sessionRevokedAt: null,
-    createdAt: /* @__PURE__ */ new Date("2025-03-01T08:00:00Z"),
-    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
-    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T10:05:00Z")
-  },
-  {
-    id: 29,
-    openId: "igs_declarant_saliou_sow",
-    name: "Mamadou Saliou Sow (Quai Ouest PAC)",
-    email: "ms.sow@igs-logistics.gn",
-    loginMethod: "direct",
-    role: "declarant",
-    clientCompany: null,
-    phone: "+224 663 88 11 44",
-    isActive: true,
-    sessionRevokedAt: null,
-    createdAt: /* @__PURE__ */ new Date("2025-03-05T08:00:00Z"),
-    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
-    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T09:50:00Z")
-  },
-  {
-    id: 30,
-    openId: "igs_declarant_oumar_bah",
-    name: "Oumar Bah (DDI & Bulletin Liquidation)",
-    email: "o.bah.douane@igs-logistics.gn",
-    loginMethod: "direct",
-    role: "declarant",
-    clientCompany: null,
-    phone: "+224 664 33 66 99",
-    isActive: true,
-    sessionRevokedAt: null,
-    createdAt: /* @__PURE__ */ new Date("2025-03-10T08:00:00Z"),
-    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
-    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T11:35:00Z")
-  },
-  {
-    id: 31,
-    openId: "igs_declarant_youssouf_camara",
-    name: "Youssouf Camara (Zone Matoto & Entrep\xF4ts)",
-    email: "y.camara@igs-logistics.gn",
-    loginMethod: "direct",
-    role: "declarant",
-    clientCompany: null,
-    phone: "+224 665 77 00 22",
-    isActive: true,
-    sessionRevokedAt: null,
-    createdAt: /* @__PURE__ */ new Date("2025-03-12T08:00:00Z"),
-    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
-    lastSignedIn: /* @__PURE__ */ new Date("2026-08-19T15:10:00Z")
-  },
-  {
-    id: 32,
-    openId: "igs_declarant_aly_cisse",
-    name: "Aly Badara Cisse (Transit Fronti\xE8re)",
-    email: "ab.cisse@igs-logistics.gn",
-    loginMethod: "direct",
-    role: "declarant",
-    clientCompany: null,
-    phone: "+224 666 11 44 77",
-    isActive: true,
-    sessionRevokedAt: null,
-    createdAt: /* @__PURE__ */ new Date("2025-03-15T08:00:00Z"),
-    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
-    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T08:20:00Z")
-  },
-  {
-    id: 33,
-    openId: "igs_declarant_sekou_diakite",
-    name: "S\xE9kou Oumar Diakite (Port Min\xE9ralier Boffa)",
-    email: "so.diakite@igs-logistics.gn",
-    loginMethod: "direct",
-    role: "declarant",
-    clientCompany: null,
-    phone: "+224 667 55 88 11",
-    isActive: true,
-    sessionRevokedAt: null,
-    createdAt: /* @__PURE__ */ new Date("2025-03-20T08:00:00Z"),
-    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
-    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T10:15:00Z")
-  },
-  {
-    id: 34,
-    openId: "igs_declarant_boubacar_diallo",
-    name: "Boubacar Diallo (Port de Bok\xE9 Dapilon)",
-    email: "b.diallo.boke@igs-logistics.gn",
-    loginMethod: "direct",
-    role: "declarant",
-    clientCompany: null,
-    phone: "+224 668 99 22 55",
-    isActive: true,
-    sessionRevokedAt: null,
-    createdAt: /* @__PURE__ */ new Date("2025-03-25T08:00:00Z"),
-    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
-    lastSignedIn: /* @__PURE__ */ new Date("2026-08-19T18:00:00Z")
-  },
-  {
-    id: 35,
-    openId: "igs_declarant_alpha_barry_kamsar",
-    name: "Mamadou Alpha Barry (Bauxite Kamsar)",
-    email: "ma.barry.kamsar@igs-logistics.gn",
-    loginMethod: "direct",
-    role: "declarant",
-    clientCompany: null,
-    phone: "+224 669 33 66 00",
-    isActive: true,
-    sessionRevokedAt: null,
-    createdAt: /* @__PURE__ */ new Date("2025-04-01T08:00:00Z"),
-    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
-    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T07:30:00Z")
-  },
-  {
-    id: 36,
-    openId: "igs_declarant_alhassane_soumah",
-    name: "Alhassane Soumah (PAC Quai Nord 2)",
-    email: "a.soumah.pac@igs-logistics.gn",
-    loginMethod: "direct",
-    role: "declarant",
-    clientCompany: null,
-    phone: "+224 620 44 77 11",
-    isActive: true,
-    sessionRevokedAt: null,
-    createdAt: /* @__PURE__ */ new Date("2025-04-05T08:00:00Z"),
-    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
-    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T11:00:00Z")
-  },
-  {
-    id: 37,
-    openId: "igs_declarant_sory_diane",
-    name: "Ibrahima Sory Diane (SYDONIA Kamsar)",
-    email: "is.diane@igs-logistics.gn",
-    loginMethod: "direct",
-    role: "declarant",
-    clientCompany: null,
-    phone: "+224 621 88 11 55",
-    isActive: true,
-    sessionRevokedAt: null,
-    createdAt: /* @__PURE__ */ new Date("2025-04-10T08:00:00Z"),
-    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
-    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T09:40:00Z")
-  },
-  {
-    id: 38,
-    openId: "igs_declarant_jean_loua",
-    name: "Jean-Pierre Loua (R\xE9gime Transit N1)",
-    email: "jp.loua@igs-logistics.gn",
-    loginMethod: "direct",
-    role: "declarant",
-    clientCompany: null,
-    phone: "+224 622 22 66 00",
-    isActive: true,
-    sessionRevokedAt: null,
-    createdAt: /* @__PURE__ */ new Date("2025-04-15T08:00:00Z"),
-    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
-    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T10:50:00Z")
-  },
-  {
-    id: 39,
-    openId: "igs_declarant_david_haba",
-    name: "David Haba (D\xE9douanement V\xE9hicules PAC)",
-    email: "d.haba@igs-logistics.gn",
-    loginMethod: "direct",
-    role: "declarant",
-    clientCompany: null,
-    phone: "+224 623 66 00 44",
-    isActive: true,
-    sessionRevokedAt: null,
-    createdAt: /* @__PURE__ */ new Date("2025-04-20T08:00:00Z"),
-    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
-    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T08:55:00Z")
-  },
-  {
-    id: 40,
-    openId: "igs_declarant_paul_lamah",
-    name: "Paul Lamah (Fret Sp\xE9cialis\xE9)",
-    email: "p.lamah@igs-logistics.gn",
-    loginMethod: "direct",
-    role: "declarant",
-    clientCompany: null,
-    phone: "+224 624 00 44 88",
-    isActive: true,
-    sessionRevokedAt: null,
-    createdAt: /* @__PURE__ */ new Date("2025-04-25T08:00:00Z"),
-    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
-    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T11:45:00Z")
-  },
-  {
-    id: 41,
-    openId: "igs_declarant_mohamed_cherif",
-    name: "Mohamed Cherif (Hydrocarbures & Chimiques)",
-    email: "m.cherif@igs-logistics.gn",
-    loginMethod: "direct",
-    role: "declarant",
-    clientCompany: null,
-    phone: "+224 625 44 88 22",
-    isActive: true,
-    sessionRevokedAt: null,
-    createdAt: /* @__PURE__ */ new Date("2025-05-01T08:00:00Z"),
-    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
-    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T10:20:00Z")
-  },
-  {
-    id: 42,
-    openId: "igs_declarant_mamady_kaba",
-    name: "Mamady Kaba (Minerais & Vrac)",
-    email: "m.kaba.vrac@igs-logistics.gn",
-    loginMethod: "direct",
-    role: "declarant",
-    clientCompany: null,
-    phone: "+224 626 88 22 66",
-    isActive: true,
-    sessionRevokedAt: null,
-    createdAt: /* @__PURE__ */ new Date("2025-05-05T08:00:00Z"),
-    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
-    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T09:10:00Z")
-  },
-  {
-    id: 43,
-    openId: "igs_declarant_souleymane_diallo",
-    name: "Souleymane Diallo (DDI GUCEG)",
-    email: "s.diallo.guceg@igs-logistics.gn",
-    loginMethod: "direct",
-    role: "declarant",
-    clientCompany: null,
-    phone: "+224 627 22 66 00",
-    isActive: true,
-    sessionRevokedAt: null,
-    createdAt: /* @__PURE__ */ new Date("2025-05-10T08:00:00Z"),
-    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
-    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T12:00:00Z")
-  },
-  {
-    id: 44,
-    openId: "igs_declarant_bakary_kante",
-    name: "Bakary Kante (Terminal Conteneurs)",
-    email: "b.kante@igs-logistics.gn",
-    loginMethod: "direct",
-    role: "declarant",
-    clientCompany: null,
-    phone: "+224 628 66 00 44",
-    isActive: true,
-    sessionRevokedAt: null,
-    createdAt: /* @__PURE__ */ new Date("2025-05-15T08:00:00Z"),
-    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
-    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T08:35:00Z")
-  },
-  {
-    id: 45,
-    openId: "igs_declarant_alseny_camara",
-    name: "Alseny Camara (Acconage & Relevage PAC)",
-    email: "a.camara.acconage@igs-logistics.gn",
-    loginMethod: "direct",
-    role: "declarant",
-    clientCompany: null,
-    phone: "+224 629 00 44 88",
-    isActive: true,
-    sessionRevokedAt: null,
-    createdAt: /* @__PURE__ */ new Date("2025-05-20T08:00:00Z"),
-    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
-    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T11:15:00Z")
-  },
-  {
-    id: 46,
-    openId: "igs_declarant_naby_toure",
-    name: "Naby Youssouf Toure (Quai Sud)",
-    email: "ny.toure@igs-logistics.gn",
-    loginMethod: "direct",
-    role: "declarant",
-    clientCompany: null,
-    phone: "+224 660 44 88 22",
-    isActive: true,
-    sessionRevokedAt: null,
-    createdAt: /* @__PURE__ */ new Date("2025-05-25T08:00:00Z"),
-    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
-    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T10:00:00Z")
-  },
-  {
-    id: 47,
-    openId: "igs_declarant_daouda_conde",
-    name: "Daouda Conde (Magasin Calage PAC)",
-    email: "d.conde.magasin@igs-logistics.gn",
-    loginMethod: "direct",
-    role: "declarant",
-    clientCompany: null,
-    phone: "+224 661 88 22 66",
-    isActive: true,
-    sessionRevokedAt: null,
-    createdAt: /* @__PURE__ */ new Date("2025-06-01T08:00:00Z"),
-    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
-    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T09:05:00Z")
-  },
-  {
-    id: 48,
-    openId: "igs_declarant_cherif_diallo",
-    name: "Cherif Diallo (D\xE9barquement Min\xE9ralier)",
-    email: "c.diallo.mineral@igs-logistics.gn",
-    loginMethod: "direct",
-    role: "declarant",
-    clientCompany: null,
-    phone: "+224 662 22 66 00",
-    isActive: true,
-    sessionRevokedAt: null,
-    createdAt: /* @__PURE__ */ new Date("2025-06-05T08:00:00Z"),
-    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
-    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T07:50:00Z")
-  },
-  {
-    id: 49,
-    openId: "igs_declarant_thierno_sow",
-    name: "Thierno Oumar Sow (Quittance & BAE PAC)",
-    email: "to.sow@igs-logistics.gn",
-    loginMethod: "direct",
-    role: "declarant",
-    clientCompany: null,
-    phone: "+224 663 66 00 44",
-    isActive: true,
-    sessionRevokedAt: null,
-    createdAt: /* @__PURE__ */ new Date("2025-06-10T08:00:00Z"),
-    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
-    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T11:55:00Z")
-  },
-  {
-    id: 50,
-    openId: "igs_declarant_ibrahima_bah",
-    name: "Ibrahima Bah (Port Autonome Conakry)",
-    email: "i.bah.pac@igs-logistics.gn",
-    loginMethod: "direct",
-    role: "declarant",
-    clientCompany: null,
-    phone: "+224 664 00 44 88",
-    isActive: true,
-    sessionRevokedAt: null,
-    createdAt: /* @__PURE__ */ new Date("2025-06-15T08:00:00Z"),
-    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
-    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T10:35:00Z")
-  },
-  {
-    id: 51,
-    openId: "igs_declarant_hady_diallo",
-    name: "Mamadou Hady Diallo (SYDONIA Expert)",
-    email: "mh.diallo@igs-logistics.gn",
-    loginMethod: "direct",
-    role: "declarant",
-    clientCompany: null,
-    phone: "+224 665 44 88 22",
-    isActive: true,
-    sessionRevokedAt: null,
-    createdAt: /* @__PURE__ */ new Date("2025-06-20T08:00:00Z"),
-    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
-    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T08:40:00Z")
-  },
-  {
-    id: 52,
-    openId: "igs_declarant_salifou_camara",
-    name: "Salifou Camara (Terminal Fruiti\xE8re PAC)",
-    email: "s.camara.fruit@igs-logistics.gn",
-    loginMethod: "direct",
-    role: "declarant",
-    clientCompany: null,
-    phone: "+224 666 88 22 66",
-    isActive: true,
-    sessionRevokedAt: null,
-    createdAt: /* @__PURE__ */ new Date("2025-06-25T08:00:00Z"),
-    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
-    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T12:15:00Z")
-  },
-  {
-    id: 53,
-    openId: "igs_declarant_yamoussa_bangoura",
-    name: "Yamoussa Bangoura (Quai Nord Post 3)",
-    email: "y.bangoura@igs-logistics.gn",
-    loginMethod: "direct",
-    role: "declarant",
-    clientCompany: null,
-    phone: "+224 667 22 66 00",
-    isActive: true,
-    sessionRevokedAt: null,
-    createdAt: /* @__PURE__ */ new Date("2025-07-01T08:00:00Z"),
-    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
-    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T09:25:00Z")
-  },
-  {
-    id: 54,
-    openId: "igs_declarant_almamy_toure",
-    name: "Almamy Toure (Port Kamsar Nord)",
-    email: "a.toure.kamsar@igs-logistics.gn",
-    loginMethod: "direct",
-    role: "declarant",
-    clientCompany: null,
-    phone: "+224 668 66 00 44",
-    isActive: true,
-    sessionRevokedAt: null,
-    createdAt: /* @__PURE__ */ new Date("2025-07-05T08:00:00Z"),
-    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
-    lastSignedIn: /* @__PURE__ */ new Date("2026-08-19T16:00:00Z")
-  },
-  {
-    id: 55,
-    openId: "igs_declarant_ousmane_diallo",
-    name: "Ousmane Diallo (Conteneurs 40' PAC)",
-    email: "o.diallo.tc@igs-logistics.gn",
-    loginMethod: "direct",
-    role: "declarant",
-    clientCompany: null,
-    phone: "+224 669 00 44 88",
-    isActive: true,
-    sessionRevokedAt: null,
-    createdAt: /* @__PURE__ */ new Date("2025-07-10T08:00:00Z"),
-    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
-    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T10:45:00Z")
-  },
-  {
-    id: 56,
-    openId: "igs_declarant_alpha_amadou_barry",
-    name: "Alpha Amadou Barry (Sydonia N3)",
-    email: "aa.barry@igs-logistics.gn",
-    loginMethod: "direct",
-    role: "declarant",
-    clientCompany: null,
-    phone: "+224 620 55 99 33",
-    isActive: true,
-    sessionRevokedAt: null,
-    createdAt: /* @__PURE__ */ new Date("2025-07-15T08:00:00Z"),
-    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
-    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T11:20:00Z")
-  },
-  {
-    id: 57,
-    openId: "igs_declarant_sory_camara",
-    name: "Sory Camara (DDI Express Guceg)",
-    email: "s.camara.express@igs-logistics.gn",
-    loginMethod: "direct",
-    role: "declarant",
-    clientCompany: null,
-    phone: "+224 621 99 33 77",
-    isActive: true,
-    sessionRevokedAt: null,
-    createdAt: /* @__PURE__ */ new Date("2025-07-20T08:00:00Z"),
-    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
-    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T08:10:00Z")
-  },
-  {
-    id: 58,
-    openId: "igs_declarant_fode_soumah",
-    name: "Fode Soumah (Terminal Polyvalent PAC)",
-    email: "f.soumah.tp@igs-logistics.gn",
-    loginMethod: "direct",
-    role: "declarant",
-    clientCompany: null,
-    phone: "+224 622 33 77 11",
-    isActive: true,
-    sessionRevokedAt: null,
-    createdAt: /* @__PURE__ */ new Date("2025-07-25T08:00:00Z"),
-    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
-    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T12:20:00Z")
-  },
-  {
-    id: 59,
-    openId: "igs_declarant_facinet_camara",
-    name: "Facinet Camara (Compte Suspendu)",
-    email: "f.camara.suspendu@igs-logistics.gn",
-    loginMethod: "direct",
-    role: "declarant",
-    clientCompany: null,
-    phone: "+224 623 77 11 55",
-    isActive: false,
-    sessionRevokedAt: /* @__PURE__ */ new Date("2026-08-10T14:00:00Z"),
-    createdAt: /* @__PURE__ */ new Date("2025-08-01T08:00:00Z"),
-    updatedAt: /* @__PURE__ */ new Date("2026-08-10T14:00:00Z"),
-    lastSignedIn: /* @__PURE__ */ new Date("2026-08-10T13:45:00Z")
-  },
-  {
-    id: 60,
-    openId: "igs_declarant_karamo_kaba",
-    name: "Karamo Kaba (Compte Suspendu)",
-    email: "k.kaba.suspendu@igs-logistics.gn",
-    loginMethod: "direct",
-    role: "declarant",
-    clientCompany: null,
-    phone: "+224 624 11 55 99",
-    isActive: false,
-    sessionRevokedAt: /* @__PURE__ */ new Date("2026-08-12T10:00:00Z"),
-    createdAt: /* @__PURE__ */ new Date("2025-08-05T08:00:00Z"),
-    updatedAt: /* @__PURE__ */ new Date("2026-08-12T10:00:00Z"),
-    lastSignedIn: /* @__PURE__ */ new Date("2026-08-12T09:30:00Z")
-  },
-  {
-    id: 61,
-    openId: "igs_declarant_lamine_keita",
-    name: "Lamine Keita (Compte Suspendu)",
-    email: "l.keita.suspendu@igs-logistics.gn",
-    loginMethod: "direct",
-    role: "declarant",
-    clientCompany: null,
-    phone: "+224 625 55 99 33",
-    isActive: false,
-    sessionRevokedAt: /* @__PURE__ */ new Date("2026-08-15T09:00:00Z"),
-    createdAt: /* @__PURE__ */ new Date("2025-08-10T08:00:00Z"),
-    updatedAt: /* @__PURE__ */ new Date("2026-08-15T09:00:00Z"),
-    lastSignedIn: /* @__PURE__ */ new Date("2026-08-15T08:50:00Z")
-  },
-  // --- 4. COMPTABLES & GESTIONNAIRES FINANCIERS (18) ---
-  {
-    id: 62,
-    openId: "igs_comptable_aissatou_diallo",
-    name: "Aissatou Bella Diallo (Facturation GNF/USD)",
-    email: "ab.diallo.finance@igs-logistics.gn",
-    loginMethod: "direct",
-    role: "comptable",
-    clientCompany: null,
-    phone: "+224 626 99 33 77",
-    isActive: true,
-    sessionRevokedAt: null,
-    createdAt: /* @__PURE__ */ new Date("2025-01-18T08:00:00Z"),
-    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
-    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T10:00:00Z")
-  },
-  {
-    id: 63,
-    openId: "igs_comptable_fode_sylla",
-    name: "Mohamed Fode Sylla (D\xE9bours PAC & Surestaries)",
-    email: "mf.sylla@igs-logistics.gn",
-    loginMethod: "direct",
-    role: "comptable",
-    clientCompany: null,
-    phone: "+224 627 33 77 11",
-    isActive: true,
-    sessionRevokedAt: null,
-    createdAt: /* @__PURE__ */ new Date("2025-01-20T08:00:00Z"),
-    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
-    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T11:30:00Z")
-  },
-  {
-    id: 64,
-    openId: "igs_comptable_mariama_camara",
-    name: "Mariama Cir\xE9 Camara (Tr\xE9sorerie & Encaissements)",
-    email: "mc.camara.tresor@igs-logistics.gn",
-    loginMethod: "direct",
-    role: "comptable",
-    clientCompany: null,
-    phone: "+224 628 77 11 55",
-    isActive: true,
-    sessionRevokedAt: null,
-    createdAt: /* @__PURE__ */ new Date("2025-02-01T08:00:00Z"),
-    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
-    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T09:15:00Z")
-  },
-  {
-    id: 65,
-    openId: "igs_comptable_thierno_barry",
-    name: "Thierno Souleymane Barry (Rapprochement Bancaire)",
-    email: "ts.barry.finance@igs-logistics.gn",
-    loginMethod: "direct",
-    role: "comptable",
-    clientCompany: null,
-    phone: "+224 629 11 55 99",
-    isActive: true,
-    sessionRevokedAt: null,
-    createdAt: /* @__PURE__ */ new Date("2025-02-10T08:00:00Z"),
-    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
-    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T10:45:00Z")
-  },
-  {
-    id: 66,
-    openId: "igs_comptable_fatoumata_diallo",
-    name: "Fatoumata Binta Diallo (Droits Douane & DDI)",
-    email: "fb.diallo.douane@igs-logistics.gn",
-    loginMethod: "direct",
-    role: "comptable",
-    clientCompany: null,
-    phone: "+224 660 55 99 33",
-    isActive: true,
-    sessionRevokedAt: null,
-    createdAt: /* @__PURE__ */ new Date("2025-02-15T08:00:00Z"),
-    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
-    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T08:30:00Z")
-  },
-  {
-    id: 67,
-    openId: "igs_comptable_kalil_kaba",
-    name: "Ibrahima Kalil Kaba (Auditeur Factures & Marges)",
-    email: "ik.kaba.audit@igs-logistics.gn",
-    loginMethod: "direct",
-    role: "comptable",
-    clientCompany: null,
-    phone: "+224 661 99 33 77",
-    isActive: true,
-    sessionRevokedAt: null,
-    createdAt: /* @__PURE__ */ new Date("2025-03-01T08:00:00Z"),
-    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
-    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T11:50:00Z")
-  },
-  {
-    id: 68,
-    openId: "igs_comptable_aminata_traore",
-    name: "Aminata Traore (Fournisseurs & Armateurs)",
-    email: "a.traore.armateurs@igs-logistics.gn",
-    loginMethod: "direct",
-    role: "comptable",
-    clientCompany: null,
-    phone: "+224 662 33 77 11",
-    isActive: true,
-    sessionRevokedAt: null,
-    createdAt: /* @__PURE__ */ new Date("2025-03-10T08:00:00Z"),
-    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
-    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T09:35:00Z")
-  },
-  {
-    id: 69,
-    openId: "igs_comptable_kadiatou_bah",
-    name: "Kadiatou Bah (D\xE9bours Portuaires PAC)",
-    email: "k.bah.debours@igs-logistics.gn",
-    loginMethod: "direct",
-    role: "comptable",
-    clientCompany: null,
-    phone: "+224 663 77 11 55",
-    isActive: true,
-    sessionRevokedAt: null,
-    createdAt: /* @__PURE__ */ new Date("2025-03-15T08:00:00Z"),
-    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
-    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T12:05:00Z")
-  },
-  {
-    id: 70,
-    openId: "igs_comptable_oumou_diallo",
-    name: "Oumou Hawa Diallo (Factures D\xE9finitives)",
-    email: "oh.diallo.definitif@igs-logistics.gn",
-    loginMethod: "direct",
-    role: "comptable",
-    clientCompany: null,
-    phone: "+224 664 11 55 99",
-    isActive: true,
-    sessionRevokedAt: null,
-    createdAt: /* @__PURE__ */ new Date("2025-03-20T08:00:00Z"),
-    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
-    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T08:15:00Z")
-  },
-  {
-    id: 71,
-    openId: "igs_comptable_sekouba_camara",
-    name: "Sekouba Camara (Recouvrement Clients)",
-    email: "s.camara.recouvrement@igs-logistics.gn",
-    loginMethod: "direct",
-    role: "comptable",
-    clientCompany: null,
-    phone: "+224 665 55 99 33",
-    isActive: true,
-    sessionRevokedAt: null,
-    createdAt: /* @__PURE__ */ new Date("2025-04-01T08:00:00Z"),
-    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
-    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T10:10:00Z")
-  },
-  {
-    id: 72,
-    openId: "igs_comptable_hadja_conde",
-    name: "Hadja Saran Conde (Quittances Tr\xE9sor)",
-    email: "hs.conde.tresor@igs-logistics.gn",
-    loginMethod: "direct",
-    role: "comptable",
-    clientCompany: null,
-    phone: "+224 666 99 33 77",
-    isActive: true,
-    sessionRevokedAt: null,
-    createdAt: /* @__PURE__ */ new Date("2025-04-10T08:00:00Z"),
-    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
-    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T11:40:00Z")
-  },
-  {
-    id: 73,
-    openId: "igs_comptable_bhoye_diallo",
-    name: "Mamadou Bhoye Diallo (Devises USD/EUR)",
-    email: "mb.diallo.devises@igs-logistics.gn",
-    loginMethod: "direct",
-    role: "comptable",
-    clientCompany: null,
-    phone: "+224 667 33 77 11",
-    isActive: true,
-    sessionRevokedAt: null,
-    createdAt: /* @__PURE__ */ new Date("2025-04-15T08:00:00Z"),
-    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
-    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T09:20:00Z")
-  },
-  {
-    id: 74,
-    openId: "igs_comptable_fanta_keita",
-    name: "Fanta Keita (Frais Portuaires Conakry Terminal)",
-    email: "f.keita.terminal@igs-logistics.gn",
-    loginMethod: "direct",
-    role: "comptable",
-    clientCompany: null,
-    phone: "+224 668 77 11 55",
-    isActive: true,
-    sessionRevokedAt: null,
-    createdAt: /* @__PURE__ */ new Date("2025-05-01T08:00:00Z"),
-    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
-    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T10:30:00Z")
-  },
-  {
-    id: 75,
-    openId: "igs_comptable_lamine_diane",
-    name: "Mohamed Lamine Diane (Auditeur Comptable)",
-    email: "ml.diane.audit@igs-logistics.gn",
-    loginMethod: "direct",
-    role: "comptable",
-    clientCompany: null,
-    phone: "+224 669 11 55 99",
-    isActive: true,
-    sessionRevokedAt: null,
-    createdAt: /* @__PURE__ */ new Date("2025-05-10T08:00:00Z"),
-    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
-    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T11:10:00Z")
-  },
-  {
-    id: 76,
-    openId: "igs_comptable_rouguiatou_sow",
-    name: "Rouguiatou Sow (Facturation Portuaire)",
-    email: "r.sow.port@igs-logistics.gn",
-    loginMethod: "direct",
-    role: "comptable",
-    clientCompany: null,
-    phone: "+224 620 33 66 99",
-    isActive: true,
-    sessionRevokedAt: null,
-    createdAt: /* @__PURE__ */ new Date("2025-05-20T08:00:00Z"),
-    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
-    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T08:50:00Z")
-  },
-  {
-    id: 77,
-    openId: "igs_comptable_kabinet_kaba",
-    name: "Alpha Kabinet Kaba (Surestaries & Magasinage)",
-    email: "ak.kaba.surestaries@igs-logistics.gn",
-    loginMethod: "direct",
-    role: "comptable",
-    clientCompany: null,
-    phone: "+224 621 77 00 33",
-    isActive: true,
-    sessionRevokedAt: null,
-    createdAt: /* @__PURE__ */ new Date("2025-06-01T08:00:00Z"),
-    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
-    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T12:10:00Z")
-  },
-  {
-    id: 78,
-    openId: "igs_comptable_baillo_bah",
-    name: "Mamadou Baillo Bah (Compte Inactif)",
-    email: "mb.bah.inactif@igs-logistics.gn",
-    loginMethod: "direct",
-    role: "comptable",
-    clientCompany: null,
-    phone: "+224 622 11 44 77",
-    isActive: false,
-    sessionRevokedAt: /* @__PURE__ */ new Date("2026-07-30T10:00:00Z"),
-    createdAt: /* @__PURE__ */ new Date("2025-06-15T08:00:00Z"),
-    updatedAt: /* @__PURE__ */ new Date("2026-07-30T10:00:00Z"),
-    lastSignedIn: /* @__PURE__ */ new Date("2026-07-30T09:40:00Z")
-  },
-  {
-    id: 79,
-    openId: "igs_comptable_mariame_diallo",
-    name: "Mariame Diallo (Compte Inactif)",
-    email: "m.diallo.inactif@igs-logistics.gn",
-    loginMethod: "direct",
-    role: "comptable",
-    clientCompany: null,
-    phone: "+224 623 55 88 11",
-    isActive: false,
-    sessionRevokedAt: /* @__PURE__ */ new Date("2026-08-05T12:00:00Z"),
-    createdAt: /* @__PURE__ */ new Date("2025-07-01T08:00:00Z"),
-    updatedAt: /* @__PURE__ */ new Date("2026-08-05T12:00:00Z"),
-    lastSignedIn: /* @__PURE__ */ new Date("2026-08-05T11:20:00Z")
-  },
-  // --- 5. REPRÉSENTANTS ENTREPRISES CLIENTES (32) ---
-  {
-    id: 80,
-    openId: "client_birimian_aliou",
-    name: "Mamadou Aliou Diallo (Birimian Gold)",
-    email: "aliou.diallo@birimian-gold.gn",
-    loginMethod: "direct",
-    role: "client",
-    clientCompany: "Guinean Birimian Gold S.A",
-    phone: "+224 624 99 22 55",
-    isActive: true,
-    sessionRevokedAt: null,
-    createdAt: /* @__PURE__ */ new Date("2025-01-10T08:00:00Z"),
-    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
-    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T10:40:00Z")
-  },
-  {
-    id: 81,
-    openId: "client_topaz_fofana",
-    name: "Ibrahima Kassory Fofana (TOPAZ)",
-    email: "logistique@topaz.gn",
-    loginMethod: "direct",
-    role: "client",
-    clientCompany: "TOPAZ Multi-Industries S.A",
-    phone: "+224 625 33 66 00",
-    isActive: true,
-    sessionRevokedAt: null,
-    createdAt: /* @__PURE__ */ new Date("2025-01-15T08:00:00Z"),
-    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
-    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T11:25:00Z")
-  },
-  {
-    id: 82,
-    openId: "client_smb_chen_wei",
-    name: "Chen Wei (Soci\xE9t\xE9 Mini\xE8re de Bok\xE9)",
-    email: "logistics@smb-boke.gn",
-    loginMethod: "direct",
-    role: "client",
-    clientCompany: "Soci\xE9t\xE9 Mini\xE8re de Bok\xE9 (SMB)",
-    phone: "+224 626 77 00 44",
-    isActive: true,
-    sessionRevokedAt: null,
-    createdAt: /* @__PURE__ */ new Date("2025-01-20T08:00:00Z"),
-    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
-    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T08:35:00Z")
-  },
-  {
-    id: 83,
-    openId: "client_cbg_morvan",
-    name: "Pierre Morvan (Compagnie des Bauxites)",
-    email: "supply@cbg-guinee.com",
-    loginMethod: "direct",
-    role: "client",
-    clientCompany: "Compagnie des Bauxites de Guin\xE9e (CBG)",
-    phone: "+224 627 11 44 88",
-    isActive: true,
-    sessionRevokedAt: null,
-    createdAt: /* @__PURE__ */ new Date("2025-01-25T08:00:00Z"),
-    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
-    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T09:55:00Z")
-  },
-  {
-    id: 84,
-    openId: "client_gac_barry",
-    name: "Alassane Barry (Guinea Alumina)",
-    email: "import@gacguinee.com",
-    loginMethod: "direct",
-    role: "client",
-    clientCompany: "Guinea Alumina Corporation (GAC)",
-    phone: "+224 628 55 88 22",
-    isActive: true,
-    sessionRevokedAt: null,
-    createdAt: /* @__PURE__ */ new Date("2025-02-01T08:00:00Z"),
-    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
-    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T12:00:00Z")
-  },
-  {
-    id: 85,
-    openId: "client_cdm_zhang_li",
-    name: "Zhang Li (CDM-Chine Guin\xE9e)",
-    email: "import@cdm-chine.gn",
-    loginMethod: "direct",
-    role: "client",
-    clientCompany: "CDM-Chine Guin\xE9e S.A",
-    phone: "+224 629 99 22 66",
-    isActive: true,
-    sessionRevokedAt: null,
-    createdAt: /* @__PURE__ */ new Date("2025-02-05T08:00:00Z"),
-    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
-    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T07:45:00Z")
-  },
-  {
-    id: 86,
-    openId: "client_dangote_diop",
-    name: "Souleymane Diop (Dangote Cement)",
-    email: "transit@dangote-guinee.com",
-    loginMethod: "direct",
-    role: "client",
-    clientCompany: "Dangote Cement Guin\xE9e S.A",
-    phone: "+224 660 33 66 00",
-    isActive: true,
-    sessionRevokedAt: null,
-    createdAt: /* @__PURE__ */ new Date("2025-02-10T08:00:00Z"),
-    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
-    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T11:05:00Z")
-  },
-  {
-    id: 87,
-    openId: "client_sobragui_bangoura",
-    name: "Fatoumata Zahra Bangoura (Sobragui)",
-    email: "achats@sobragui.gn",
-    loginMethod: "direct",
-    role: "client",
-    clientCompany: "Sobragui S.A",
-    phone: "+224 661 77 00 44",
-    isActive: true,
-    sessionRevokedAt: null,
-    createdAt: /* @__PURE__ */ new Date("2025-02-15T08:00:00Z"),
-    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
-    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T09:10:00Z")
-  },
-  {
-    id: 88,
-    openId: "client_ciments_camara",
-    name: "Mamadou Saliou Camara (Ciments de Guin\xE9e)",
-    email: "logistique@ciments-guinee.gn",
-    loginMethod: "direct",
-    role: "client",
-    clientCompany: "Ciments de Guin\xE9e S.A",
-    phone: "+224 662 11 44 88",
-    isActive: true,
-    sessionRevokedAt: null,
-    createdAt: /* @__PURE__ */ new Date("2025-02-20T08:00:00Z"),
-    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
-    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T10:15:00Z")
-  },
-  {
-    id: 89,
-    openId: "client_chanimex_chanim",
-    name: "Karim Chanim (Chanimex Guin\xE9e)",
-    email: "import@chanimex-guinee.com",
-    loginMethod: "direct",
-    role: "client",
-    clientCompany: "Chanimex Guin\xE9e S.A.R.L",
-    phone: "+224 663 55 88 22",
-    isActive: true,
-    sessionRevokedAt: null,
-    createdAt: /* @__PURE__ */ new Date("2025-02-25T08:00:00Z"),
-    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
-    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T11:45:00Z")
-  },
-  {
-    id: 90,
-    openId: "client_total_dupont",
-    name: "Alexandre Dupont (TotalEnergies Guin\xE9e)",
-    email: "supply@totalenergies.gn",
-    loginMethod: "direct",
-    role: "client",
-    clientCompany: "TotalEnergies Marketing Guin\xE9e",
-    phone: "+224 664 99 22 66",
-    isActive: true,
-    sessionRevokedAt: null,
-    createdAt: /* @__PURE__ */ new Date("2025-03-01T08:00:00Z"),
-    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
-    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T08:20:00Z")
-  },
-  {
-    id: 91,
-    openId: "client_soguipah_soumah",
-    name: "Hadja M'Mahawa Soumah (SOGUIPAH)",
-    email: "transit@soguipah.gn",
-    loginMethod: "direct",
-    role: "client",
-    clientCompany: "SOGUIPAH S.A",
-    phone: "+224 665 33 66 00",
-    isActive: true,
-    sessionRevokedAt: null,
-    createdAt: /* @__PURE__ */ new Date("2025-03-05T08:00:00Z"),
-    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
-    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T10:50:00Z")
-  },
-  {
-    id: 92,
-    openId: "client_sag_cherif",
-    name: "Ousmane Cherif (AngloGold Ashanti / SAG)",
-    email: "logistics@anglogold-guinee.com",
-    loginMethod: "direct",
-    role: "client",
-    clientCompany: "Soci\xE9t\xE9 Anglogold Ashanti de Guin\xE9e (SAG)",
-    phone: "+224 666 77 00 44",
-    isActive: true,
-    sessionRevokedAt: null,
-    createdAt: /* @__PURE__ */ new Date("2025-03-10T08:00:00Z"),
-    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
-    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T12:10:00Z")
-  },
-  {
-    id: 93,
-    openId: "client_belair_diallo",
-    name: "Amadou Bailo Diallo (Bel Air Mining)",
-    email: "import@belairmining.gn",
-    loginMethod: "direct",
-    role: "client",
-    clientCompany: "Bel Air Mining Guin\xE9e S.A",
-    phone: "+224 667 11 44 88",
-    isActive: true,
-    sessionRevokedAt: null,
-    createdAt: /* @__PURE__ */ new Date("2025-03-15T08:00:00Z"),
-    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
-    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T09:40:00Z")
-  },
-  {
-    id: 94,
-    openId: "client_amr_traore",
-    name: "Sekou Traore (Alliance Mini\xE8re Responsable)",
-    email: "ops@amr-guinee.com",
-    loginMethod: "direct",
-    role: "client",
-    clientCompany: "Alliance Mini\xE8re Responsable (AMR)",
-    phone: "+224 668 55 88 22",
-    isActive: true,
-    sessionRevokedAt: null,
-    createdAt: /* @__PURE__ */ new Date("2025-03-20T08:00:00Z"),
-    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
-    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T11:15:00Z")
-  },
-  {
-    id: 95,
-    openId: "client_simfer_wang",
-    name: "Wang Yong (Simfer Rio Tinto Simandou)",
-    email: "supply.simandou@simfer.gn",
-    loginMethod: "direct",
-    role: "client",
-    clientCompany: "Simfer S.A (Rio Tinto Simandou)",
-    phone: "+224 669 99 22 66",
-    isActive: true,
-    sessionRevokedAt: null,
-    createdAt: /* @__PURE__ */ new Date("2025-03-25T08:00:00Z"),
-    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
-    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T08:45:00Z")
-  },
-  {
-    id: 96,
-    openId: "client_sg_bah",
-    name: "Mariama Dalanda Bah (Soci\xE9t\xE9 G\xE9n\xE9rale Guin\xE9e)",
-    email: "m.bah@socgen.gn",
-    loginMethod: "direct",
-    role: "client",
-    clientCompany: "Soci\xE9t\xE9 G\xE9n\xE9rale Guin\xE9e",
-    phone: "+224 620 11 55 88",
-    isActive: true,
-    sessionRevokedAt: null,
-    createdAt: /* @__PURE__ */ new Date("2025-04-01T08:00:00Z"),
-    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
-    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T10:05:00Z")
-  },
-  {
-    id: 97,
-    openId: "client_agl_bernard",
-    name: "Christian Bernard (AGL Africa Global Logistics)",
-    email: "c.bernard@aglgroup.com",
-    loginMethod: "direct",
-    role: "client",
-    clientCompany: "Africa Global Logistics Guin\xE9e (AGL)",
-    phone: "+224 621 55 99 22",
-    isActive: true,
-    sessionRevokedAt: null,
-    createdAt: /* @__PURE__ */ new Date("2025-04-05T08:00:00Z"),
-    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
-    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T12:00:00Z")
-  },
-  {
-    id: 98,
-    openId: "client_katata_kaba",
-    name: "Mohamed Lamine Kaba (Mining Co of Katata)",
-    email: "transit@katatamining.gn",
-    loginMethod: "direct",
-    role: "client",
-    clientCompany: "Mining Company of Katata (MCK)",
-    phone: "+224 622 99 33 66",
-    isActive: true,
-    sessionRevokedAt: null,
-    createdAt: /* @__PURE__ */ new Date("2025-04-10T08:00:00Z"),
-    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
-    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T09:30:00Z")
-  },
-  {
-    id: 99,
-    openId: "client_mandiana_diallo",
-    name: "Thierno Mamadou Diallo (Or Mandiana)",
-    email: "direction@aurifere-mandiana.gn",
-    loginMethod: "direct",
-    role: "client",
-    clientCompany: "Soci\xE9t\xE9 Aurif\xE8re de Mandiana S.A",
-    phone: "+224 623 33 77 00",
-    isActive: true,
-    sessionRevokedAt: null,
-    createdAt: /* @__PURE__ */ new Date("2025-04-15T08:00:00Z"),
-    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
-    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T11:35:00Z")
-  },
-  {
-    id: 100,
-    openId: "client_soguicar_cisse",
-    name: "Aissatou Cisse (Soguicar Concessionnaire)",
-    email: "import@soguicar.gn",
-    loginMethod: "direct",
-    role: "client",
-    clientCompany: "SOGUICAR Guin\xE9e S.A",
-    phone: "+224 624 77 11 44",
-    isActive: true,
-    sessionRevokedAt: null,
-    createdAt: /* @__PURE__ */ new Date("2025-04-20T08:00:00Z"),
-    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
-    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T10:20:00Z")
-  },
-  {
-    id: 101,
-    openId: "client_gi_camara",
-    name: "Aboubacar Camara (Guin\xE9enne d'Industrie)",
-    email: "achats@gi-guinee.gn",
-    loginMethod: "direct",
-    role: "client",
-    clientCompany: "Guin\xE9enne d'Industrie (GI)",
-    phone: "+224 625 11 55 88",
-    isActive: true,
-    sessionRevokedAt: null,
-    createdAt: /* @__PURE__ */ new Date("2025-05-01T08:00:00Z"),
-    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
-    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T08:10:00Z")
-  },
-  {
-    id: 102,
-    openId: "client_nimba_kpoghomou",
-    name: "Julien Kpoghomou (Soci\xE9t\xE9 des Mines de Fer de Guin\xE9e)",
-    email: "j.kpoghomou@smfg.gn",
-    loginMethod: "direct",
-    role: "client",
-    clientCompany: "Soci\xE9t\xE9 des Mines de Fer de Guin\xE9e (SMFG)",
-    phone: "+224 626 55 99 22",
-    isActive: true,
-    sessionRevokedAt: null,
-    createdAt: /* @__PURE__ */ new Date("2025-05-10T08:00:00Z"),
-    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
-    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T11:00:00Z")
-  },
-  {
-    id: 103,
-    openId: "client_navale_fofana",
-    name: "Lansana Fofana (Soci\xE9t\xE9 Navale Guin\xE9enne)",
-    email: "transit@navale-guinee.gn",
-    loginMethod: "direct",
-    role: "client",
-    clientCompany: "Soci\xE9t\xE9 Navale Guin\xE9enne (SNG)",
-    phone: "+224 627 99 33 66",
-    isActive: true,
-    sessionRevokedAt: null,
-    createdAt: /* @__PURE__ */ new Date("2025-05-15T08:00:00Z"),
-    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
-    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T09:05:00Z")
-  },
-  {
-    id: 104,
-    openId: "client_hydrocarbures_soumah",
-    name: "Fatoumata Yarie Soumah (Continental Hydrocarbures)",
-    email: "ops@continental-guinee.gn",
-    loginMethod: "direct",
-    role: "client",
-    clientCompany: "Continental Hydrocarbures Guin\xE9e",
-    phone: "+224 628 33 77 00",
-    isActive: true,
-    sessionRevokedAt: null,
-    createdAt: /* @__PURE__ */ new Date("2025-06-01T08:00:00Z"),
-    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
-    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T12:15:00Z")
-  },
-  {
-    id: 105,
-    openId: "client_lng_barry",
-    name: "Mamadou Tahirou Barry (West Africa LNG)",
-    email: "transit@walng-guinee.com",
-    loginMethod: "direct",
-    role: "client",
-    clientCompany: "West Africa LNG Guin\xE9e",
-    phone: "+224 629 77 11 44",
-    isActive: true,
-    sessionRevokedAt: null,
-    createdAt: /* @__PURE__ */ new Date("2025-06-10T08:00:00Z"),
-    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
-    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T10:30:00Z")
-  },
-  {
-    id: 106,
-    openId: "client_kimbo_conde",
-    name: "Sory Conde (Bauxite Kimbo Guin\xE9e)",
-    email: "ops@kimbo-bauxite.gn",
-    loginMethod: "direct",
-    role: "client",
-    clientCompany: "Bauxite Kimbo Guin\xE9e S.A",
-    phone: "+224 660 11 55 88",
-    isActive: true,
-    sessionRevokedAt: null,
-    createdAt: /* @__PURE__ */ new Date("2025-06-20T08:00:00Z"),
-    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
-    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T08:55:00Z")
-  },
-  {
-    id: 107,
-    openId: "client_kct_diakite",
-    name: "Ibrahima Diakite (Kamsar Container Terminal)",
-    email: "i.diakite@kct-guinee.com",
-    loginMethod: "direct",
-    role: "client",
-    clientCompany: "Kamsar Container Terminal Partners",
-    phone: "+224 661 55 99 22",
-    isActive: true,
-    sessionRevokedAt: null,
-    createdAt: /* @__PURE__ */ new Date("2025-07-01T08:00:00Z"),
-    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
-    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T11:40:00Z")
-  },
-  {
-    id: 108,
-    openId: "client_agro_toure",
-    name: "Abdoulaye Toure (Agro-Industrie Guin\xE9e)",
-    email: "transit@agro-guinee.gn",
-    loginMethod: "direct",
-    role: "client",
-    clientCompany: "Agro-Industrie de Guin\xE9e S.A",
-    phone: "+224 662 99 33 66",
-    isActive: true,
-    sessionRevokedAt: null,
-    createdAt: /* @__PURE__ */ new Date("2025-07-10T08:00:00Z"),
-    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
-    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T09:25:00Z")
-  },
-  {
-    id: 109,
-    openId: "client_tg_diallo",
-    name: "Diallo Abdoul Gadirou (Trans-Guin\xE9en Mines)",
-    email: "ag.diallo@transguineen.gn",
-    loginMethod: "direct",
-    role: "client",
-    clientCompany: "Trans-Guin\xE9en Chemin de Fer & Mines",
-    phone: "+224 663 33 77 00",
-    isActive: true,
-    sessionRevokedAt: null,
-    createdAt: /* @__PURE__ */ new Date("2025-07-15T08:00:00Z"),
-    updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
-    lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T12:05:00Z")
-  },
-  {
-    id: 110,
-    openId: "client_kipe_camara",
-    name: "Naby Camara (Kipe Trading - Compte Suspendu)",
-    email: "n.camara.suspendu@kipe-trading.gn",
-    loginMethod: "direct",
-    role: "client",
-    clientCompany: "Kipe Trading & Mining S.A.R.L",
-    phone: "+224 664 77 11 44",
-    isActive: false,
-    sessionRevokedAt: /* @__PURE__ */ new Date("2026-08-01T15:00:00Z"),
-    createdAt: /* @__PURE__ */ new Date("2025-07-20T08:00:00Z"),
-    updatedAt: /* @__PURE__ */ new Date("2026-08-01T15:00:00Z"),
-    lastSignedIn: /* @__PURE__ */ new Date("2026-08-01T14:30:00Z")
-  },
-  {
-    id: 111,
-    openId: "client_conakry_bauxite_balde",
-    name: "Mamadou Aliou Balde (Conakry Bauxite - Suspendu)",
-    email: "ma.balde.suspendu@conakry-bauxite.gn",
-    loginMethod: "direct",
-    role: "client",
-    clientCompany: "Conakry Bauxite Logistics",
-    phone: "+224 665 11 55 88",
-    isActive: false,
-    sessionRevokedAt: /* @__PURE__ */ new Date("2026-08-08T11:00:00Z"),
-    createdAt: /* @__PURE__ */ new Date("2025-08-01T08:00:00Z"),
-    updatedAt: /* @__PURE__ */ new Date("2026-08-08T11:00:00Z"),
-    lastSignedIn: /* @__PURE__ */ new Date("2026-08-08T10:45:00Z")
+var initialUsersData;
+var init_initialUsersData = __esm({
+  "server/initialUsersData.ts"() {
+    "use strict";
+    initialUsersData = [
+      // --- 1. CORE PROFILES ---
+      {
+        id: 1,
+        openId: "igs_admin_conakry",
+        name: "Ibrahima Gold Service (Admin)",
+        email: "contact@igs-logistics.gn",
+        loginMethod: "direct",
+        role: "admin",
+        clientCompany: null,
+        phone: "+224 620 00 00 00",
+        isActive: true,
+        sessionRevokedAt: null,
+        createdAt: /* @__PURE__ */ new Date("2025-01-01T08:00:00Z"),
+        updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+        lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T10:30:00Z")
+      },
+      {
+        id: 2,
+        openId: "declarant_conakry",
+        name: "Mamadou Diallo (D\xE9clarant PAC)",
+        email: "declarant@igs-logistics.gn",
+        loginMethod: "direct",
+        role: "declarant",
+        clientCompany: null,
+        phone: "+224 621 11 22 33",
+        isActive: true,
+        sessionRevokedAt: null,
+        createdAt: /* @__PURE__ */ new Date("2025-01-05T08:00:00Z"),
+        updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+        lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T11:15:00Z")
+      },
+      {
+        id: 3,
+        openId: "comptable_conakry",
+        name: "Fatoumata Camara (Comptable)",
+        email: "finance@igs-logistics.gn",
+        loginMethod: "direct",
+        role: "comptable",
+        clientCompany: null,
+        phone: "+224 622 44 55 66",
+        isActive: true,
+        sessionRevokedAt: null,
+        createdAt: /* @__PURE__ */ new Date("2025-01-10T08:00:00Z"),
+        updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+        lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T09:45:00Z")
+      },
+      {
+        id: 4,
+        openId: "client_birimian",
+        name: "Guinean Birimian Gold (Portail)",
+        email: "logistique@birimian-gold.gn",
+        loginMethod: "direct",
+        role: "client",
+        clientCompany: "Guinean Birimian Gold S.A",
+        phone: "+224 623 77 88 99",
+        isActive: true,
+        sessionRevokedAt: null,
+        createdAt: /* @__PURE__ */ new Date("2025-02-01T08:00:00Z"),
+        updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+        lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T12:00:00Z")
+      },
+      // --- 2. ADMINS & MANAGERS D'EXPLOITATION (12) ---
+      {
+        id: 5,
+        openId: "igs_manager_alpha_barry",
+        name: "Alpha Barry (Directeur des Op\xE9rations)",
+        email: "alpha.barry@igs-logistics.gn",
+        loginMethod: "direct",
+        role: "manager",
+        clientCompany: null,
+        phone: "+224 620 12 34 56",
+        isActive: true,
+        sessionRevokedAt: null,
+        createdAt: /* @__PURE__ */ new Date("2025-01-15T08:00:00Z"),
+        updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+        lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T11:50:00Z")
+      },
+      {
+        id: 6,
+        openId: "igs_admin_mariama_kourouma",
+        name: "Mariama Kourouma (Directrice G\xE9n\xE9rale Adjointe)",
+        email: "m.kourouma@igs-logistics.gn",
+        loginMethod: "direct",
+        role: "admin",
+        clientCompany: null,
+        phone: "+224 620 98 76 54",
+        isActive: true,
+        sessionRevokedAt: null,
+        createdAt: /* @__PURE__ */ new Date("2025-01-15T08:00:00Z"),
+        updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+        lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T10:10:00Z")
+      },
+      {
+        id: 7,
+        openId: "igs_admin_sekouba_keita",
+        name: "Sekouba Keita (Responsable Sydonia & GUCEG)",
+        email: "s.keita@igs-logistics.gn",
+        loginMethod: "direct",
+        role: "admin",
+        clientCompany: null,
+        phone: "+224 621 33 44 55",
+        isActive: true,
+        sessionRevokedAt: null,
+        createdAt: /* @__PURE__ */ new Date("2025-02-01T08:00:00Z"),
+        updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+        lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T08:30:00Z")
+      },
+      {
+        id: 8,
+        openId: "igs_manager_hadja_diallo",
+        name: "Hadja Aissatou Diallo (Superviseur Port Kamsar)",
+        email: "a.diallo.kamsar@igs-logistics.gn",
+        loginMethod: "direct",
+        role: "manager",
+        clientCompany: null,
+        phone: "+224 622 77 88 99",
+        isActive: true,
+        sessionRevokedAt: null,
+        createdAt: /* @__PURE__ */ new Date("2025-02-10T08:00:00Z"),
+        updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+        lastSignedIn: /* @__PURE__ */ new Date("2026-08-19T16:40:00Z")
+      },
+      {
+        id: 9,
+        openId: "igs_admin_ousmane_bah",
+        name: "Ousmane Bah (Directeur Transit Maritime)",
+        email: "o.bah@igs-logistics.gn",
+        loginMethod: "direct",
+        role: "admin",
+        clientCompany: null,
+        phone: "+224 623 11 22 44",
+        isActive: true,
+        sessionRevokedAt: null,
+        createdAt: /* @__PURE__ */ new Date("2025-02-15T08:00:00Z"),
+        updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+        lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T09:15:00Z")
+      },
+      {
+        id: 10,
+        openId: "igs_manager_fatoumata_balde",
+        name: "Fatoumata Binta Balde (Audit Interne & Qualit\xE9)",
+        email: "fb.balde@igs-logistics.gn",
+        loginMethod: "direct",
+        role: "manager",
+        clientCompany: null,
+        phone: "+224 624 55 66 77",
+        isActive: true,
+        sessionRevokedAt: null,
+        createdAt: /* @__PURE__ */ new Date("2025-03-01T08:00:00Z"),
+        updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+        lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T10:55:00Z")
+      },
+      {
+        id: 11,
+        openId: "igs_admin_mohamed_cisse",
+        name: "Mohamed Lamine Cisse (Chef des Relations Douane)",
+        email: "ml.cisse@igs-logistics.gn",
+        loginMethod: "direct",
+        role: "admin",
+        clientCompany: null,
+        phone: "+224 625 22 33 66",
+        isActive: true,
+        sessionRevokedAt: null,
+        createdAt: /* @__PURE__ */ new Date("2025-03-10T08:00:00Z"),
+        updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+        lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T11:05:00Z")
+      },
+      {
+        id: 12,
+        openId: "igs_manager_kadiatou_sylla",
+        name: "Kadiatou Sylla (Superviseur Quai Nord PAC)",
+        email: "k.sylla@igs-logistics.gn",
+        loginMethod: "direct",
+        role: "manager",
+        clientCompany: null,
+        phone: "+224 626 44 88 11",
+        isActive: true,
+        sessionRevokedAt: null,
+        createdAt: /* @__PURE__ */ new Date("2025-03-15T08:00:00Z"),
+        updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+        lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T08:15:00Z")
+      },
+      {
+        id: 13,
+        openId: "igs_manager_thierno_diallo",
+        name: "Thierno Sadou Diallo (Chef d'Agence Kamsar)",
+        email: "ts.diallo@igs-logistics.gn",
+        loginMethod: "direct",
+        role: "manager",
+        clientCompany: null,
+        phone: "+224 627 99 00 11",
+        isActive: true,
+        sessionRevokedAt: null,
+        createdAt: /* @__PURE__ */ new Date("2025-03-20T08:00:00Z"),
+        updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+        lastSignedIn: /* @__PURE__ */ new Date("2026-08-19T14:20:00Z")
+      },
+      {
+        id: 14,
+        openId: "igs_admin_ibrahima_bangoura",
+        name: "Ibrahima Sory Bangoura (Responsable IT & S\xE9curit\xE9)",
+        email: "is.bangoura@igs-logistics.gn",
+        loginMethod: "direct",
+        role: "admin",
+        clientCompany: null,
+        phone: "+224 628 33 55 77",
+        isActive: true,
+        sessionRevokedAt: null,
+        createdAt: /* @__PURE__ */ new Date("2025-04-01T08:00:00Z"),
+        updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+        lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T12:10:00Z")
+      },
+      {
+        id: 15,
+        openId: "igs_manager_djiba_camara",
+        name: "Djiba Camara (Manager Relations GUCEG PAC)",
+        email: "d.camara@igs-logistics.gn",
+        loginMethod: "direct",
+        role: "manager",
+        clientCompany: null,
+        phone: "+224 629 11 44 88",
+        isActive: true,
+        sessionRevokedAt: null,
+        createdAt: /* @__PURE__ */ new Date("2025-04-10T08:00:00Z"),
+        updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+        lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T07:45:00Z")
+      },
+      {
+        id: 16,
+        openId: "igs_manager_cellou_diallo",
+        name: "Mamadou Cellou Diallo (Responsable HSE Portuaire)",
+        email: "mc.diallo@igs-logistics.gn",
+        loginMethod: "direct",
+        role: "manager",
+        clientCompany: null,
+        phone: "+224 660 55 66 88",
+        isActive: true,
+        sessionRevokedAt: null,
+        createdAt: /* @__PURE__ */ new Date("2025-04-15T08:00:00Z"),
+        updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+        lastSignedIn: /* @__PURE__ */ new Date("2026-08-18T16:30:00Z")
+      },
+      // --- 3. DÉCLARANTS DOUANE PAC & PORTS (45) ---
+      {
+        id: 17,
+        openId: "igs_declarant_lamarana_diallo",
+        name: "Mamadou Lamarana Diallo (Quai Nord)",
+        email: "ml.diallo@igs-logistics.gn",
+        loginMethod: "direct",
+        role: "declarant",
+        clientCompany: null,
+        phone: "+224 621 44 11 22",
+        isActive: true,
+        sessionRevokedAt: null,
+        createdAt: /* @__PURE__ */ new Date("2025-01-20T08:00:00Z"),
+        updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+        lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T11:40:00Z")
+      },
+      {
+        id: 18,
+        openId: "igs_declarant_aboubacar_soumah",
+        name: "Aboubacar Soumah (Terminal Conteneurs PAC)",
+        email: "a.soumah@igs-logistics.gn",
+        loginMethod: "direct",
+        role: "declarant",
+        clientCompany: null,
+        phone: "+224 622 33 22 11",
+        isActive: true,
+        sessionRevokedAt: null,
+        createdAt: /* @__PURE__ */ new Date("2025-01-22T08:00:00Z"),
+        updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+        lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T10:25:00Z")
+      },
+      {
+        id: 19,
+        openId: "igs_declarant_amadou_barry",
+        name: "Amadou Tidiane Barry (SYDONIA PAC)",
+        email: "at.barry@igs-logistics.gn",
+        loginMethod: "direct",
+        role: "declarant",
+        clientCompany: null,
+        phone: "+224 623 55 66 11",
+        isActive: true,
+        sessionRevokedAt: null,
+        createdAt: /* @__PURE__ */ new Date("2025-01-25T08:00:00Z"),
+        updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+        lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T09:30:00Z")
+      },
+      {
+        id: 20,
+        openId: "igs_declarant_mohamed_camara",
+        name: "Mohamed Camara (Quai Sud PAC)",
+        email: "m.camara@igs-logistics.gn",
+        loginMethod: "direct",
+        role: "declarant",
+        clientCompany: null,
+        phone: "+224 624 88 99 00",
+        isActive: true,
+        sessionRevokedAt: null,
+        createdAt: /* @__PURE__ */ new Date("2025-02-01T08:00:00Z"),
+        updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+        lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T08:45:00Z")
+      },
+      {
+        id: 21,
+        openId: "igs_declarant_sekou_conde",
+        name: "Sekou Conde (Terminal Ro-Ro)",
+        email: "s.conde@igs-logistics.gn",
+        loginMethod: "direct",
+        role: "declarant",
+        clientCompany: null,
+        phone: "+224 625 77 11 33",
+        isActive: true,
+        sessionRevokedAt: null,
+        createdAt: /* @__PURE__ */ new Date("2025-02-05T08:00:00Z"),
+        updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+        lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T11:10:00Z")
+      },
+      {
+        id: 22,
+        openId: "igs_declarant_alpha_oumar_diallo",
+        name: "Alpha Oumar Diallo (Port Min\xE9ralier Kamsar)",
+        email: "ao.diallo@igs-logistics.gn",
+        loginMethod: "direct",
+        role: "declarant",
+        clientCompany: null,
+        phone: "+224 626 22 44 66",
+        isActive: true,
+        sessionRevokedAt: null,
+        createdAt: /* @__PURE__ */ new Date("2025-02-10T08:00:00Z"),
+        updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+        lastSignedIn: /* @__PURE__ */ new Date("2026-08-19T17:15:00Z")
+      },
+      {
+        id: 23,
+        openId: "igs_declarant_kalil_traore",
+        name: "Ibrahima Kalil Traore (Bureau Douane PAC)",
+        email: "ik.traore@igs-logistics.gn",
+        loginMethod: "direct",
+        role: "declarant",
+        clientCompany: null,
+        phone: "+224 627 66 88 00",
+        isActive: true,
+        sessionRevokedAt: null,
+        createdAt: /* @__PURE__ */ new Date("2025-02-12T08:00:00Z"),
+        updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+        lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T10:40:00Z")
+      },
+      {
+        id: 24,
+        openId: "igs_declarant_morlaye_sylla",
+        name: "Morlaye Sylla (Terminal Vraquier)",
+        email: "m.sylla@igs-logistics.gn",
+        loginMethod: "direct",
+        role: "declarant",
+        clientCompany: null,
+        phone: "+224 628 44 99 11",
+        isActive: true,
+        sessionRevokedAt: null,
+        createdAt: /* @__PURE__ */ new Date("2025-02-15T08:00:00Z"),
+        updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+        lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T09:20:00Z")
+      },
+      {
+        id: 25,
+        openId: "igs_declarant_fode_bangoura",
+        name: "Fode Bangoura (Bureau GUCEG Conakry)",
+        email: "f.bangoura@igs-logistics.gn",
+        loginMethod: "direct",
+        role: "declarant",
+        clientCompany: null,
+        phone: "+224 629 88 22 44",
+        isActive: true,
+        sessionRevokedAt: null,
+        createdAt: /* @__PURE__ */ new Date("2025-02-18T08:00:00Z"),
+        updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+        lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T12:05:00Z")
+      },
+      {
+        id: 26,
+        openId: "igs_declarant_cheick_toure",
+        name: "Cheick Ahmed Toure (Terminal P\xE9trolier)",
+        email: "ca.toure@igs-logistics.gn",
+        loginMethod: "direct",
+        role: "declarant",
+        clientCompany: null,
+        phone: "+224 660 11 33 55",
+        isActive: true,
+        sessionRevokedAt: null,
+        createdAt: /* @__PURE__ */ new Date("2025-02-20T08:00:00Z"),
+        updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+        lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z")
+      },
+      {
+        id: 27,
+        openId: "igs_declarant_abdoulaye_balde",
+        name: "Abdoulaye Balde (Quai Commercial PAC)",
+        email: "a.balde@igs-logistics.gn",
+        loginMethod: "direct",
+        role: "declarant",
+        clientCompany: null,
+        phone: "+224 661 44 77 99",
+        isActive: true,
+        sessionRevokedAt: null,
+        createdAt: /* @__PURE__ */ new Date("2025-02-25T08:00:00Z"),
+        updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+        lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T11:25:00Z")
+      },
+      {
+        id: 28,
+        openId: "igs_declarant_lansana_keita",
+        name: "Lansana Keita (Sydonia BAE/BL)",
+        email: "l.keita@igs-logistics.gn",
+        loginMethod: "direct",
+        role: "declarant",
+        clientCompany: null,
+        phone: "+224 662 22 55 88",
+        isActive: true,
+        sessionRevokedAt: null,
+        createdAt: /* @__PURE__ */ new Date("2025-03-01T08:00:00Z"),
+        updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+        lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T10:05:00Z")
+      },
+      {
+        id: 29,
+        openId: "igs_declarant_saliou_sow",
+        name: "Mamadou Saliou Sow (Quai Ouest PAC)",
+        email: "ms.sow@igs-logistics.gn",
+        loginMethod: "direct",
+        role: "declarant",
+        clientCompany: null,
+        phone: "+224 663 88 11 44",
+        isActive: true,
+        sessionRevokedAt: null,
+        createdAt: /* @__PURE__ */ new Date("2025-03-05T08:00:00Z"),
+        updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+        lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T09:50:00Z")
+      },
+      {
+        id: 30,
+        openId: "igs_declarant_oumar_bah",
+        name: "Oumar Bah (DDI & Bulletin Liquidation)",
+        email: "o.bah.douane@igs-logistics.gn",
+        loginMethod: "direct",
+        role: "declarant",
+        clientCompany: null,
+        phone: "+224 664 33 66 99",
+        isActive: true,
+        sessionRevokedAt: null,
+        createdAt: /* @__PURE__ */ new Date("2025-03-10T08:00:00Z"),
+        updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+        lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T11:35:00Z")
+      },
+      {
+        id: 31,
+        openId: "igs_declarant_youssouf_camara",
+        name: "Youssouf Camara (Zone Matoto & Entrep\xF4ts)",
+        email: "y.camara@igs-logistics.gn",
+        loginMethod: "direct",
+        role: "declarant",
+        clientCompany: null,
+        phone: "+224 665 77 00 22",
+        isActive: true,
+        sessionRevokedAt: null,
+        createdAt: /* @__PURE__ */ new Date("2025-03-12T08:00:00Z"),
+        updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+        lastSignedIn: /* @__PURE__ */ new Date("2026-08-19T15:10:00Z")
+      },
+      {
+        id: 32,
+        openId: "igs_declarant_aly_cisse",
+        name: "Aly Badara Cisse (Transit Fronti\xE8re)",
+        email: "ab.cisse@igs-logistics.gn",
+        loginMethod: "direct",
+        role: "declarant",
+        clientCompany: null,
+        phone: "+224 666 11 44 77",
+        isActive: true,
+        sessionRevokedAt: null,
+        createdAt: /* @__PURE__ */ new Date("2025-03-15T08:00:00Z"),
+        updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+        lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T08:20:00Z")
+      },
+      {
+        id: 33,
+        openId: "igs_declarant_sekou_diakite",
+        name: "S\xE9kou Oumar Diakite (Port Min\xE9ralier Boffa)",
+        email: "so.diakite@igs-logistics.gn",
+        loginMethod: "direct",
+        role: "declarant",
+        clientCompany: null,
+        phone: "+224 667 55 88 11",
+        isActive: true,
+        sessionRevokedAt: null,
+        createdAt: /* @__PURE__ */ new Date("2025-03-20T08:00:00Z"),
+        updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+        lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T10:15:00Z")
+      },
+      {
+        id: 34,
+        openId: "igs_declarant_boubacar_diallo",
+        name: "Boubacar Diallo (Port de Bok\xE9 Dapilon)",
+        email: "b.diallo.boke@igs-logistics.gn",
+        loginMethod: "direct",
+        role: "declarant",
+        clientCompany: null,
+        phone: "+224 668 99 22 55",
+        isActive: true,
+        sessionRevokedAt: null,
+        createdAt: /* @__PURE__ */ new Date("2025-03-25T08:00:00Z"),
+        updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+        lastSignedIn: /* @__PURE__ */ new Date("2026-08-19T18:00:00Z")
+      },
+      {
+        id: 35,
+        openId: "igs_declarant_alpha_barry_kamsar",
+        name: "Mamadou Alpha Barry (Bauxite Kamsar)",
+        email: "ma.barry.kamsar@igs-logistics.gn",
+        loginMethod: "direct",
+        role: "declarant",
+        clientCompany: null,
+        phone: "+224 669 33 66 00",
+        isActive: true,
+        sessionRevokedAt: null,
+        createdAt: /* @__PURE__ */ new Date("2025-04-01T08:00:00Z"),
+        updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+        lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T07:30:00Z")
+      },
+      {
+        id: 36,
+        openId: "igs_declarant_alhassane_soumah",
+        name: "Alhassane Soumah (PAC Quai Nord 2)",
+        email: "a.soumah.pac@igs-logistics.gn",
+        loginMethod: "direct",
+        role: "declarant",
+        clientCompany: null,
+        phone: "+224 620 44 77 11",
+        isActive: true,
+        sessionRevokedAt: null,
+        createdAt: /* @__PURE__ */ new Date("2025-04-05T08:00:00Z"),
+        updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+        lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T11:00:00Z")
+      },
+      {
+        id: 37,
+        openId: "igs_declarant_sory_diane",
+        name: "Ibrahima Sory Diane (SYDONIA Kamsar)",
+        email: "is.diane@igs-logistics.gn",
+        loginMethod: "direct",
+        role: "declarant",
+        clientCompany: null,
+        phone: "+224 621 88 11 55",
+        isActive: true,
+        sessionRevokedAt: null,
+        createdAt: /* @__PURE__ */ new Date("2025-04-10T08:00:00Z"),
+        updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+        lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T09:40:00Z")
+      },
+      {
+        id: 38,
+        openId: "igs_declarant_jean_loua",
+        name: "Jean-Pierre Loua (R\xE9gime Transit N1)",
+        email: "jp.loua@igs-logistics.gn",
+        loginMethod: "direct",
+        role: "declarant",
+        clientCompany: null,
+        phone: "+224 622 22 66 00",
+        isActive: true,
+        sessionRevokedAt: null,
+        createdAt: /* @__PURE__ */ new Date("2025-04-15T08:00:00Z"),
+        updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+        lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T10:50:00Z")
+      },
+      {
+        id: 39,
+        openId: "igs_declarant_david_haba",
+        name: "David Haba (D\xE9douanement V\xE9hicules PAC)",
+        email: "d.haba@igs-logistics.gn",
+        loginMethod: "direct",
+        role: "declarant",
+        clientCompany: null,
+        phone: "+224 623 66 00 44",
+        isActive: true,
+        sessionRevokedAt: null,
+        createdAt: /* @__PURE__ */ new Date("2025-04-20T08:00:00Z"),
+        updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+        lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T08:55:00Z")
+      },
+      {
+        id: 40,
+        openId: "igs_declarant_paul_lamah",
+        name: "Paul Lamah (Fret Sp\xE9cialis\xE9)",
+        email: "p.lamah@igs-logistics.gn",
+        loginMethod: "direct",
+        role: "declarant",
+        clientCompany: null,
+        phone: "+224 624 00 44 88",
+        isActive: true,
+        sessionRevokedAt: null,
+        createdAt: /* @__PURE__ */ new Date("2025-04-25T08:00:00Z"),
+        updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+        lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T11:45:00Z")
+      },
+      {
+        id: 41,
+        openId: "igs_declarant_mohamed_cherif",
+        name: "Mohamed Cherif (Hydrocarbures & Chimiques)",
+        email: "m.cherif@igs-logistics.gn",
+        loginMethod: "direct",
+        role: "declarant",
+        clientCompany: null,
+        phone: "+224 625 44 88 22",
+        isActive: true,
+        sessionRevokedAt: null,
+        createdAt: /* @__PURE__ */ new Date("2025-05-01T08:00:00Z"),
+        updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+        lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T10:20:00Z")
+      },
+      {
+        id: 42,
+        openId: "igs_declarant_mamady_kaba",
+        name: "Mamady Kaba (Minerais & Vrac)",
+        email: "m.kaba.vrac@igs-logistics.gn",
+        loginMethod: "direct",
+        role: "declarant",
+        clientCompany: null,
+        phone: "+224 626 88 22 66",
+        isActive: true,
+        sessionRevokedAt: null,
+        createdAt: /* @__PURE__ */ new Date("2025-05-05T08:00:00Z"),
+        updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+        lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T09:10:00Z")
+      },
+      {
+        id: 43,
+        openId: "igs_declarant_souleymane_diallo",
+        name: "Souleymane Diallo (DDI GUCEG)",
+        email: "s.diallo.guceg@igs-logistics.gn",
+        loginMethod: "direct",
+        role: "declarant",
+        clientCompany: null,
+        phone: "+224 627 22 66 00",
+        isActive: true,
+        sessionRevokedAt: null,
+        createdAt: /* @__PURE__ */ new Date("2025-05-10T08:00:00Z"),
+        updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+        lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T12:00:00Z")
+      },
+      {
+        id: 44,
+        openId: "igs_declarant_bakary_kante",
+        name: "Bakary Kante (Terminal Conteneurs)",
+        email: "b.kante@igs-logistics.gn",
+        loginMethod: "direct",
+        role: "declarant",
+        clientCompany: null,
+        phone: "+224 628 66 00 44",
+        isActive: true,
+        sessionRevokedAt: null,
+        createdAt: /* @__PURE__ */ new Date("2025-05-15T08:00:00Z"),
+        updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+        lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T08:35:00Z")
+      },
+      {
+        id: 45,
+        openId: "igs_declarant_alseny_camara",
+        name: "Alseny Camara (Acconage & Relevage PAC)",
+        email: "a.camara.acconage@igs-logistics.gn",
+        loginMethod: "direct",
+        role: "declarant",
+        clientCompany: null,
+        phone: "+224 629 00 44 88",
+        isActive: true,
+        sessionRevokedAt: null,
+        createdAt: /* @__PURE__ */ new Date("2025-05-20T08:00:00Z"),
+        updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+        lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T11:15:00Z")
+      },
+      {
+        id: 46,
+        openId: "igs_declarant_naby_toure",
+        name: "Naby Youssouf Toure (Quai Sud)",
+        email: "ny.toure@igs-logistics.gn",
+        loginMethod: "direct",
+        role: "declarant",
+        clientCompany: null,
+        phone: "+224 660 44 88 22",
+        isActive: true,
+        sessionRevokedAt: null,
+        createdAt: /* @__PURE__ */ new Date("2025-05-25T08:00:00Z"),
+        updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+        lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T10:00:00Z")
+      },
+      {
+        id: 47,
+        openId: "igs_declarant_daouda_conde",
+        name: "Daouda Conde (Magasin Calage PAC)",
+        email: "d.conde.magasin@igs-logistics.gn",
+        loginMethod: "direct",
+        role: "declarant",
+        clientCompany: null,
+        phone: "+224 661 88 22 66",
+        isActive: true,
+        sessionRevokedAt: null,
+        createdAt: /* @__PURE__ */ new Date("2025-06-01T08:00:00Z"),
+        updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+        lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T09:05:00Z")
+      },
+      {
+        id: 48,
+        openId: "igs_declarant_cherif_diallo",
+        name: "Cherif Diallo (D\xE9barquement Min\xE9ralier)",
+        email: "c.diallo.mineral@igs-logistics.gn",
+        loginMethod: "direct",
+        role: "declarant",
+        clientCompany: null,
+        phone: "+224 662 22 66 00",
+        isActive: true,
+        sessionRevokedAt: null,
+        createdAt: /* @__PURE__ */ new Date("2025-06-05T08:00:00Z"),
+        updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+        lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T07:50:00Z")
+      },
+      {
+        id: 49,
+        openId: "igs_declarant_thierno_sow",
+        name: "Thierno Oumar Sow (Quittance & BAE PAC)",
+        email: "to.sow@igs-logistics.gn",
+        loginMethod: "direct",
+        role: "declarant",
+        clientCompany: null,
+        phone: "+224 663 66 00 44",
+        isActive: true,
+        sessionRevokedAt: null,
+        createdAt: /* @__PURE__ */ new Date("2025-06-10T08:00:00Z"),
+        updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+        lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T11:55:00Z")
+      },
+      {
+        id: 50,
+        openId: "igs_declarant_ibrahima_bah",
+        name: "Ibrahima Bah (Port Autonome Conakry)",
+        email: "i.bah.pac@igs-logistics.gn",
+        loginMethod: "direct",
+        role: "declarant",
+        clientCompany: null,
+        phone: "+224 664 00 44 88",
+        isActive: true,
+        sessionRevokedAt: null,
+        createdAt: /* @__PURE__ */ new Date("2025-06-15T08:00:00Z"),
+        updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+        lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T10:35:00Z")
+      },
+      {
+        id: 51,
+        openId: "igs_declarant_hady_diallo",
+        name: "Mamadou Hady Diallo (SYDONIA Expert)",
+        email: "mh.diallo@igs-logistics.gn",
+        loginMethod: "direct",
+        role: "declarant",
+        clientCompany: null,
+        phone: "+224 665 44 88 22",
+        isActive: true,
+        sessionRevokedAt: null,
+        createdAt: /* @__PURE__ */ new Date("2025-06-20T08:00:00Z"),
+        updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+        lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T08:40:00Z")
+      },
+      {
+        id: 52,
+        openId: "igs_declarant_salifou_camara",
+        name: "Salifou Camara (Terminal Fruiti\xE8re PAC)",
+        email: "s.camara.fruit@igs-logistics.gn",
+        loginMethod: "direct",
+        role: "declarant",
+        clientCompany: null,
+        phone: "+224 666 88 22 66",
+        isActive: true,
+        sessionRevokedAt: null,
+        createdAt: /* @__PURE__ */ new Date("2025-06-25T08:00:00Z"),
+        updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+        lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T12:15:00Z")
+      },
+      {
+        id: 53,
+        openId: "igs_declarant_yamoussa_bangoura",
+        name: "Yamoussa Bangoura (Quai Nord Post 3)",
+        email: "y.bangoura@igs-logistics.gn",
+        loginMethod: "direct",
+        role: "declarant",
+        clientCompany: null,
+        phone: "+224 667 22 66 00",
+        isActive: true,
+        sessionRevokedAt: null,
+        createdAt: /* @__PURE__ */ new Date("2025-07-01T08:00:00Z"),
+        updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+        lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T09:25:00Z")
+      },
+      {
+        id: 54,
+        openId: "igs_declarant_almamy_toure",
+        name: "Almamy Toure (Port Kamsar Nord)",
+        email: "a.toure.kamsar@igs-logistics.gn",
+        loginMethod: "direct",
+        role: "declarant",
+        clientCompany: null,
+        phone: "+224 668 66 00 44",
+        isActive: true,
+        sessionRevokedAt: null,
+        createdAt: /* @__PURE__ */ new Date("2025-07-05T08:00:00Z"),
+        updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+        lastSignedIn: /* @__PURE__ */ new Date("2026-08-19T16:00:00Z")
+      },
+      {
+        id: 55,
+        openId: "igs_declarant_ousmane_diallo",
+        name: "Ousmane Diallo (Conteneurs 40' PAC)",
+        email: "o.diallo.tc@igs-logistics.gn",
+        loginMethod: "direct",
+        role: "declarant",
+        clientCompany: null,
+        phone: "+224 669 00 44 88",
+        isActive: true,
+        sessionRevokedAt: null,
+        createdAt: /* @__PURE__ */ new Date("2025-07-10T08:00:00Z"),
+        updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+        lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T10:45:00Z")
+      },
+      {
+        id: 56,
+        openId: "igs_declarant_alpha_amadou_barry",
+        name: "Alpha Amadou Barry (Sydonia N3)",
+        email: "aa.barry@igs-logistics.gn",
+        loginMethod: "direct",
+        role: "declarant",
+        clientCompany: null,
+        phone: "+224 620 55 99 33",
+        isActive: true,
+        sessionRevokedAt: null,
+        createdAt: /* @__PURE__ */ new Date("2025-07-15T08:00:00Z"),
+        updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+        lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T11:20:00Z")
+      },
+      {
+        id: 57,
+        openId: "igs_declarant_sory_camara",
+        name: "Sory Camara (DDI Express Guceg)",
+        email: "s.camara.express@igs-logistics.gn",
+        loginMethod: "direct",
+        role: "declarant",
+        clientCompany: null,
+        phone: "+224 621 99 33 77",
+        isActive: true,
+        sessionRevokedAt: null,
+        createdAt: /* @__PURE__ */ new Date("2025-07-20T08:00:00Z"),
+        updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+        lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T08:10:00Z")
+      },
+      {
+        id: 58,
+        openId: "igs_declarant_fode_soumah",
+        name: "Fode Soumah (Terminal Polyvalent PAC)",
+        email: "f.soumah.tp@igs-logistics.gn",
+        loginMethod: "direct",
+        role: "declarant",
+        clientCompany: null,
+        phone: "+224 622 33 77 11",
+        isActive: true,
+        sessionRevokedAt: null,
+        createdAt: /* @__PURE__ */ new Date("2025-07-25T08:00:00Z"),
+        updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+        lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T12:20:00Z")
+      },
+      {
+        id: 59,
+        openId: "igs_declarant_facinet_camara",
+        name: "Facinet Camara (Compte Suspendu)",
+        email: "f.camara.suspendu@igs-logistics.gn",
+        loginMethod: "direct",
+        role: "declarant",
+        clientCompany: null,
+        phone: "+224 623 77 11 55",
+        isActive: false,
+        sessionRevokedAt: /* @__PURE__ */ new Date("2026-08-10T14:00:00Z"),
+        createdAt: /* @__PURE__ */ new Date("2025-08-01T08:00:00Z"),
+        updatedAt: /* @__PURE__ */ new Date("2026-08-10T14:00:00Z"),
+        lastSignedIn: /* @__PURE__ */ new Date("2026-08-10T13:45:00Z")
+      },
+      {
+        id: 60,
+        openId: "igs_declarant_karamo_kaba",
+        name: "Karamo Kaba (Compte Suspendu)",
+        email: "k.kaba.suspendu@igs-logistics.gn",
+        loginMethod: "direct",
+        role: "declarant",
+        clientCompany: null,
+        phone: "+224 624 11 55 99",
+        isActive: false,
+        sessionRevokedAt: /* @__PURE__ */ new Date("2026-08-12T10:00:00Z"),
+        createdAt: /* @__PURE__ */ new Date("2025-08-05T08:00:00Z"),
+        updatedAt: /* @__PURE__ */ new Date("2026-08-12T10:00:00Z"),
+        lastSignedIn: /* @__PURE__ */ new Date("2026-08-12T09:30:00Z")
+      },
+      {
+        id: 61,
+        openId: "igs_declarant_lamine_keita",
+        name: "Lamine Keita (Compte Suspendu)",
+        email: "l.keita.suspendu@igs-logistics.gn",
+        loginMethod: "direct",
+        role: "declarant",
+        clientCompany: null,
+        phone: "+224 625 55 99 33",
+        isActive: false,
+        sessionRevokedAt: /* @__PURE__ */ new Date("2026-08-15T09:00:00Z"),
+        createdAt: /* @__PURE__ */ new Date("2025-08-10T08:00:00Z"),
+        updatedAt: /* @__PURE__ */ new Date("2026-08-15T09:00:00Z"),
+        lastSignedIn: /* @__PURE__ */ new Date("2026-08-15T08:50:00Z")
+      },
+      // --- 4. COMPTABLES & GESTIONNAIRES FINANCIERS (18) ---
+      {
+        id: 62,
+        openId: "igs_comptable_aissatou_diallo",
+        name: "Aissatou Bella Diallo (Facturation GNF/USD)",
+        email: "ab.diallo.finance@igs-logistics.gn",
+        loginMethod: "direct",
+        role: "comptable",
+        clientCompany: null,
+        phone: "+224 626 99 33 77",
+        isActive: true,
+        sessionRevokedAt: null,
+        createdAt: /* @__PURE__ */ new Date("2025-01-18T08:00:00Z"),
+        updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+        lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T10:00:00Z")
+      },
+      {
+        id: 63,
+        openId: "igs_comptable_fode_sylla",
+        name: "Mohamed Fode Sylla (D\xE9bours PAC & Surestaries)",
+        email: "mf.sylla@igs-logistics.gn",
+        loginMethod: "direct",
+        role: "comptable",
+        clientCompany: null,
+        phone: "+224 627 33 77 11",
+        isActive: true,
+        sessionRevokedAt: null,
+        createdAt: /* @__PURE__ */ new Date("2025-01-20T08:00:00Z"),
+        updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+        lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T11:30:00Z")
+      },
+      {
+        id: 64,
+        openId: "igs_comptable_mariama_camara",
+        name: "Mariama Cir\xE9 Camara (Tr\xE9sorerie & Encaissements)",
+        email: "mc.camara.tresor@igs-logistics.gn",
+        loginMethod: "direct",
+        role: "comptable",
+        clientCompany: null,
+        phone: "+224 628 77 11 55",
+        isActive: true,
+        sessionRevokedAt: null,
+        createdAt: /* @__PURE__ */ new Date("2025-02-01T08:00:00Z"),
+        updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+        lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T09:15:00Z")
+      },
+      {
+        id: 65,
+        openId: "igs_comptable_thierno_barry",
+        name: "Thierno Souleymane Barry (Rapprochement Bancaire)",
+        email: "ts.barry.finance@igs-logistics.gn",
+        loginMethod: "direct",
+        role: "comptable",
+        clientCompany: null,
+        phone: "+224 629 11 55 99",
+        isActive: true,
+        sessionRevokedAt: null,
+        createdAt: /* @__PURE__ */ new Date("2025-02-10T08:00:00Z"),
+        updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+        lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T10:45:00Z")
+      },
+      {
+        id: 66,
+        openId: "igs_comptable_fatoumata_diallo",
+        name: "Fatoumata Binta Diallo (Droits Douane & DDI)",
+        email: "fb.diallo.douane@igs-logistics.gn",
+        loginMethod: "direct",
+        role: "comptable",
+        clientCompany: null,
+        phone: "+224 660 55 99 33",
+        isActive: true,
+        sessionRevokedAt: null,
+        createdAt: /* @__PURE__ */ new Date("2025-02-15T08:00:00Z"),
+        updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+        lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T08:30:00Z")
+      },
+      {
+        id: 67,
+        openId: "igs_comptable_kalil_kaba",
+        name: "Ibrahima Kalil Kaba (Auditeur Factures & Marges)",
+        email: "ik.kaba.audit@igs-logistics.gn",
+        loginMethod: "direct",
+        role: "comptable",
+        clientCompany: null,
+        phone: "+224 661 99 33 77",
+        isActive: true,
+        sessionRevokedAt: null,
+        createdAt: /* @__PURE__ */ new Date("2025-03-01T08:00:00Z"),
+        updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+        lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T11:50:00Z")
+      },
+      {
+        id: 68,
+        openId: "igs_comptable_aminata_traore",
+        name: "Aminata Traore (Fournisseurs & Armateurs)",
+        email: "a.traore.armateurs@igs-logistics.gn",
+        loginMethod: "direct",
+        role: "comptable",
+        clientCompany: null,
+        phone: "+224 662 33 77 11",
+        isActive: true,
+        sessionRevokedAt: null,
+        createdAt: /* @__PURE__ */ new Date("2025-03-10T08:00:00Z"),
+        updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+        lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T09:35:00Z")
+      },
+      {
+        id: 69,
+        openId: "igs_comptable_kadiatou_bah",
+        name: "Kadiatou Bah (D\xE9bours Portuaires PAC)",
+        email: "k.bah.debours@igs-logistics.gn",
+        loginMethod: "direct",
+        role: "comptable",
+        clientCompany: null,
+        phone: "+224 663 77 11 55",
+        isActive: true,
+        sessionRevokedAt: null,
+        createdAt: /* @__PURE__ */ new Date("2025-03-15T08:00:00Z"),
+        updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+        lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T12:05:00Z")
+      },
+      {
+        id: 70,
+        openId: "igs_comptable_oumou_diallo",
+        name: "Oumou Hawa Diallo (Factures D\xE9finitives)",
+        email: "oh.diallo.definitif@igs-logistics.gn",
+        loginMethod: "direct",
+        role: "comptable",
+        clientCompany: null,
+        phone: "+224 664 11 55 99",
+        isActive: true,
+        sessionRevokedAt: null,
+        createdAt: /* @__PURE__ */ new Date("2025-03-20T08:00:00Z"),
+        updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+        lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T08:15:00Z")
+      },
+      {
+        id: 71,
+        openId: "igs_comptable_sekouba_camara",
+        name: "Sekouba Camara (Recouvrement Clients)",
+        email: "s.camara.recouvrement@igs-logistics.gn",
+        loginMethod: "direct",
+        role: "comptable",
+        clientCompany: null,
+        phone: "+224 665 55 99 33",
+        isActive: true,
+        sessionRevokedAt: null,
+        createdAt: /* @__PURE__ */ new Date("2025-04-01T08:00:00Z"),
+        updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+        lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T10:10:00Z")
+      },
+      {
+        id: 72,
+        openId: "igs_comptable_hadja_conde",
+        name: "Hadja Saran Conde (Quittances Tr\xE9sor)",
+        email: "hs.conde.tresor@igs-logistics.gn",
+        loginMethod: "direct",
+        role: "comptable",
+        clientCompany: null,
+        phone: "+224 666 99 33 77",
+        isActive: true,
+        sessionRevokedAt: null,
+        createdAt: /* @__PURE__ */ new Date("2025-04-10T08:00:00Z"),
+        updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+        lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T11:40:00Z")
+      },
+      {
+        id: 73,
+        openId: "igs_comptable_bhoye_diallo",
+        name: "Mamadou Bhoye Diallo (Devises USD/EUR)",
+        email: "mb.diallo.devises@igs-logistics.gn",
+        loginMethod: "direct",
+        role: "comptable",
+        clientCompany: null,
+        phone: "+224 667 33 77 11",
+        isActive: true,
+        sessionRevokedAt: null,
+        createdAt: /* @__PURE__ */ new Date("2025-04-15T08:00:00Z"),
+        updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+        lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T09:20:00Z")
+      },
+      {
+        id: 74,
+        openId: "igs_comptable_fanta_keita",
+        name: "Fanta Keita (Frais Portuaires Conakry Terminal)",
+        email: "f.keita.terminal@igs-logistics.gn",
+        loginMethod: "direct",
+        role: "comptable",
+        clientCompany: null,
+        phone: "+224 668 77 11 55",
+        isActive: true,
+        sessionRevokedAt: null,
+        createdAt: /* @__PURE__ */ new Date("2025-05-01T08:00:00Z"),
+        updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+        lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T10:30:00Z")
+      },
+      {
+        id: 75,
+        openId: "igs_comptable_lamine_diane",
+        name: "Mohamed Lamine Diane (Auditeur Comptable)",
+        email: "ml.diane.audit@igs-logistics.gn",
+        loginMethod: "direct",
+        role: "comptable",
+        clientCompany: null,
+        phone: "+224 669 11 55 99",
+        isActive: true,
+        sessionRevokedAt: null,
+        createdAt: /* @__PURE__ */ new Date("2025-05-10T08:00:00Z"),
+        updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+        lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T11:10:00Z")
+      },
+      {
+        id: 76,
+        openId: "igs_comptable_rouguiatou_sow",
+        name: "Rouguiatou Sow (Facturation Portuaire)",
+        email: "r.sow.port@igs-logistics.gn",
+        loginMethod: "direct",
+        role: "comptable",
+        clientCompany: null,
+        phone: "+224 620 33 66 99",
+        isActive: true,
+        sessionRevokedAt: null,
+        createdAt: /* @__PURE__ */ new Date("2025-05-20T08:00:00Z"),
+        updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+        lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T08:50:00Z")
+      },
+      {
+        id: 77,
+        openId: "igs_comptable_kabinet_kaba",
+        name: "Alpha Kabinet Kaba (Surestaries & Magasinage)",
+        email: "ak.kaba.surestaries@igs-logistics.gn",
+        loginMethod: "direct",
+        role: "comptable",
+        clientCompany: null,
+        phone: "+224 621 77 00 33",
+        isActive: true,
+        sessionRevokedAt: null,
+        createdAt: /* @__PURE__ */ new Date("2025-06-01T08:00:00Z"),
+        updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+        lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T12:10:00Z")
+      },
+      {
+        id: 78,
+        openId: "igs_comptable_baillo_bah",
+        name: "Mamadou Baillo Bah (Compte Inactif)",
+        email: "mb.bah.inactif@igs-logistics.gn",
+        loginMethod: "direct",
+        role: "comptable",
+        clientCompany: null,
+        phone: "+224 622 11 44 77",
+        isActive: false,
+        sessionRevokedAt: /* @__PURE__ */ new Date("2026-07-30T10:00:00Z"),
+        createdAt: /* @__PURE__ */ new Date("2025-06-15T08:00:00Z"),
+        updatedAt: /* @__PURE__ */ new Date("2026-07-30T10:00:00Z"),
+        lastSignedIn: /* @__PURE__ */ new Date("2026-07-30T09:40:00Z")
+      },
+      {
+        id: 79,
+        openId: "igs_comptable_mariame_diallo",
+        name: "Mariame Diallo (Compte Inactif)",
+        email: "m.diallo.inactif@igs-logistics.gn",
+        loginMethod: "direct",
+        role: "comptable",
+        clientCompany: null,
+        phone: "+224 623 55 88 11",
+        isActive: false,
+        sessionRevokedAt: /* @__PURE__ */ new Date("2026-08-05T12:00:00Z"),
+        createdAt: /* @__PURE__ */ new Date("2025-07-01T08:00:00Z"),
+        updatedAt: /* @__PURE__ */ new Date("2026-08-05T12:00:00Z"),
+        lastSignedIn: /* @__PURE__ */ new Date("2026-08-05T11:20:00Z")
+      },
+      // --- 5. REPRÉSENTANTS ENTREPRISES CLIENTES (32) ---
+      {
+        id: 80,
+        openId: "client_birimian_aliou",
+        name: "Mamadou Aliou Diallo (Birimian Gold)",
+        email: "aliou.diallo@birimian-gold.gn",
+        loginMethod: "direct",
+        role: "client",
+        clientCompany: "Guinean Birimian Gold S.A",
+        phone: "+224 624 99 22 55",
+        isActive: true,
+        sessionRevokedAt: null,
+        createdAt: /* @__PURE__ */ new Date("2025-01-10T08:00:00Z"),
+        updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+        lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T10:40:00Z")
+      },
+      {
+        id: 81,
+        openId: "client_topaz_fofana",
+        name: "Ibrahima Kassory Fofana (TOPAZ)",
+        email: "logistique@topaz.gn",
+        loginMethod: "direct",
+        role: "client",
+        clientCompany: "TOPAZ Multi-Industries S.A",
+        phone: "+224 625 33 66 00",
+        isActive: true,
+        sessionRevokedAt: null,
+        createdAt: /* @__PURE__ */ new Date("2025-01-15T08:00:00Z"),
+        updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+        lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T11:25:00Z")
+      },
+      {
+        id: 82,
+        openId: "client_smb_chen_wei",
+        name: "Chen Wei (Soci\xE9t\xE9 Mini\xE8re de Bok\xE9)",
+        email: "logistics@smb-boke.gn",
+        loginMethod: "direct",
+        role: "client",
+        clientCompany: "Soci\xE9t\xE9 Mini\xE8re de Bok\xE9 (SMB)",
+        phone: "+224 626 77 00 44",
+        isActive: true,
+        sessionRevokedAt: null,
+        createdAt: /* @__PURE__ */ new Date("2025-01-20T08:00:00Z"),
+        updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+        lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T08:35:00Z")
+      },
+      {
+        id: 83,
+        openId: "client_cbg_morvan",
+        name: "Pierre Morvan (Compagnie des Bauxites)",
+        email: "supply@cbg-guinee.com",
+        loginMethod: "direct",
+        role: "client",
+        clientCompany: "Compagnie des Bauxites de Guin\xE9e (CBG)",
+        phone: "+224 627 11 44 88",
+        isActive: true,
+        sessionRevokedAt: null,
+        createdAt: /* @__PURE__ */ new Date("2025-01-25T08:00:00Z"),
+        updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+        lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T09:55:00Z")
+      },
+      {
+        id: 84,
+        openId: "client_gac_barry",
+        name: "Alassane Barry (Guinea Alumina)",
+        email: "import@gacguinee.com",
+        loginMethod: "direct",
+        role: "client",
+        clientCompany: "Guinea Alumina Corporation (GAC)",
+        phone: "+224 628 55 88 22",
+        isActive: true,
+        sessionRevokedAt: null,
+        createdAt: /* @__PURE__ */ new Date("2025-02-01T08:00:00Z"),
+        updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+        lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T12:00:00Z")
+      },
+      {
+        id: 85,
+        openId: "client_cdm_zhang_li",
+        name: "Zhang Li (CDM-Chine Guin\xE9e)",
+        email: "import@cdm-chine.gn",
+        loginMethod: "direct",
+        role: "client",
+        clientCompany: "CDM-Chine Guin\xE9e S.A",
+        phone: "+224 629 99 22 66",
+        isActive: true,
+        sessionRevokedAt: null,
+        createdAt: /* @__PURE__ */ new Date("2025-02-05T08:00:00Z"),
+        updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+        lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T07:45:00Z")
+      },
+      {
+        id: 86,
+        openId: "client_dangote_diop",
+        name: "Souleymane Diop (Dangote Cement)",
+        email: "transit@dangote-guinee.com",
+        loginMethod: "direct",
+        role: "client",
+        clientCompany: "Dangote Cement Guin\xE9e S.A",
+        phone: "+224 660 33 66 00",
+        isActive: true,
+        sessionRevokedAt: null,
+        createdAt: /* @__PURE__ */ new Date("2025-02-10T08:00:00Z"),
+        updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+        lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T11:05:00Z")
+      },
+      {
+        id: 87,
+        openId: "client_sobragui_bangoura",
+        name: "Fatoumata Zahra Bangoura (Sobragui)",
+        email: "achats@sobragui.gn",
+        loginMethod: "direct",
+        role: "client",
+        clientCompany: "Sobragui S.A",
+        phone: "+224 661 77 00 44",
+        isActive: true,
+        sessionRevokedAt: null,
+        createdAt: /* @__PURE__ */ new Date("2025-02-15T08:00:00Z"),
+        updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+        lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T09:10:00Z")
+      },
+      {
+        id: 88,
+        openId: "client_ciments_camara",
+        name: "Mamadou Saliou Camara (Ciments de Guin\xE9e)",
+        email: "logistique@ciments-guinee.gn",
+        loginMethod: "direct",
+        role: "client",
+        clientCompany: "Ciments de Guin\xE9e S.A",
+        phone: "+224 662 11 44 88",
+        isActive: true,
+        sessionRevokedAt: null,
+        createdAt: /* @__PURE__ */ new Date("2025-02-20T08:00:00Z"),
+        updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+        lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T10:15:00Z")
+      },
+      {
+        id: 89,
+        openId: "client_chanimex_chanim",
+        name: "Karim Chanim (Chanimex Guin\xE9e)",
+        email: "import@chanimex-guinee.com",
+        loginMethod: "direct",
+        role: "client",
+        clientCompany: "Chanimex Guin\xE9e S.A.R.L",
+        phone: "+224 663 55 88 22",
+        isActive: true,
+        sessionRevokedAt: null,
+        createdAt: /* @__PURE__ */ new Date("2025-02-25T08:00:00Z"),
+        updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+        lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T11:45:00Z")
+      },
+      {
+        id: 90,
+        openId: "client_total_dupont",
+        name: "Alexandre Dupont (TotalEnergies Guin\xE9e)",
+        email: "supply@totalenergies.gn",
+        loginMethod: "direct",
+        role: "client",
+        clientCompany: "TotalEnergies Marketing Guin\xE9e",
+        phone: "+224 664 99 22 66",
+        isActive: true,
+        sessionRevokedAt: null,
+        createdAt: /* @__PURE__ */ new Date("2025-03-01T08:00:00Z"),
+        updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+        lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T08:20:00Z")
+      },
+      {
+        id: 91,
+        openId: "client_soguipah_soumah",
+        name: "Hadja M'Mahawa Soumah (SOGUIPAH)",
+        email: "transit@soguipah.gn",
+        loginMethod: "direct",
+        role: "client",
+        clientCompany: "SOGUIPAH S.A",
+        phone: "+224 665 33 66 00",
+        isActive: true,
+        sessionRevokedAt: null,
+        createdAt: /* @__PURE__ */ new Date("2025-03-05T08:00:00Z"),
+        updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+        lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T10:50:00Z")
+      },
+      {
+        id: 92,
+        openId: "client_sag_cherif",
+        name: "Ousmane Cherif (AngloGold Ashanti / SAG)",
+        email: "logistics@anglogold-guinee.com",
+        loginMethod: "direct",
+        role: "client",
+        clientCompany: "Soci\xE9t\xE9 Anglogold Ashanti de Guin\xE9e (SAG)",
+        phone: "+224 666 77 00 44",
+        isActive: true,
+        sessionRevokedAt: null,
+        createdAt: /* @__PURE__ */ new Date("2025-03-10T08:00:00Z"),
+        updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+        lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T12:10:00Z")
+      },
+      {
+        id: 93,
+        openId: "client_belair_diallo",
+        name: "Amadou Bailo Diallo (Bel Air Mining)",
+        email: "import@belairmining.gn",
+        loginMethod: "direct",
+        role: "client",
+        clientCompany: "Bel Air Mining Guin\xE9e S.A",
+        phone: "+224 667 11 44 88",
+        isActive: true,
+        sessionRevokedAt: null,
+        createdAt: /* @__PURE__ */ new Date("2025-03-15T08:00:00Z"),
+        updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+        lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T09:40:00Z")
+      },
+      {
+        id: 94,
+        openId: "client_amr_traore",
+        name: "Sekou Traore (Alliance Mini\xE8re Responsable)",
+        email: "ops@amr-guinee.com",
+        loginMethod: "direct",
+        role: "client",
+        clientCompany: "Alliance Mini\xE8re Responsable (AMR)",
+        phone: "+224 668 55 88 22",
+        isActive: true,
+        sessionRevokedAt: null,
+        createdAt: /* @__PURE__ */ new Date("2025-03-20T08:00:00Z"),
+        updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+        lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T11:15:00Z")
+      },
+      {
+        id: 95,
+        openId: "client_simfer_wang",
+        name: "Wang Yong (Simfer Rio Tinto Simandou)",
+        email: "supply.simandou@simfer.gn",
+        loginMethod: "direct",
+        role: "client",
+        clientCompany: "Simfer S.A (Rio Tinto Simandou)",
+        phone: "+224 669 99 22 66",
+        isActive: true,
+        sessionRevokedAt: null,
+        createdAt: /* @__PURE__ */ new Date("2025-03-25T08:00:00Z"),
+        updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+        lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T08:45:00Z")
+      },
+      {
+        id: 96,
+        openId: "client_sg_bah",
+        name: "Mariama Dalanda Bah (Soci\xE9t\xE9 G\xE9n\xE9rale Guin\xE9e)",
+        email: "m.bah@socgen.gn",
+        loginMethod: "direct",
+        role: "client",
+        clientCompany: "Soci\xE9t\xE9 G\xE9n\xE9rale Guin\xE9e",
+        phone: "+224 620 11 55 88",
+        isActive: true,
+        sessionRevokedAt: null,
+        createdAt: /* @__PURE__ */ new Date("2025-04-01T08:00:00Z"),
+        updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+        lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T10:05:00Z")
+      },
+      {
+        id: 97,
+        openId: "client_agl_bernard",
+        name: "Christian Bernard (AGL Africa Global Logistics)",
+        email: "c.bernard@aglgroup.com",
+        loginMethod: "direct",
+        role: "client",
+        clientCompany: "Africa Global Logistics Guin\xE9e (AGL)",
+        phone: "+224 621 55 99 22",
+        isActive: true,
+        sessionRevokedAt: null,
+        createdAt: /* @__PURE__ */ new Date("2025-04-05T08:00:00Z"),
+        updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+        lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T12:00:00Z")
+      },
+      {
+        id: 98,
+        openId: "client_katata_kaba",
+        name: "Mohamed Lamine Kaba (Mining Co of Katata)",
+        email: "transit@katatamining.gn",
+        loginMethod: "direct",
+        role: "client",
+        clientCompany: "Mining Company of Katata (MCK)",
+        phone: "+224 622 99 33 66",
+        isActive: true,
+        sessionRevokedAt: null,
+        createdAt: /* @__PURE__ */ new Date("2025-04-10T08:00:00Z"),
+        updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+        lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T09:30:00Z")
+      },
+      {
+        id: 99,
+        openId: "client_mandiana_diallo",
+        name: "Thierno Mamadou Diallo (Or Mandiana)",
+        email: "direction@aurifere-mandiana.gn",
+        loginMethod: "direct",
+        role: "client",
+        clientCompany: "Soci\xE9t\xE9 Aurif\xE8re de Mandiana S.A",
+        phone: "+224 623 33 77 00",
+        isActive: true,
+        sessionRevokedAt: null,
+        createdAt: /* @__PURE__ */ new Date("2025-04-15T08:00:00Z"),
+        updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+        lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T11:35:00Z")
+      },
+      {
+        id: 100,
+        openId: "client_soguicar_cisse",
+        name: "Aissatou Cisse (Soguicar Concessionnaire)",
+        email: "import@soguicar.gn",
+        loginMethod: "direct",
+        role: "client",
+        clientCompany: "SOGUICAR Guin\xE9e S.A",
+        phone: "+224 624 77 11 44",
+        isActive: true,
+        sessionRevokedAt: null,
+        createdAt: /* @__PURE__ */ new Date("2025-04-20T08:00:00Z"),
+        updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+        lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T10:20:00Z")
+      },
+      {
+        id: 101,
+        openId: "client_gi_camara",
+        name: "Aboubacar Camara (Guin\xE9enne d'Industrie)",
+        email: "achats@gi-guinee.gn",
+        loginMethod: "direct",
+        role: "client",
+        clientCompany: "Guin\xE9enne d'Industrie (GI)",
+        phone: "+224 625 11 55 88",
+        isActive: true,
+        sessionRevokedAt: null,
+        createdAt: /* @__PURE__ */ new Date("2025-05-01T08:00:00Z"),
+        updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+        lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T08:10:00Z")
+      },
+      {
+        id: 102,
+        openId: "client_nimba_kpoghomou",
+        name: "Julien Kpoghomou (Soci\xE9t\xE9 des Mines de Fer de Guin\xE9e)",
+        email: "j.kpoghomou@smfg.gn",
+        loginMethod: "direct",
+        role: "client",
+        clientCompany: "Soci\xE9t\xE9 des Mines de Fer de Guin\xE9e (SMFG)",
+        phone: "+224 626 55 99 22",
+        isActive: true,
+        sessionRevokedAt: null,
+        createdAt: /* @__PURE__ */ new Date("2025-05-10T08:00:00Z"),
+        updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+        lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T11:00:00Z")
+      },
+      {
+        id: 103,
+        openId: "client_navale_fofana",
+        name: "Lansana Fofana (Soci\xE9t\xE9 Navale Guin\xE9enne)",
+        email: "transit@navale-guinee.gn",
+        loginMethod: "direct",
+        role: "client",
+        clientCompany: "Soci\xE9t\xE9 Navale Guin\xE9enne (SNG)",
+        phone: "+224 627 99 33 66",
+        isActive: true,
+        sessionRevokedAt: null,
+        createdAt: /* @__PURE__ */ new Date("2025-05-15T08:00:00Z"),
+        updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+        lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T09:05:00Z")
+      },
+      {
+        id: 104,
+        openId: "client_hydrocarbures_soumah",
+        name: "Fatoumata Yarie Soumah (Continental Hydrocarbures)",
+        email: "ops@continental-guinee.gn",
+        loginMethod: "direct",
+        role: "client",
+        clientCompany: "Continental Hydrocarbures Guin\xE9e",
+        phone: "+224 628 33 77 00",
+        isActive: true,
+        sessionRevokedAt: null,
+        createdAt: /* @__PURE__ */ new Date("2025-06-01T08:00:00Z"),
+        updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+        lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T12:15:00Z")
+      },
+      {
+        id: 105,
+        openId: "client_lng_barry",
+        name: "Mamadou Tahirou Barry (West Africa LNG)",
+        email: "transit@walng-guinee.com",
+        loginMethod: "direct",
+        role: "client",
+        clientCompany: "West Africa LNG Guin\xE9e",
+        phone: "+224 629 77 11 44",
+        isActive: true,
+        sessionRevokedAt: null,
+        createdAt: /* @__PURE__ */ new Date("2025-06-10T08:00:00Z"),
+        updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+        lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T10:30:00Z")
+      },
+      {
+        id: 106,
+        openId: "client_kimbo_conde",
+        name: "Sory Conde (Bauxite Kimbo Guin\xE9e)",
+        email: "ops@kimbo-bauxite.gn",
+        loginMethod: "direct",
+        role: "client",
+        clientCompany: "Bauxite Kimbo Guin\xE9e S.A",
+        phone: "+224 660 11 55 88",
+        isActive: true,
+        sessionRevokedAt: null,
+        createdAt: /* @__PURE__ */ new Date("2025-06-20T08:00:00Z"),
+        updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+        lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T08:55:00Z")
+      },
+      {
+        id: 107,
+        openId: "client_kct_diakite",
+        name: "Ibrahima Diakite (Kamsar Container Terminal)",
+        email: "i.diakite@kct-guinee.com",
+        loginMethod: "direct",
+        role: "client",
+        clientCompany: "Kamsar Container Terminal Partners",
+        phone: "+224 661 55 99 22",
+        isActive: true,
+        sessionRevokedAt: null,
+        createdAt: /* @__PURE__ */ new Date("2025-07-01T08:00:00Z"),
+        updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+        lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T11:40:00Z")
+      },
+      {
+        id: 108,
+        openId: "client_agro_toure",
+        name: "Abdoulaye Toure (Agro-Industrie Guin\xE9e)",
+        email: "transit@agro-guinee.gn",
+        loginMethod: "direct",
+        role: "client",
+        clientCompany: "Agro-Industrie de Guin\xE9e S.A",
+        phone: "+224 662 99 33 66",
+        isActive: true,
+        sessionRevokedAt: null,
+        createdAt: /* @__PURE__ */ new Date("2025-07-10T08:00:00Z"),
+        updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+        lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T09:25:00Z")
+      },
+      {
+        id: 109,
+        openId: "client_tg_diallo",
+        name: "Diallo Abdoul Gadirou (Trans-Guin\xE9en Mines)",
+        email: "ag.diallo@transguineen.gn",
+        loginMethod: "direct",
+        role: "client",
+        clientCompany: "Trans-Guin\xE9en Chemin de Fer & Mines",
+        phone: "+224 663 33 77 00",
+        isActive: true,
+        sessionRevokedAt: null,
+        createdAt: /* @__PURE__ */ new Date("2025-07-15T08:00:00Z"),
+        updatedAt: /* @__PURE__ */ new Date("2026-08-20T08:00:00Z"),
+        lastSignedIn: /* @__PURE__ */ new Date("2026-08-20T12:05:00Z")
+      },
+      {
+        id: 110,
+        openId: "client_kipe_camara",
+        name: "Naby Camara (Kipe Trading - Compte Suspendu)",
+        email: "n.camara.suspendu@kipe-trading.gn",
+        loginMethod: "direct",
+        role: "client",
+        clientCompany: "Kipe Trading & Mining S.A.R.L",
+        phone: "+224 664 77 11 44",
+        isActive: false,
+        sessionRevokedAt: /* @__PURE__ */ new Date("2026-08-01T15:00:00Z"),
+        createdAt: /* @__PURE__ */ new Date("2025-07-20T08:00:00Z"),
+        updatedAt: /* @__PURE__ */ new Date("2026-08-01T15:00:00Z"),
+        lastSignedIn: /* @__PURE__ */ new Date("2026-08-01T14:30:00Z")
+      },
+      {
+        id: 111,
+        openId: "client_conakry_bauxite_balde",
+        name: "Mamadou Aliou Balde (Conakry Bauxite - Suspendu)",
+        email: "ma.balde.suspendu@conakry-bauxite.gn",
+        loginMethod: "direct",
+        role: "client",
+        clientCompany: "Conakry Bauxite Logistics",
+        phone: "+224 665 11 55 88",
+        isActive: false,
+        sessionRevokedAt: /* @__PURE__ */ new Date("2026-08-08T11:00:00Z"),
+        createdAt: /* @__PURE__ */ new Date("2025-08-01T08:00:00Z"),
+        updatedAt: /* @__PURE__ */ new Date("2026-08-08T11:00:00Z"),
+        lastSignedIn: /* @__PURE__ */ new Date("2026-08-08T10:45:00Z")
+      }
+    ];
   }
-];
+});
 
 // server/_core/env.ts
-var ENV = {
-  appId: process.env.VITE_APP_ID ?? "igs-dossiers",
-  cookieSecret: process.env.JWT_SECRET || "igs-secret-jwt-key-conakry-development-2026",
-  databaseUrl: process.env.DATABASE_URL ?? "",
-  oAuthServerUrl: process.env.OAUTH_SERVER_URL ?? "",
-  ownerOpenId: process.env.OWNER_OPEN_ID ?? "",
-  isProduction: process.env.NODE_ENV === "production",
-  forgeApiUrl: process.env.BUILT_IN_FORGE_API_URL ?? "",
-  forgeApiKey: process.env.BUILT_IN_FORGE_API_KEY ?? ""
-};
+var ENV;
+var init_env = __esm({
+  "server/_core/env.ts"() {
+    "use strict";
+    ENV = {
+      appId: process.env.VITE_APP_ID ?? "igs-dossiers",
+      cookieSecret: process.env.JWT_SECRET || "igs-secret-jwt-key-conakry-development-2026",
+      databaseUrl: process.env.DATABASE_URL ?? "",
+      oAuthServerUrl: process.env.OAUTH_SERVER_URL ?? "",
+      ownerOpenId: process.env.OWNER_OPEN_ID ?? "",
+      isProduction: process.env.NODE_ENV === "production",
+      forgeApiUrl: process.env.BUILT_IN_FORGE_API_URL ?? "",
+      forgeApiKey: process.env.BUILT_IN_FORGE_API_KEY ?? ""
+    };
+  }
+});
+
+// server/cronDemurrageReminders.ts
+var cronDemurrageReminders_exports = {};
+__export(cronDemurrageReminders_exports, {
+  runDemurrageReminderJob: () => runDemurrageReminderJob
+});
+async function runDemurrageReminderJob() {
+  const allDossiers = await listDossiers();
+  const unreleased = allDossiers.filter((d) => !d.goodsReleaseDate && d.eta);
+  const now = /* @__PURE__ */ new Date();
+  let j2Count = 0;
+  let overdueCount = 0;
+  let alertsCount = 0;
+  const details = [];
+  for (const dossier of unreleased) {
+    const risk = calculateDemurrageRisk(dossier.eta, dossier.goodsReleaseDate, 7, now);
+    if (risk.isRisk) {
+      if (risk.isWarningJ2) j2Count++;
+      if (risk.isOverdue) overdueCount++;
+      let alertMessage = "";
+      if (risk.isWarningJ2) {
+        alertMessage = `\u26A0\uFE0F [ALERTE FRANCHISE J-2] Le dossier ${dossier.dossierNumber} (BL: ${dossier.blLtaNumber || "N/A"}) pour ${dossier.client || "Client"} arrive \xE0 expiration de franchise portuaire dans ${risk.daysRemaining} jour(s) (Quai PAC). Proc\xE9dez d'urgence \xE0 la sortie marchandise.`;
+      } else if (risk.isOverdue) {
+        alertMessage = `\u{1F6A8} [SURESTARIE D\xC9PASS\xC9E (+${risk.daysOverFreeTime}j)] Le dossier ${dossier.dossierNumber} (BL: ${dossier.blLtaNumber || "N/A"}) pour ${dossier.client || "Client"} est en d\xE9passement de franchise depuis ${risk.daysOverFreeTime} jour(s). Frais de surestaries en cours au Port Autonome de Conakry.`;
+      }
+      await addNotification({
+        dossierId: dossier.id,
+        dossierNumber: dossier.dossierNumber,
+        type: "SURESTARIES_RISQUE",
+        title: risk.isWarningJ2 ? "Risque Surestarie Portuaire (J-2)" : "D\xE9passement de Franchise PAC",
+        message: alertMessage,
+        recipientRole: "declarant",
+        recipientEmail: "transit@igs-logistics.gn"
+      });
+      sendDossierWhatsAppAlert({
+        dossierNumber: dossier.dossierNumber,
+        clientName: dossier.client || "Client IGS",
+        recipientPhone: "+224621001122",
+        messageText: alertMessage
+      });
+      sendDossierEmailAlert({
+        dossierNumber: dossier.dossierNumber,
+        clientName: dossier.client || "Client IGS",
+        recipientEmail: "logistique@igs-logistics.gn",
+        subject: `[URGENT] ${risk.statusLabel} \u2014 Dossier ${dossier.dossierNumber}`,
+        htmlContent: `<p>${alertMessage}</p>`
+      });
+      alertsCount++;
+      details.push({
+        dossierId: dossier.id,
+        dossierNumber: dossier.dossierNumber,
+        client: dossier.client || "Non renseign\xE9",
+        blLtaNumber: dossier.blLtaNumber || "Non renseign\xE9",
+        eta: dossier.eta ? new Date(dossier.eta).toISOString().slice(0, 10) : "N/A",
+        daysOnQuay: risk.daysOnQuay,
+        riskStatus: risk.statusLabel,
+        alertDispatched: true
+      });
+    }
+  }
+  return {
+    timestamp: now.toISOString(),
+    totalDossiersScanned: allDossiers.length,
+    unreleasedDossiersCount: unreleased.length,
+    j2WarningCount: j2Count,
+    overdueCount,
+    alertsSentCount: alertsCount,
+    details
+  };
+}
+var init_cronDemurrageReminders = __esm({
+  "server/cronDemurrageReminders.ts"() {
+    "use strict";
+    init_db();
+    init_dossierRules();
+    init_alertsService();
+  }
+});
 
 // server/db.ts
-var PORTAL_JWT_SECRET = new TextEncoder().encode(process.env.JWT_SECRET || "igs_secure_portal_jwt_secret_2026_conakry");
-var _db = null;
-var _client = null;
-var fromSourceDate = (value) => value ? /* @__PURE__ */ new Date(`${value}T00:00:00.000Z`) : null;
-var _memoryUsers = initialUsersData.map((u) => ({ ...u }));
-var _memoryReferenceItems = initialImportData.referenceItems.map((item, idx) => ({
-  id: idx + 1,
-  category: item.category,
-  label: item.label,
-  sortOrder: item.sortOrder,
-  createdAt: /* @__PURE__ */ new Date()
-}));
-var _memoryDossiers = initialImportData.dossiers.map((source, idx) => {
-  const payload = {
-    ...source,
-    eta: fromSourceDate(source.eta),
-    goodsReleaseDate: fromSourceDate(source.goodsReleaseDate)
-  };
-  const state = calculateDossierState(payload);
-  const now = /* @__PURE__ */ new Date();
+import { and, asc, desc, eq, ilike, like, or, sql } from "drizzle-orm";
+import { drizzle } from "drizzle-orm/postgres-js";
+import postgres from "postgres";
+import { TRPCError } from "@trpc/server";
+import { SignJWT, jwtVerify } from "jose";
+function computeDaysOnQuay(eta, goodsReleaseDate, now = /* @__PURE__ */ new Date()) {
+  if (!eta) return 0;
+  const etaDate = new Date(eta);
+  if (isNaN(etaDate.getTime())) return 0;
+  if (goodsReleaseDate) {
+    const releaseDate = new Date(goodsReleaseDate);
+    if (!isNaN(releaseDate.getTime())) {
+      return Math.max(0, Math.floor((releaseDate.getTime() - etaDate.getTime()) / (1e3 * 60 * 60 * 24)));
+    }
+  }
+  if (now.getTime() < etaDate.getTime()) {
+    return 0;
+  }
+  return Math.max(0, Math.floor((now.getTime() - etaDate.getTime()) / (1e3 * 60 * 60 * 24)));
+}
+function enrichDossierFields(dossier, now = /* @__PURE__ */ new Date()) {
+  const daysOnQuay = computeDaysOnQuay(dossier.eta, dossier.goodsReleaseDate, now);
+  const state = calculateDossierState({
+    clientDossierNumber: dossier.clientDossierNumber,
+    client: dossier.client,
+    blLtaNumber: dossier.blLtaNumber,
+    cargoNature: dossier.cargoNature,
+    transportMode: dossier.transportMode,
+    eta: dossier.eta,
+    originPort: dossier.originPort,
+    destinationPort: dossier.destinationPort,
+    container: dossier.container,
+    bulk: dossier.bulk,
+    goodsReleaseDate: dossier.goodsReleaseDate,
+    declarationNumber: dossier.declarationNumber,
+    bulletinNumber: dossier.bulletinNumber
+  });
+  let calculatedPriority = state.calculatedPriority;
+  if (!dossier.goodsReleaseDate && daysOnQuay >= 5) {
+    calculatedPriority = "Haute";
+  }
+  let portStatus = dossier.portStatus;
+  let customsStatus = dossier.customsStatus;
+  let fieldAlert = dossier.fieldAlert;
+  let badStatus = dossier.badStatus;
+  let baeStatus = dossier.baeStatus;
+  if (dossier.goodsReleaseDate) {
+    portStatus = "Marchandise Sortie de Quai (PAC)";
+    customsStatus = "BAE Accord\xE9 & R\xE9gularis\xE9";
+    badStatus = "Obtenu";
+    baeStatus = "Accord\xE9";
+    fieldAlert = null;
+  } else if (daysOnQuay > 7) {
+    portStatus = `\u{1F6A8} D\xE9passement Franchise (+${daysOnQuay - 7}j Surestaries)`;
+    customsStatus = dossier.declarationNumber ? "D\xE9claration SYDONIA en cours" : "En attente DDI / SYDONIA";
+    badStatus = dossier.blLtaNumber ? "Obtenu" : "En cours";
+    baeStatus = "En attente validation";
+    fieldAlert = `\u{1F6A8} D\xE9passement franchise quai PAC (+${daysOnQuay - 7}j)`;
+  } else if (daysOnQuay >= 5) {
+    portStatus = `\u26A0\uFE0F Franchise Quai Expire Bient\xF4t (J-${Math.max(1, 7 - daysOnQuay)})`;
+    customsStatus = dossier.declarationNumber ? "D\xE9claration SYDONIA en cours" : "En attente DDI / SYDONIA";
+    badStatus = dossier.blLtaNumber ? "Obtenu" : "En cours";
+    baeStatus = "En cours";
+    fieldAlert = `\u26A0\uFE0F Risque expiration franchise sous ${Math.max(1, 7 - daysOnQuay) * 24}h`;
+  } else if (daysOnQuay > 0) {
+    portStatus = `Navire \xE0 quai / Franchise PAC en cours (${daysOnQuay}/7j)`;
+    customsStatus = dossier.declarationNumber ? "D\xE9claration SYDONIA en cours" : "En attente DDI";
+    badStatus = dossier.blLtaNumber ? "Obtenu" : "En cours";
+    baeStatus = "En cours";
+    fieldAlert = state.calculatedStatus === "\xC0 r\xE9gulariser" ? "DDI / Bulletin \xE0 fournir" : null;
+  } else if (dossier.eta) {
+    portStatus = `En mer / Arriv\xE9e pr\xE9vue (${new Date(dossier.eta).toLocaleDateString("fr-FR")})`;
+    customsStatus = "Documents pr\xE9alables";
+    badStatus = "En attente";
+    baeStatus = "En attente";
+    fieldAlert = state.calculatedStatus === "\xC0 r\xE9gulariser" ? "DDI / Connaissement \xE0 finaliser" : null;
+  }
+  const financialStatus = dossier.goodsReleaseDate ? "Factur\xE9 & Recouvrable" : dossier.financialStatus || "Fact. Proforma / En attente d\xE9bours";
   return {
-    id: idx + 1,
-    version: 1,
-    dossierNumber: source.dossierNumber,
-    clientDossierNumber: source.clientDossierNumber ?? null,
-    client: source.client ?? null,
-    blLtaNumber: source.blLtaNumber ?? null,
-    cargoNature: source.cargoNature ?? null,
-    transportMode: source.transportMode ?? null,
-    eta: payload.eta,
-    originPort: source.originPort ?? null,
-    destinationPort: source.destinationPort ?? null,
-    container: source.container ?? null,
-    bulk: source.bulk ?? null,
-    goodsReleaseDate: payload.goodsReleaseDate,
-    declarationNumber: source.declarationNumber ?? null,
-    bulletinNumber: source.bulletinNumber ?? null,
-    finalDeclarationNumber: source.finalDeclarationNumber ?? null,
-    ddiGucegNumber: idx % 2 === 0 ? `DDI-2026-GUCEG-${100 + idx + 1}` : null,
-    badStatus: idx % 3 === 0 ? "Obtenu" : "En attente",
-    baeStatus: idx % 3 === 0 ? "Accord\xE9" : "En attente",
+    ...dossier,
+    daysOnQuay,
     calculatedStatus: state.calculatedStatus,
-    calculatedPriority: state.calculatedPriority,
+    calculatedPriority,
     completionRate: state.completionRate,
-    documentStatus: null,
-    customsStatus: null,
-    portStatus: null,
-    financialStatus: idx % 3 === 0 ? "Factur\xE9" : idx % 3 === 1 ? "Fact. Proforma" : "En attente",
-    fieldOperation: null,
-    responsible: idx % 2 === 0 ? "Mamadou Diallo" : "Alpha Barry",
-    nextAction: null,
-    fieldAlert: state.calculatedStatus === "\xC0 r\xE9gulariser" ? "DDI / Bulletin \xE0 fournir" : null,
-    deliveryLocation: null,
-    declarant: "Mamadou Diallo",
-    service: "Transit & D\xE9douanement",
-    regime: "IM4 - Mise \xE0 la consommation",
-    notes: null,
-    portalAccessCode: `IGS-${1e3 + idx + 1}`,
-    clientId: null,
-    port: "Port Autonome de Conakry (PAC)",
-    daysOnQuay: 0,
-    createdById: 1,
-    updatedById: 1,
-    createdAt: now,
-    updatedAt: now
+    portStatus,
+    customsStatus,
+    badStatus,
+    baeStatus,
+    fieldAlert,
+    financialStatus
   };
-});
-var _memoryDocuments = [
-  {
-    id: 1,
-    dossierId: 1,
-    name: "BL_HLCUNG12604AUQG1_Original.pdf",
-    type: "BL",
-    fileUrl: "data:application/pdf;base64,JVBERi0xLjQKJcTl8uXr...",
-    fileSize: 142500,
-    mimeType: "application/pdf",
-    version: 1,
-    isPublic: true,
-    previousVersions: "[]",
-    description: "Connaissement maritime original \xE9mis par Hapag-Lloyd",
-    uploadedById: 1,
-    uploaderName: "Ibrahima Gold Service",
-    createdAt: /* @__PURE__ */ new Date()
-  },
-  {
-    id: 2,
-    dossierId: 1,
-    name: "Declaration_S142_SydoniaWorld.pdf",
-    type: "Declaration_Douane",
-    fileUrl: "data:application/pdf;base64,JVBERi0xLjQKJcTl8uXr...",
-    fileSize: 204800,
-    mimeType: "application/pdf",
-    version: 1,
-    isPublic: true,
-    previousVersions: "[]",
-    description: "D\xE9claration d'importation SYDONIA World valid\xE9e",
-    uploadedById: 2,
-    uploaderName: "Mamadou Diallo",
-    createdAt: /* @__PURE__ */ new Date()
-  }
-];
-var _memoryApprovals = [
-  {
-    id: 1,
-    entityType: "disbursement",
-    entityId: 1,
-    dossierId: 1,
-    amount: 145e5,
-    currency: "GNF",
-    thresholdAmount: 5e6,
-    requestedById: 2,
-    requestedByName: "Mamadou Diallo",
-    approverId: 1,
-    approverName: "Alpha Barry (Manager)",
-    status: "APPROUVE",
-    rejectionReason: null,
-    comment: "D\xE9bours Droits de douane liquidation Tr\xE9sor Public",
-    createdAt: new Date(Date.now() - 864e5 * 2),
-    updatedAt: new Date(Date.now() - 864e5),
-    resolvedAt: new Date(Date.now() - 864e5)
-  }
-];
-var _memoryClients = [
-  {
-    id: 1,
-    name: "Guinean Birimian Gold (GBG)",
-    contactPerson: "Ousmane Camara",
-    email: "transit@gbg-mining.gn",
-    phone: "+224622001122",
-    whatsappPhone: "+224622001122",
-    country: "Guin\xE9e",
-    taxId: "NIF-8901234",
-    address: "Boffa / Conakry, R\xE9publique de Guin\xE9e",
-    preferredChannel: "whatsapp",
-    optInNotifications: true,
-    monthlyReportEnabled: true,
-    accountCategory: "mining_major",
-    createdAt: /* @__PURE__ */ new Date(),
-    updatedAt: /* @__PURE__ */ new Date()
-  },
-  {
-    id: 2,
-    name: "Guinee Gold Exploration (GGE)",
-    contactPerson: "Amadou Diallo",
-    email: "direction@gge-gold.gn",
-    phone: "+224621234567",
-    whatsappPhone: "+224621234567",
-    country: "Guin\xE9e",
-    taxId: "NIF-782190",
-    address: "Kamsar / Conakry, R\xE9publique de Guin\xE9e",
-    preferredChannel: "whatsapp",
-    optInNotifications: true,
-    monthlyReportEnabled: true,
-    accountCategory: "mining_major",
-    createdAt: /* @__PURE__ */ new Date(),
-    updatedAt: /* @__PURE__ */ new Date()
-  },
-  {
-    id: 3,
-    name: "New Japon Mining (NJP)",
-    contactPerson: "Kenji Sato",
-    email: "operations@njp-mining.gn",
-    phone: "+224623344556",
-    whatsappPhone: "+224623344556",
-    country: "Guin\xE9e",
-    taxId: "NIF-654321",
-    address: "Bok\xE9, R\xE9publique de Guin\xE9e",
-    preferredChannel: "whatsapp",
-    optInNotifications: true,
-    monthlyReportEnabled: true,
-    accountCategory: "mining_major",
-    createdAt: /* @__PURE__ */ new Date(),
-    updatedAt: /* @__PURE__ */ new Date()
-  }
-];
-var _memoryHistory = [
-  {
-    id: 1,
-    dossierId: 1,
-    changedById: 1,
-    authorName: "Syst\xE8me IGS",
-    userRole: "admin",
-    action: "CREATION_DOSSIER",
-    entityType: "dossier",
-    entityId: 1,
-    fieldChanged: "Cr\xE9ation Dossier",
-    previousValue: null,
-    newValue: "DOS-0001 import\xE9",
-    beforeData: null,
-    afterData: JSON.stringify({ dossierNumber: "DOS-0001" }),
-    comment: "Initialisation automatique depuis le manifeste maritime",
-    ipAddress: "127.0.0.1",
-    metadata: null,
-    createdAt: new Date(Date.now() - 864e5 * 3)
-  },
-  {
-    id: 2,
-    dossierId: 1,
-    changedById: 2,
-    authorName: "Mamadou Diallo",
-    userRole: "declarant",
-    action: "SYDONIA_DECLAREE",
-    entityType: "dossier",
-    entityId: 1,
-    fieldChanged: "declarationNumber",
-    previousValue: "Non renseign\xE9",
-    newValue: "S 142- 27/07/2026",
-    beforeData: JSON.stringify({ declarationNumber: null }),
-    afterData: JSON.stringify({ declarationNumber: "S 142- 27/07/2026" }),
-    comment: "Enregistrement de la d\xE9claration dans Sydonia++",
-    ipAddress: "192.168.1.45",
-    metadata: null,
-    createdAt: new Date(Date.now() - 864e5 * 2)
-  }
-];
-var _currentExchangeRate = 8650;
-var _memoryInvoices = [
-  {
-    id: 1,
-    dossierId: 1,
-    invoiceNumber: "FAC-2026-0001",
-    client: "Guinean Birimian Gold S.A",
-    currency: "GNF",
-    invoiceType: "Definitive",
-    exchangeRate: 8650,
-    amountHt: 185e5,
-    amountTva: 333e4,
-    amountTtc: 2183e4,
-    disbursementsAmount: 45e6,
-    customsDutiesAmount: 35e6,
-    portFeesAmount: 1e7,
-    storageAndDemurrageFees: 0,
-    estimatedMargin: 55e5,
-    paymentMethod: "Virement Bancaire",
-    paymentReference: "VIR-2026-0812",
-    receiptNumber: "REC-2026-0001",
-    status: "\xC9mise",
-    dueDate: new Date(Date.now() + 864e5 * 15),
-    paidAt: null,
-    notes: "Facture transit maritime 4 conteneurs 20 pieds",
-    reconciliationStatus: "rapproche",
-    reconciliationDate: /* @__PURE__ */ new Date(),
-    reconciliationRef: "VIR-2026-0812",
-    rateLockedAt: /* @__PURE__ */ new Date(),
-    clientId: null,
-    pdfUrl: null,
-    createdById: 3,
-    createdAt: /* @__PURE__ */ new Date(),
-    updatedAt: /* @__PURE__ */ new Date()
-  }
-];
-var _memoryPayments = [
-  {
-    id: 1,
-    invoiceId: 1,
-    amount: 2183e4,
-    currency: "GNF",
-    paymentMethod: "Virement Bancaire",
-    paymentReference: "VIR-2026-0812",
-    paymentDate: /* @__PURE__ */ new Date(),
-    proofUrl: null,
-    notes: "Encaissement initial",
-    createdById: 3,
-    createdAt: /* @__PURE__ */ new Date()
-  }
-];
-var _memoryPacDisbursements = [
-  {
-    id: 1,
-    dossierId: 1,
-    invoiceId: 1,
-    type: "douane",
-    amountAdvanced: 35e6,
-    amountReimbursed: 35e6,
-    status: "rembourse_total",
-    receiptNumber: "REC-DOUANE-2026-01",
-    notes: "Droits de douane SYDONIA S 142",
-    createdById: 2,
-    createdAt: /* @__PURE__ */ new Date(),
-    updatedAt: /* @__PURE__ */ new Date()
-  },
-  {
-    id: 2,
-    dossierId: 1,
-    invoiceId: 1,
-    type: "port",
-    amountAdvanced: 1e7,
-    amountReimbursed: 1e7,
-    status: "rembourse_total",
-    receiptNumber: "REC-PAC-2026-01",
-    notes: "Redevance portuaire PAC quai 3",
-    createdById: 2,
-    createdAt: /* @__PURE__ */ new Date(),
-    updatedAt: /* @__PURE__ */ new Date()
-  }
-];
-var _memoryTasks = [
-  {
-    id: 1,
-    dossierId: 54,
-    title: "D\xE9poser DDI GUCEG urgente pour DOS-0054 (New Japon Mining)",
-    assignedTo: "Mamadou Diallo",
-    dueDate: new Date(Date.now() + 864e5 * 1),
-    status: "A_faire",
-    priority: "Haute",
-    completedAt: null,
-    createdById: 1,
-    createdAt: /* @__PURE__ */ new Date()
-  },
-  {
-    id: 2,
-    dossierId: 23,
-    title: "Valider d\xE9claration SYDONIA World pour DOS-0023 (Guinean Birimian Gold)",
-    assignedTo: "Mamadou Diallo",
-    dueDate: new Date(Date.now() + 864e5 * 2),
-    status: "En_cours",
-    priority: "Haute",
-    completedAt: null,
-    createdById: 1,
-    createdAt: /* @__PURE__ */ new Date()
-  },
-  {
-    id: 3,
-    dossierId: 21,
-    title: "Obtenir Bon \xE0 D\xE9livrer (BAD) Port Autonome de Conakry pour DOS-0021",
-    assignedTo: "Mamadou Diallo",
-    dueDate: new Date(Date.now() + 864e5 * 2),
-    status: "A_faire",
-    priority: "Haute",
-    completedAt: null,
-    createdById: 1,
-    createdAt: /* @__PURE__ */ new Date()
-  },
-  {
-    id: 4,
-    dossierId: 20,
-    title: "Inspection physique conteneurs PAC quai terminal pour DOS-0020",
-    assignedTo: "Mamadou Diallo",
-    dueDate: new Date(Date.now() + 864e5 * 3),
-    status: "A_faire",
-    priority: "Normale",
-    completedAt: null,
-    createdById: 1,
-    createdAt: /* @__PURE__ */ new Date()
-  },
-  {
-    id: 5,
-    dossierId: 3,
-    title: "R\xE9gularisation bulletin de liquidation BLD Douane PAC pour DOS-0003",
-    assignedTo: "Mamadou Diallo",
-    dueDate: new Date(Date.now() + 864e5 * 1),
-    status: "En_cours",
-    priority: "Haute",
-    completedAt: null,
-    createdById: 1,
-    createdAt: /* @__PURE__ */ new Date()
-  },
-  {
-    id: 6,
-    dossierId: 3,
-    title: "Enregistrement paiement d\xE9bours douaniers & taxes PAC pour DOS-0003",
-    assignedTo: "Fatoumata Camara",
-    dueDate: new Date(Date.now() + 864e5 * 2),
-    status: "En_cours",
-    priority: "Haute",
-    completedAt: null,
-    createdById: 1,
-    createdAt: /* @__PURE__ */ new Date()
-  },
-  {
-    id: 7,
-    dossierId: 1,
-    title: "\xC9mission facture d\xE9finitive & quittance pour DOS-0001",
-    assignedTo: "Fatoumata Camara",
-    dueDate: new Date(Date.now() + 864e5 * 4),
-    status: "Termine",
-    priority: "Normale",
-    completedAt: /* @__PURE__ */ new Date(),
-    createdById: 1,
-    createdAt: /* @__PURE__ */ new Date()
-  }
-];
-var _memoryComments = [
-  {
-    id: 1,
-    dossierId: 1,
-    authorId: 2,
-    authorName: "Mamadou Diallo",
-    message: "Inspection physique programm\xE9e sur le quai conteneur PAC demain matin \xE0 09h00.",
-    createdAt: new Date(Date.now() - 36e5 * 4)
-  }
-];
-var _memoryNotifications = [
-  {
-    id: 1,
-    dossierId: 1,
-    dossierNumber: "DOS-0001",
-    type: "BULLETIN_MANQUANT",
-    title: "Bulletin de liquidation manquant",
-    message: "Le dossier DOS-0001 (Guinean Birimian Gold) n\xE9cessite le bulletin L 1774 pour finalisation.",
-    recipientEmail: "contact@igs-logistics.gn",
-    recipientRole: "declarant",
-    isRead: 0,
-    createdAt: /* @__PURE__ */ new Date()
-  },
-  {
-    id: 2,
-    dossierId: 3,
-    dossierNumber: "DOS-0003",
-    type: "ETA_DEPASSEE",
-    title: "Alerte ETA D\xE9pass\xE9e",
-    message: "Le navire du dossier DOS-0003 est arriv\xE9 le 21/07/2026. Risque de surestaries au port de Conakry.",
-    recipientEmail: "contact@igs-logistics.gn",
-    recipientRole: "manager",
-    isRead: 0,
-    createdAt: /* @__PURE__ */ new Date()
-  }
-];
-var _memoryPortalLogs = [];
-var _memoryClientSessions = [];
+}
 async function withDbTimeout(queryPromise, timeoutMs = 2500) {
   let timer;
   const timeout = new Promise((_, reject) => {
@@ -5585,8 +4863,6 @@ async function getHRStats() {
     totalInactive
   };
 }
-var _dossiersCacheTimestamp = 0;
-var DOSSIERS_CACHE_TTL_MS = 3e3;
 function invalidateDossiersCache() {
   _dossiersCacheTimestamp = 0;
 }
@@ -6008,7 +5284,6 @@ function formatAuditValue(val) {
   if (val instanceof Date) return val.toISOString();
   return String(val);
 }
-var dossierMutexMap = /* @__PURE__ */ new Map();
 async function runWithDossierLock(dossierId, fn) {
   const previousLock = dossierMutexMap.get(dossierId) || Promise.resolve();
   let releaseLock;
@@ -6123,6 +5398,70 @@ async function updateDossier(id, input, userId, authorName, options) {
     invalidateDossiersCache();
     return updated;
   });
+}
+async function syncAllDossierStates() {
+  const now = /* @__PURE__ */ new Date();
+  let updatedCount = 0;
+  let regularizedCount = 0;
+  let toRegularizeCount = 0;
+  let overdueDemurrageCount = 0;
+  let warningJ2Count = 0;
+  const details = [];
+  for (let i = 0; i < _memoryDossiers.length; i++) {
+    const original = _memoryDossiers[i];
+    const enriched = enrichDossierFields(original, now);
+    const hasChanged = original.calculatedStatus !== enriched.calculatedStatus || original.calculatedPriority !== enriched.calculatedPriority || original.daysOnQuay !== enriched.daysOnQuay || original.completionRate !== enriched.completionRate || original.portStatus !== enriched.portStatus || original.customsStatus !== enriched.customsStatus || original.financialStatus !== enriched.financialStatus || original.fieldAlert !== enriched.fieldAlert;
+    if (hasChanged) {
+      updatedCount++;
+      _memoryDossiers[i] = {
+        ...enriched,
+        updatedAt: now
+      };
+      await logAuditEvent({
+        dossierId: enriched.id,
+        userName: "Syst\xE8me IGS (Analyse & Mise \xE0 Jour Globale)",
+        userRole: "system",
+        action: "SYNCHRONISATION_STATUTS_GLOBAL",
+        fieldChanged: "Statuts, D\xE9lais Quai & Priorit\xE9",
+        previousValue: `${original.calculatedStatus} (${original.daysOnQuay ?? 0}j quai - ${original.calculatedPriority})`,
+        newValue: `${enriched.calculatedStatus} (${enriched.daysOnQuay ?? 0}j quai - ${enriched.calculatedPriority})`,
+        comment: `Mise \xE0 jour automatique par le moteur d'analyse op\xE9rationnelle IGS (${now.toLocaleDateString("fr-FR")})`
+      });
+    }
+    if (enriched.calculatedStatus === "R\xE9gularis\xE9") regularizedCount++;
+    else toRegularizeCount++;
+    const daysOnQuayNum = enriched.daysOnQuay ?? 0;
+    if (!enriched.goodsReleaseDate && daysOnQuayNum > 7) overdueDemurrageCount++;
+    else if (!enriched.goodsReleaseDate && daysOnQuayNum >= 5) warningJ2Count++;
+    await ensureProformaInvoiceForDossier(_memoryDossiers[i]);
+    details.push({
+      dossierId: enriched.id,
+      dossierNumber: enriched.dossierNumber,
+      client: enriched.client || "Client IGS",
+      calculatedStatus: enriched.calculatedStatus,
+      calculatedPriority: enriched.calculatedPriority,
+      daysOnQuay: enriched.daysOnQuay,
+      portStatus: enriched.portStatus,
+      customsStatus: enriched.customsStatus,
+      financialStatus: enriched.financialStatus
+    });
+  }
+  try {
+    const { runDemurrageReminderJob: runDemurrageReminderJob2 } = await Promise.resolve().then(() => (init_cronDemurrageReminders(), cronDemurrageReminders_exports));
+    await runDemurrageReminderJob2();
+  } catch (e) {
+  }
+  invalidateDossiersCache();
+  return {
+    timestamp: now.toISOString(),
+    totalAnalyzed: _memoryDossiers.length,
+    updatedCount,
+    regularizedCount,
+    toRegularizeCount,
+    overdueDemurrageCount,
+    warningJ2Count,
+    details
+  };
 }
 async function importDossiersBatch(items, userId, authorName) {
   if (items.length === 0) {
@@ -6457,10 +5796,6 @@ async function uploadDocumentWithVersion(input) {
   });
   return doc;
 }
-var APPROVAL_THRESHOLDS = {
-  DISBURSEMENT_GNF: 5e6,
-  INVOICE_GNF: 1e7
-};
 async function listApprovalRequests(filters) {
   let list = [..._memoryApprovals];
   if (filters?.status && filters.status !== "all") {
@@ -7058,8 +6393,6 @@ async function reconcileInvoice(invoiceId, input) {
   invalidateFinanceCache();
   return _memoryInvoices[idx];
 }
-var _heavyAggregateCache = /* @__PURE__ */ new Map();
-var AGGREGATE_CACHE_TTL_MS = 60 * 1e3;
 function getCachedAggregate(key) {
   const entry = _heavyAggregateCache.get(key);
   if (!entry) return null;
@@ -7340,7 +6673,6 @@ async function addComment(input) {
   }
   return comment;
 }
-var _readNotificationIds = /* @__PURE__ */ new Set();
 async function addNotification(input) {
   const now = /* @__PURE__ */ new Date();
   const entry = {
@@ -7477,6 +6809,947 @@ async function updateClientPreferences(clientId, data) {
   };
   return _memoryClients[idx];
 }
+var PORTAL_JWT_SECRET, _db, _client, fromSourceDate, _memoryUsers, _memoryReferenceItems, _memoryDossiers, _memoryDocuments, _memoryApprovals, _memoryClients, _memoryHistory, _currentExchangeRate, _memoryInvoices, _memoryPayments, _memoryPacDisbursements, _memoryTasks, _memoryComments, _memoryNotifications, _memoryPortalLogs, _memoryClientSessions, _dossiersCacheTimestamp, DOSSIERS_CACHE_TTL_MS, dossierMutexMap, APPROVAL_THRESHOLDS, _heavyAggregateCache, AGGREGATE_CACHE_TTL_MS, _readNotificationIds;
+var init_db = __esm({
+  "server/db.ts"() {
+    "use strict";
+    init_schema();
+    init_dossierRules();
+    init_alertsService();
+    init_initialImportData();
+    init_initialUsersData();
+    init_env();
+    PORTAL_JWT_SECRET = new TextEncoder().encode(process.env.JWT_SECRET || "igs_secure_portal_jwt_secret_2026_conakry");
+    _db = null;
+    _client = null;
+    fromSourceDate = (value) => value ? /* @__PURE__ */ new Date(`${value}T00:00:00.000Z`) : null;
+    _memoryUsers = initialUsersData.map((u) => ({ ...u }));
+    _memoryReferenceItems = initialImportData.referenceItems.map((item, idx) => ({
+      id: idx + 1,
+      category: item.category,
+      label: item.label,
+      sortOrder: item.sortOrder,
+      createdAt: /* @__PURE__ */ new Date()
+    }));
+    _memoryDossiers = initialImportData.dossiers.map((source, idx) => {
+      const payload = {
+        ...source,
+        eta: fromSourceDate(source.eta),
+        goodsReleaseDate: fromSourceDate(source.goodsReleaseDate)
+      };
+      const now = /* @__PURE__ */ new Date();
+      const rawDossier = {
+        id: idx + 1,
+        version: 1,
+        dossierNumber: source.dossierNumber,
+        clientDossierNumber: source.clientDossierNumber ?? null,
+        client: source.client ?? null,
+        blLtaNumber: source.blLtaNumber ?? null,
+        cargoNature: source.cargoNature ?? null,
+        transportMode: source.transportMode ?? null,
+        eta: payload.eta,
+        originPort: source.originPort ?? null,
+        destinationPort: source.destinationPort ?? null,
+        container: source.container ?? null,
+        bulk: source.bulk ?? null,
+        goodsReleaseDate: payload.goodsReleaseDate,
+        declarationNumber: source.declarationNumber ?? null,
+        bulletinNumber: source.bulletinNumber ?? null,
+        finalDeclarationNumber: source.finalDeclarationNumber ?? null,
+        ddiGucegNumber: idx % 2 === 0 ? `DDI-2026-GUCEG-${100 + idx + 1}` : null,
+        badStatus: idx % 3 === 0 ? "Obtenu" : "En attente",
+        baeStatus: idx % 3 === 0 ? "Accord\xE9" : "En attente",
+        calculatedStatus: "\xC0 r\xE9gulariser",
+        calculatedPriority: "Normale",
+        completionRate: 50,
+        documentStatus: null,
+        customsStatus: null,
+        portStatus: null,
+        financialStatus: idx % 3 === 0 ? "Factur\xE9" : idx % 3 === 1 ? "Fact. Proforma" : "En attente",
+        fieldOperation: null,
+        responsible: idx % 2 === 0 ? "Mamadou Diallo" : "Alpha Barry",
+        nextAction: null,
+        fieldAlert: null,
+        deliveryLocation: null,
+        declarant: "Mamadou Diallo",
+        service: "Transit & D\xE9douanement",
+        regime: "IM4 - Mise \xE0 la consommation",
+        notes: null,
+        portalAccessCode: `IGS-${1e3 + idx + 1}`,
+        clientId: null,
+        port: "Port Autonome de Conakry (PAC)",
+        daysOnQuay: 0,
+        createdById: 1,
+        updatedById: 1,
+        createdAt: now,
+        updatedAt: now
+      };
+      return enrichDossierFields(rawDossier, now);
+    });
+    _memoryDocuments = [
+      {
+        id: 1,
+        dossierId: 1,
+        name: "BL_HLCUNG12604AUQG1_Original.pdf",
+        type: "BL",
+        fileUrl: "data:application/pdf;base64,JVBERi0xLjQKJcTl8uXr...",
+        fileSize: 142500,
+        mimeType: "application/pdf",
+        version: 1,
+        isPublic: true,
+        previousVersions: "[]",
+        description: "Connaissement maritime original \xE9mis par Hapag-Lloyd",
+        uploadedById: 1,
+        uploaderName: "Ibrahima Gold Service",
+        createdAt: /* @__PURE__ */ new Date()
+      },
+      {
+        id: 2,
+        dossierId: 1,
+        name: "Declaration_S142_SydoniaWorld.pdf",
+        type: "Declaration_Douane",
+        fileUrl: "data:application/pdf;base64,JVBERi0xLjQKJcTl8uXr...",
+        fileSize: 204800,
+        mimeType: "application/pdf",
+        version: 1,
+        isPublic: true,
+        previousVersions: "[]",
+        description: "D\xE9claration d'importation SYDONIA World valid\xE9e",
+        uploadedById: 2,
+        uploaderName: "Mamadou Diallo",
+        createdAt: /* @__PURE__ */ new Date()
+      }
+    ];
+    _memoryApprovals = [
+      {
+        id: 1,
+        entityType: "disbursement",
+        entityId: 1,
+        dossierId: 1,
+        amount: 145e5,
+        currency: "GNF",
+        thresholdAmount: 5e6,
+        requestedById: 2,
+        requestedByName: "Mamadou Diallo",
+        approverId: 1,
+        approverName: "Alpha Barry (Manager)",
+        status: "APPROUVE",
+        rejectionReason: null,
+        comment: "D\xE9bours Droits de douane liquidation Tr\xE9sor Public",
+        createdAt: new Date(Date.now() - 864e5 * 2),
+        updatedAt: new Date(Date.now() - 864e5),
+        resolvedAt: new Date(Date.now() - 864e5)
+      }
+    ];
+    _memoryClients = [
+      {
+        id: 1,
+        name: "Guinean Birimian Gold (GBG)",
+        contactPerson: "Ousmane Camara",
+        email: "transit@gbg-mining.gn",
+        phone: "+224622001122",
+        whatsappPhone: "+224622001122",
+        country: "Guin\xE9e",
+        taxId: "NIF-8901234",
+        address: "Boffa / Conakry, R\xE9publique de Guin\xE9e",
+        preferredChannel: "whatsapp",
+        optInNotifications: true,
+        monthlyReportEnabled: true,
+        accountCategory: "mining_major",
+        createdAt: /* @__PURE__ */ new Date(),
+        updatedAt: /* @__PURE__ */ new Date()
+      },
+      {
+        id: 2,
+        name: "Guinee Gold Exploration (GGE)",
+        contactPerson: "Amadou Diallo",
+        email: "direction@gge-gold.gn",
+        phone: "+224621234567",
+        whatsappPhone: "+224621234567",
+        country: "Guin\xE9e",
+        taxId: "NIF-782190",
+        address: "Kamsar / Conakry, R\xE9publique de Guin\xE9e",
+        preferredChannel: "whatsapp",
+        optInNotifications: true,
+        monthlyReportEnabled: true,
+        accountCategory: "mining_major",
+        createdAt: /* @__PURE__ */ new Date(),
+        updatedAt: /* @__PURE__ */ new Date()
+      },
+      {
+        id: 3,
+        name: "New Japon Mining (NJP)",
+        contactPerson: "Kenji Sato",
+        email: "operations@njp-mining.gn",
+        phone: "+224623344556",
+        whatsappPhone: "+224623344556",
+        country: "Guin\xE9e",
+        taxId: "NIF-654321",
+        address: "Bok\xE9, R\xE9publique de Guin\xE9e",
+        preferredChannel: "whatsapp",
+        optInNotifications: true,
+        monthlyReportEnabled: true,
+        accountCategory: "mining_major",
+        createdAt: /* @__PURE__ */ new Date(),
+        updatedAt: /* @__PURE__ */ new Date()
+      }
+    ];
+    _memoryHistory = [
+      {
+        id: 1,
+        dossierId: 1,
+        changedById: 1,
+        authorName: "Syst\xE8me IGS",
+        userRole: "admin",
+        action: "CREATION_DOSSIER",
+        entityType: "dossier",
+        entityId: 1,
+        fieldChanged: "Cr\xE9ation Dossier",
+        previousValue: null,
+        newValue: "DOS-0001 import\xE9",
+        beforeData: null,
+        afterData: JSON.stringify({ dossierNumber: "DOS-0001" }),
+        comment: "Initialisation automatique depuis le manifeste maritime",
+        ipAddress: "127.0.0.1",
+        metadata: null,
+        createdAt: new Date(Date.now() - 864e5 * 3)
+      },
+      {
+        id: 2,
+        dossierId: 1,
+        changedById: 2,
+        authorName: "Mamadou Diallo",
+        userRole: "declarant",
+        action: "SYDONIA_DECLAREE",
+        entityType: "dossier",
+        entityId: 1,
+        fieldChanged: "declarationNumber",
+        previousValue: "Non renseign\xE9",
+        newValue: "S 142- 27/07/2026",
+        beforeData: JSON.stringify({ declarationNumber: null }),
+        afterData: JSON.stringify({ declarationNumber: "S 142- 27/07/2026" }),
+        comment: "Enregistrement de la d\xE9claration dans Sydonia++",
+        ipAddress: "192.168.1.45",
+        metadata: null,
+        createdAt: new Date(Date.now() - 864e5 * 2)
+      }
+    ];
+    _currentExchangeRate = 8650;
+    _memoryInvoices = [
+      {
+        id: 1,
+        dossierId: 1,
+        invoiceNumber: "FAC-2026-0001",
+        client: "Guinean Birimian Gold S.A",
+        currency: "GNF",
+        invoiceType: "Definitive",
+        exchangeRate: 8650,
+        amountHt: 185e5,
+        amountTva: 333e4,
+        amountTtc: 2183e4,
+        disbursementsAmount: 45e6,
+        customsDutiesAmount: 35e6,
+        portFeesAmount: 1e7,
+        storageAndDemurrageFees: 0,
+        estimatedMargin: 55e5,
+        paymentMethod: "Virement Bancaire",
+        paymentReference: "VIR-2026-0812",
+        receiptNumber: "REC-2026-0001",
+        status: "\xC9mise",
+        dueDate: new Date(Date.now() + 864e5 * 15),
+        paidAt: null,
+        notes: "Facture transit maritime 4 conteneurs 20 pieds",
+        reconciliationStatus: "rapproche",
+        reconciliationDate: /* @__PURE__ */ new Date(),
+        reconciliationRef: "VIR-2026-0812",
+        rateLockedAt: /* @__PURE__ */ new Date(),
+        clientId: null,
+        pdfUrl: null,
+        createdById: 3,
+        createdAt: /* @__PURE__ */ new Date(),
+        updatedAt: /* @__PURE__ */ new Date()
+      }
+    ];
+    _memoryPayments = [
+      {
+        id: 1,
+        invoiceId: 1,
+        amount: 2183e4,
+        currency: "GNF",
+        paymentMethod: "Virement Bancaire",
+        paymentReference: "VIR-2026-0812",
+        paymentDate: /* @__PURE__ */ new Date(),
+        proofUrl: null,
+        notes: "Encaissement initial",
+        createdById: 3,
+        createdAt: /* @__PURE__ */ new Date()
+      }
+    ];
+    _memoryPacDisbursements = [
+      {
+        id: 1,
+        dossierId: 1,
+        invoiceId: 1,
+        type: "douane",
+        amountAdvanced: 35e6,
+        amountReimbursed: 35e6,
+        status: "rembourse_total",
+        receiptNumber: "REC-DOUANE-2026-01",
+        notes: "Droits de douane SYDONIA S 142",
+        createdById: 2,
+        createdAt: /* @__PURE__ */ new Date(),
+        updatedAt: /* @__PURE__ */ new Date()
+      },
+      {
+        id: 2,
+        dossierId: 1,
+        invoiceId: 1,
+        type: "port",
+        amountAdvanced: 1e7,
+        amountReimbursed: 1e7,
+        status: "rembourse_total",
+        receiptNumber: "REC-PAC-2026-01",
+        notes: "Redevance portuaire PAC quai 3",
+        createdById: 2,
+        createdAt: /* @__PURE__ */ new Date(),
+        updatedAt: /* @__PURE__ */ new Date()
+      }
+    ];
+    _memoryTasks = [
+      {
+        id: 1,
+        dossierId: 54,
+        title: "D\xE9poser DDI GUCEG urgente pour DOS-0054 (New Japon Mining)",
+        assignedTo: "Mamadou Diallo",
+        dueDate: new Date(Date.now() + 864e5 * 1),
+        status: "A_faire",
+        priority: "Haute",
+        completedAt: null,
+        createdById: 1,
+        createdAt: /* @__PURE__ */ new Date()
+      },
+      {
+        id: 2,
+        dossierId: 23,
+        title: "Valider d\xE9claration SYDONIA World pour DOS-0023 (Guinean Birimian Gold)",
+        assignedTo: "Mamadou Diallo",
+        dueDate: new Date(Date.now() + 864e5 * 2),
+        status: "En_cours",
+        priority: "Haute",
+        completedAt: null,
+        createdById: 1,
+        createdAt: /* @__PURE__ */ new Date()
+      },
+      {
+        id: 3,
+        dossierId: 21,
+        title: "Obtenir Bon \xE0 D\xE9livrer (BAD) Port Autonome de Conakry pour DOS-0021",
+        assignedTo: "Mamadou Diallo",
+        dueDate: new Date(Date.now() + 864e5 * 2),
+        status: "A_faire",
+        priority: "Haute",
+        completedAt: null,
+        createdById: 1,
+        createdAt: /* @__PURE__ */ new Date()
+      },
+      {
+        id: 4,
+        dossierId: 20,
+        title: "Inspection physique conteneurs PAC quai terminal pour DOS-0020",
+        assignedTo: "Mamadou Diallo",
+        dueDate: new Date(Date.now() + 864e5 * 3),
+        status: "A_faire",
+        priority: "Normale",
+        completedAt: null,
+        createdById: 1,
+        createdAt: /* @__PURE__ */ new Date()
+      },
+      {
+        id: 5,
+        dossierId: 3,
+        title: "R\xE9gularisation bulletin de liquidation BLD Douane PAC pour DOS-0003",
+        assignedTo: "Mamadou Diallo",
+        dueDate: new Date(Date.now() + 864e5 * 1),
+        status: "En_cours",
+        priority: "Haute",
+        completedAt: null,
+        createdById: 1,
+        createdAt: /* @__PURE__ */ new Date()
+      },
+      {
+        id: 6,
+        dossierId: 3,
+        title: "Enregistrement paiement d\xE9bours douaniers & taxes PAC pour DOS-0003",
+        assignedTo: "Fatoumata Camara",
+        dueDate: new Date(Date.now() + 864e5 * 2),
+        status: "En_cours",
+        priority: "Haute",
+        completedAt: null,
+        createdById: 1,
+        createdAt: /* @__PURE__ */ new Date()
+      },
+      {
+        id: 7,
+        dossierId: 1,
+        title: "\xC9mission facture d\xE9finitive & quittance pour DOS-0001",
+        assignedTo: "Fatoumata Camara",
+        dueDate: new Date(Date.now() + 864e5 * 4),
+        status: "Termine",
+        priority: "Normale",
+        completedAt: /* @__PURE__ */ new Date(),
+        createdById: 1,
+        createdAt: /* @__PURE__ */ new Date()
+      }
+    ];
+    _memoryComments = [
+      {
+        id: 1,
+        dossierId: 1,
+        authorId: 2,
+        authorName: "Mamadou Diallo",
+        message: "Inspection physique programm\xE9e sur le quai conteneur PAC demain matin \xE0 09h00.",
+        createdAt: new Date(Date.now() - 36e5 * 4)
+      }
+    ];
+    _memoryNotifications = [
+      {
+        id: 1,
+        dossierId: 1,
+        dossierNumber: "DOS-0001",
+        type: "BULLETIN_MANQUANT",
+        title: "Bulletin de liquidation manquant",
+        message: "Le dossier DOS-0001 (Guinean Birimian Gold) n\xE9cessite le bulletin L 1774 pour finalisation.",
+        recipientEmail: "contact@igs-logistics.gn",
+        recipientRole: "declarant",
+        isRead: 0,
+        createdAt: /* @__PURE__ */ new Date()
+      },
+      {
+        id: 2,
+        dossierId: 3,
+        dossierNumber: "DOS-0003",
+        type: "ETA_DEPASSEE",
+        title: "Alerte ETA D\xE9pass\xE9e",
+        message: "Le navire du dossier DOS-0003 est arriv\xE9 le 21/07/2026. Risque de surestaries au port de Conakry.",
+        recipientEmail: "contact@igs-logistics.gn",
+        recipientRole: "manager",
+        isRead: 0,
+        createdAt: /* @__PURE__ */ new Date()
+      }
+    ];
+    _memoryPortalLogs = [];
+    _memoryClientSessions = [];
+    _dossiersCacheTimestamp = 0;
+    DOSSIERS_CACHE_TTL_MS = 3e3;
+    dossierMutexMap = /* @__PURE__ */ new Map();
+    APPROVAL_THRESHOLDS = {
+      DISBURSEMENT_GNF: 5e6,
+      INVOICE_GNF: 1e7
+    };
+    _heavyAggregateCache = /* @__PURE__ */ new Map();
+    AGGREGATE_CACHE_TTL_MS = 60 * 1e3;
+    _readNotificationIds = /* @__PURE__ */ new Set();
+  }
+});
+
+// server/terminal49Client.ts
+var terminal49Client_exports = {};
+__export(terminal49Client_exports, {
+  Terminal49Client: () => Terminal49Client,
+  detectScacFromNumber: () => detectScacFromNumber,
+  parseJsonApiShipment: () => parseJsonApiShipment,
+  terminal49: () => terminal49
+});
+function parseJsonApiShipment(resource, included = []) {
+  const attrs = resource.attributes || {};
+  const containerResources = included.filter((r) => r.type === "container");
+  const transportEventResources = included.filter(
+    (r) => r.type === "transport_event" || r.type === "port_event" || r.type === "event"
+  );
+  const events = transportEventResources.map((ev) => {
+    const evAttrs = ev.attributes || {};
+    return {
+      id: ev.id,
+      eventType: evAttrs.event_type || "status_change",
+      title: formatEventTitle(evAttrs.event_type || void 0, evAttrs.description || void 0),
+      description: evAttrs.description || evAttrs.event_type || "\xC9v\xE9nement de transport",
+      location: evAttrs.location || attrs.port_of_discharge_name || "Port Autonome de Conakry",
+      timestamp: evAttrs.timestamp || (/* @__PURE__ */ new Date()).toISOString(),
+      isActual: evAttrs.is_actual ?? true,
+      vesselName: evAttrs.vessel_name || attrs.vessel_name || null,
+      voyageNumber: evAttrs.voyage_number || attrs.voyage_number || null
+    };
+  }).sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+  const containers = containerResources.map((c) => {
+    const cAttrs = c.attributes || {};
+    const holds = Array.isArray(cAttrs.holds_at_pod) ? cAttrs.holds_at_pod.map((h) => ({
+      name: h.name || "Contr\xF4le Douanier / Quai",
+      status: h.status || "En cours"
+    })) : [];
+    return {
+      id: c.id,
+      number: cAttrs.number || "CONT-NON-RENSEIGN\xC9",
+      sealNumber: cAttrs.seal_number || null,
+      equipmentType: cAttrs.equipment_type || cAttrs.equipment_description || "40HC",
+      equipmentDescription: cAttrs.equipment_description || null,
+      status: cAttrs.status || "in_transit",
+      availableForPickup: Boolean(cAttrs.available_for_pickup),
+      lastFreeDay: cAttrs.last_free_day_on || null,
+      hasHolds: Boolean(cAttrs.has_holds || holds.length > 0),
+      holds,
+      fees: cAttrs.fees ? {
+        total: cAttrs.fees.total || 0,
+        currency: cAttrs.fees.currency || "USD",
+        demurrage: cAttrs.fees.demurrage || 0
+      } : null,
+      dischargedAt: cAttrs.discharged_at || null,
+      gatedOutAt: cAttrs.gated_out_at || null,
+      events: events.slice(0, 5)
+    };
+  });
+  const rawStatus = (attrs.status || "in_transit").toLowerCase();
+  let normalizedStatus = "in_transit";
+  if (rawStatus.includes("arrive") || rawStatus.includes("berthed")) normalizedStatus = "arrived";
+  else if (rawStatus.includes("discharge")) normalizedStatus = "discharged";
+  else if (rawStatus.includes("complete") || rawStatus.includes("delivered")) normalizedStatus = "completed";
+  else if (rawStatus.includes("pending") || rawStatus.includes("booked")) normalizedStatus = "pending";
+  return {
+    id: resource.id,
+    billOfLadingNumber: attrs.bill_of_lading_number || "BL-NON-DISPONIBLE",
+    bookingNumber: attrs.booking_number || null,
+    shippingLine: {
+      scac: attrs.shipping_line_scac || "MSC",
+      name: attrs.shipping_line_name || attrs.shipping_line_short_name || "Armateur Partenaire"
+    },
+    status: normalizedStatus,
+    vessel: {
+      name: attrs.vessel_name || "Navire Porte-Conteneurs",
+      imo: attrs.vessel_imo || null,
+      voyage: attrs.voyage_number || null
+    },
+    origin: {
+      portName: attrs.port_of_loading_name || "Port de Chargement",
+      locode: attrs.port_of_loading_locode || null,
+      etd: attrs.etd_at || null,
+      atd: attrs.atd_at || null
+    },
+    destination: {
+      portName: attrs.port_of_discharge_name || attrs.destination_name || "Port Autonome de Conakry (PAC)",
+      locode: attrs.port_of_discharge_locode || "GNCKY",
+      eta: attrs.eta_at || null,
+      ata: attrs.ata_at || null
+    },
+    containersCount: attrs.containers_count || containers.length || 1,
+    containers,
+    events,
+    updatedAt: attrs.updated_at || (/* @__PURE__ */ new Date()).toISOString(),
+    rawAttributes: attrs
+  };
+}
+function formatEventTitle(eventType, description) {
+  if (!eventType) return description || "Mise \xE0 jour transport";
+  const map = {
+    vessel_departure: "D\xE9part navire du port de chargement",
+    vessel_arrival: "Arriv\xE9e navire au Port Autonome de Conakry",
+    container_discharge: "D\xE9chargement conteneur sur terre-plein quai",
+    customs_hold_placed: "Mise sous contr\xF4le douanier (SYDONIA)",
+    customs_hold_released: "Mainlev\xE9e douani\xE8re accord\xE9e (BAE)",
+    gate_out: "Sortie de quai / Livraison transporteur",
+    empty_container_returned: "Retour conteneur vide au parc armateur"
+  };
+  return map[eventType] || description || eventType.replace(/_/g, " ");
+}
+function detectScacFromNumber(number) {
+  const upper = number.toUpperCase().trim();
+  if (upper.startsWith("MEDU") || upper.startsWith("MSCU")) return "MSCU";
+  if (upper.startsWith("MAEU") || upper.startsWith("MSK")) return "MAEU";
+  if (upper.startsWith("CMA") || upper.startsWith("CMDU")) return "CMDU";
+  if (upper.startsWith("HLCU")) return "HLCU";
+  if (upper.startsWith("COSU") || upper.startsWith("COS")) return "COSU";
+  if (upper.startsWith("ONEY")) return "ONEY";
+  if (upper.startsWith("GRI")) return "GRIM";
+  if (upper.startsWith("EID") || upper.startsWith("EMC")) return "EGLV";
+  return "MSCU";
+}
+var TERMINAL49_BASE_URL, FETCH_TIMEOUT_MS, Terminal49Client, terminal49;
+var init_terminal49Client = __esm({
+  "server/terminal49Client.ts"() {
+    "use strict";
+    TERMINAL49_BASE_URL = "https://api.terminal49.com/v2";
+    FETCH_TIMEOUT_MS = 1e4;
+    Terminal49Client = class {
+      apiKey;
+      baseUrl;
+      constructor(apiKey, baseUrl = TERMINAL49_BASE_URL) {
+        this.apiKey = apiKey || process.env.TERMINAL49_API_KEY || "";
+        this.baseUrl = baseUrl;
+      }
+      getHeaders() {
+        return {
+          // Directives strictes: "Authorization: Token ${process.env.TERMINAL49_API_KEY}" (PAS Bearer)
+          Authorization: `Token ${this.apiKey}`,
+          "Content-Type": "application/vnd.api+json",
+          Accept: "application/vnd.api+json"
+        };
+      }
+      /**
+       * Effectue un appel HTTP fetch avec timeout de 10s via AbortController
+       */
+      async request(endpoint, options = {}) {
+        if (!this.apiKey) {
+          return {
+            data: null,
+            error: "Cl\xE9 API Terminal49 non configur\xE9e. Veuillez renseigner TERMINAL49_API_KEY."
+          };
+        }
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+        const url = `${this.baseUrl}${endpoint.startsWith("/") ? endpoint : `/${endpoint}`}`;
+        try {
+          const response = await fetch(url, {
+            ...options,
+            signal: controller.signal,
+            headers: {
+              ...this.getHeaders(),
+              ...options.headers || {}
+            }
+          });
+          clearTimeout(timeoutId);
+          const jsonText = await response.text();
+          let parsed = null;
+          try {
+            parsed = jsonText ? JSON.parse(jsonText) : {};
+          } catch {
+            parsed = { raw: jsonText };
+          }
+          if (!response.ok) {
+            const errorDetail = parsed?.errors?.[0]?.detail || parsed?.errors?.[0]?.title || parsed?.message || `Erreur HTTP ${response.status} (${response.statusText})`;
+            return {
+              data: null,
+              error: `[Terminal49 API] ${errorDetail}`
+            };
+          }
+          return {
+            data: parsed,
+            error: null
+          };
+        } catch (err) {
+          clearTimeout(timeoutId);
+          if (err.name === "AbortError") {
+            return {
+              data: null,
+              error: "D\xE9lai d'attente d\xE9pass\xE9 (timeout 10s) lors de la requ\xEAte vers Terminal49."
+            };
+          }
+          return {
+            data: null,
+            error: `Erreur r\xE9seau Terminal49: ${err.message || String(err)}`
+          };
+        }
+      }
+      /**
+       * POST /tracking_requests
+       * Crée une demande de suivi pour un connaissement (BL), numéro de booking ou numéro de conteneur
+       */
+      async createTrackingRequest(input) {
+        const scac = input.shippingLineScac?.trim() || detectScacFromNumber(input.requestNumber);
+        const payload = {
+          data: {
+            type: "tracking_request",
+            attributes: {
+              request_number: input.requestNumber.trim(),
+              request_type: input.requestType || (input.requestNumber.trim().length === 11 && /^[A-Z]{4}\d{7}$/i.test(input.requestNumber.trim()) ? "container" : "bill_of_lading"),
+              scac,
+              shipping_line_scac: scac
+            }
+          }
+        };
+        const res = await this.request(
+          "/tracking_requests",
+          {
+            method: "POST",
+            body: JSON.stringify(payload)
+          }
+        );
+        if (res.error || !res.data) {
+          return { data: null, error: res.error };
+        }
+        const trkReq = res.data.data;
+        const trackedShipmentId = trkReq?.attributes?.tracked_object_id || trkReq?.relationships?.shipment?.data?.id;
+        if (trackedShipmentId) {
+          const shipmentRes = await this.getShipment(trackedShipmentId);
+          if (shipmentRes.data) {
+            return { data: shipmentRes.data, error: null };
+          }
+        }
+        return {
+          data: {
+            requestId: trkReq.id,
+            status: trkReq.attributes?.status || "processing"
+          },
+          error: null
+        };
+      }
+      /**
+       * GET /shipments
+       * Liste les cargaisons suivies avec leurs conteneurs et événements inclus
+       */
+      async listShipments(options = {}) {
+        const page = options.page || 1;
+        const size = Math.min(options.size || 10, 10);
+        const query = `?page[number]=${page}&page[size]=${size}&include=containers,transport_events`;
+        const res = await this.request(`/shipments${query}`, { method: "GET" });
+        if (res.error || !res.data) {
+          return { data: null, error: res.error };
+        }
+        const resources = Array.isArray(res.data.data) ? res.data.data : [];
+        const included = res.data.included || [];
+        const shipments = resources.map((r) => parseJsonApiShipment(r, included));
+        return {
+          data: shipments,
+          error: null
+        };
+      }
+      /**
+       * GET /shipments/{id}
+       * Récupère le détail complet d'un shipment incluant les conteneurs et les événements de transport
+       */
+      async getShipment(shipmentId) {
+        if (!shipmentId) {
+          return { data: null, error: "Identifiant de shipment manquant." };
+        }
+        const query = "?include=containers,transport_events,shipping_line";
+        const res = await this.request(`/shipments/${encodeURIComponent(shipmentId)}${query}`, { method: "GET" });
+        if (res.error || !res.data) {
+          return { data: null, error: res.error };
+        }
+        const shipment = parseJsonApiShipment(
+          res.data.data,
+          res.data.included || []
+        );
+        return {
+          data: shipment,
+          error: null
+        };
+      }
+      /**
+       * GET /containers/{id}
+       * Récupère les données d'un conteneur spécifique et ses événements de quai
+       */
+      async getContainer(containerId) {
+        if (!containerId) {
+          return { data: null, error: "Identifiant de conteneur manquant." };
+        }
+        const query = "?include=transport_events";
+        const res = await this.request(`/containers/${encodeURIComponent(containerId)}${query}`, { method: "GET" });
+        if (res.error || !res.data) {
+          return { data: null, error: res.error };
+        }
+        const c = res.data.data;
+        const cAttrs = c.attributes || {};
+        const events = (res.data.included || []).map((ev) => {
+          const evAttrs = ev.attributes || {};
+          return {
+            id: ev.id,
+            eventType: evAttrs.event_type || "status_update",
+            title: formatEventTitle(evAttrs.event_type || void 0, evAttrs.description || void 0),
+            description: evAttrs.description || "\xC9v\xE9nement quai",
+            location: evAttrs.location || "Port Autonome de Conakry",
+            timestamp: evAttrs.timestamp || (/* @__PURE__ */ new Date()).toISOString(),
+            isActual: evAttrs.is_actual ?? true
+          };
+        });
+        const container = {
+          id: c.id,
+          number: cAttrs.number || containerId,
+          sealNumber: cAttrs.seal_number || null,
+          equipmentType: cAttrs.equipment_type || "40HC",
+          equipmentDescription: cAttrs.equipment_description || null,
+          status: cAttrs.status || "active",
+          availableForPickup: Boolean(cAttrs.available_for_pickup),
+          lastFreeDay: cAttrs.last_free_day_on || null,
+          hasHolds: Boolean(cAttrs.has_holds || cAttrs.holds_at_pod && cAttrs.holds_at_pod.length > 0),
+          holds: Array.isArray(cAttrs.holds_at_pod) ? cAttrs.holds_at_pod.map((h) => ({ name: h.name || "Contr\xF4le", status: h.status || "Actif" })) : [],
+          fees: cAttrs.fees ? {
+            total: cAttrs.fees.total || 0,
+            currency: cAttrs.fees.currency || "USD",
+            demurrage: cAttrs.fees.demurrage || 0
+          } : null,
+          dischargedAt: cAttrs.discharged_at || null,
+          gatedOutAt: cAttrs.gated_out_at || null,
+          events
+        };
+        return {
+          data: container,
+          error: null
+        };
+      }
+      /**
+       * Recherche ou création automatique de suivi par numéro de BL / Booking / Conteneur
+       */
+      async trackByNumber(number, scac) {
+        const cleanNumber = number.trim();
+        if (!cleanNumber) {
+          return { data: null, error: "Num\xE9ro de suivi manquant." };
+        }
+        const listRes = await this.listShipments({ size: 10 });
+        if (listRes.data && listRes.data.length > 0) {
+          const match = listRes.data.find(
+            (s) => s.billOfLadingNumber.toLowerCase() === cleanNumber.toLowerCase() || s.bookingNumber && s.bookingNumber.toLowerCase() === cleanNumber.toLowerCase() || s.containers.some((c) => c.number.toLowerCase() === cleanNumber.toLowerCase())
+          );
+          if (match) {
+            return { data: match, error: null };
+          }
+        }
+        const createRes = await this.createTrackingRequest({
+          requestNumber: cleanNumber,
+          requestType: cleanNumber.length === 11 && /^[A-Z]{4}\d{7}$/i.test(cleanNumber) ? "container" : "bill_of_lading",
+          shippingLineScac: scac
+        });
+        if (createRes.error) {
+          return { data: null, error: createRes.error };
+        }
+        if (createRes.data && "billOfLadingNumber" in createRes.data) {
+          return { data: createRes.data, error: null };
+        }
+        return {
+          data: null,
+          error: `Suivi initi\xE9 pour le num\xE9ro \xAB ${cleanNumber} \xBB. Les donn\xE9es maritimes sont en cours de synchronisation aupr\xE8s de l'armateur.`
+        };
+      }
+    };
+    terminal49 = new Terminal49Client();
+  }
+});
+
+// server/supabase.ts
+var supabase_exports = {};
+__export(supabase_exports, {
+  getSignedDownloadUrl: () => getSignedDownloadUrl,
+  getSupabaseServerClient: () => getSupabaseServerClient,
+  isSupabaseConfigured: () => isSupabaseConfigured,
+  uploadInvoicePdf: () => uploadInvoicePdf,
+  uploadPaymentProof: () => uploadPaymentProof
+});
+import { createClient } from "@supabase/supabase-js";
+function getSupabaseServerClient() {
+  if (_supabaseClient) return _supabaseClient;
+  const url = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.VITE_SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY;
+  if (!url || !key) {
+    return null;
+  }
+  try {
+    _supabaseClient = createClient(url, key, {
+      auth: {
+        persistSession: false,
+        autoRefreshToken: false
+      }
+    });
+    return _supabaseClient;
+  } catch (err) {
+    console.warn("[Supabase] Failed to initialize server client:", err);
+    return null;
+  }
+}
+function isSupabaseConfigured() {
+  const url = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.VITE_SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY;
+  return Boolean(url && key);
+}
+async function uploadInvoicePdf(invoiceNumber, pdfBuffer, mimeType = "application/pdf") {
+  const supabase = getSupabaseServerClient();
+  if (!supabase) return null;
+  const cleanNumber = invoiceNumber.replace(/[^a-zA-Z0-9_-]/g, "_");
+  const fileName = `facture_${cleanNumber}_${Date.now()}.pdf`;
+  const filePath = `invoices/${fileName}`;
+  try {
+    const { data, error } = await supabase.storage.from("factures").upload(filePath, pdfBuffer, {
+      contentType: mimeType,
+      upsert: true
+    });
+    if (error) {
+      console.warn("[Supabase Storage] Error uploading invoice PDF:", error.message);
+      return null;
+    }
+    const { data: publicUrlData } = supabase.storage.from("factures").getPublicUrl(data.path);
+    return publicUrlData.publicUrl;
+  } catch (err) {
+    console.warn("[Supabase Storage] Exception during invoice PDF upload:", err);
+    return null;
+  }
+}
+async function uploadPaymentProof(invoiceId, fileBuffer, originalFileName, mimeType = "image/jpeg") {
+  const supabase = getSupabaseServerClient();
+  if (!supabase) return null;
+  const ext = originalFileName.split(".").pop() || "jpg";
+  const filePath = `payments/invoice_${invoiceId}_${Date.now()}.${ext}`;
+  try {
+    const { data, error } = await supabase.storage.from("preuves_paiement").upload(filePath, fileBuffer, {
+      contentType: mimeType,
+      upsert: true
+    });
+    if (error) {
+      console.warn("[Supabase Storage] Error uploading payment proof:", error.message);
+      return null;
+    }
+    const { data: publicUrlData } = supabase.storage.from("preuves_paiement").getPublicUrl(data.path);
+    return publicUrlData.publicUrl;
+  } catch (err) {
+    console.warn("[Supabase Storage] Exception during payment proof upload:", err);
+    return null;
+  }
+}
+async function getSignedDownloadUrl(bucket, filePath, expiresInSeconds = 3600) {
+  const supabase = getSupabaseServerClient();
+  if (!supabase) return null;
+  try {
+    const { data, error } = await supabase.storage.from(bucket).createSignedUrl(filePath, expiresInSeconds);
+    if (error || !data?.signedUrl) return null;
+    return data.signedUrl;
+  } catch {
+    return null;
+  }
+}
+var _supabaseClient;
+var init_supabase = __esm({
+  "server/supabase.ts"() {
+    "use strict";
+    _supabaseClient = null;
+  }
+});
+
+// server/_core/app.ts
+import "dotenv/config";
+import express from "express";
+import compression from "compression";
+import { createExpressMiddleware } from "@trpc/server/adapters/express";
+
+// shared/const.ts
+var COOKIE_NAME = "app_session_id";
+var ONE_YEAR_MS = 1e3 * 60 * 60 * 24 * 365;
+var AXIOS_TIMEOUT_MS = 3e4;
+var UNAUTHED_ERR_MSG = "Please login (10001)";
+var NOT_ADMIN_ERR_MSG = "You do not have required permission (10002)";
+var OAUTH_STATE_COOKIE = "__Host-oauth_state";
+var decodeOAuthState = (state) => {
+  let decoded;
+  try {
+    decoded = atob(state);
+  } catch {
+    return { redirectUri: "" };
+  }
+  try {
+    const parsed = JSON.parse(decoded);
+    if (parsed && typeof parsed.redirectUri === "string") return parsed;
+  } catch {
+  }
+  return { redirectUri: decoded };
+};
+
+// server/_core/oauth.ts
+init_db();
+import { parse as parseCookieHeader2 } from "cookie";
 
 // server/_core/cookies.ts
 var LOCAL_HOSTS = /* @__PURE__ */ new Set(["localhost", "127.0.0.1", "::1"]);
@@ -7513,6 +7786,8 @@ var HttpError = class extends Error {
 var ForbiddenError = (msg) => new HttpError(403, msg);
 
 // server/_core/sdk.ts
+init_db();
+init_env();
 import axios from "axios";
 import { parse as parseCookieHeader } from "cookie";
 import { SignJWT as SignJWT2, jwtVerify as jwtVerify2 } from "jose";
@@ -7811,6 +8086,7 @@ function registerOAuthRoutes(app2) {
 }
 
 // server/_core/storageProxy.ts
+init_env();
 function registerStorageProxy(app2) {
   app2.get("/manus-storage/*", async (req, res) => {
     const key = req.params[0];
@@ -7851,6 +8127,9 @@ function registerStorageProxy(app2) {
   });
 }
 
+// server/restRoutes.ts
+init_db();
+
 // server/routers.ts
 import { z as z2 } from "zod";
 import { TRPCError as TRPCError4 } from "@trpc/server";
@@ -7859,6 +8138,7 @@ import { TRPCError as TRPCError4 } from "@trpc/server";
 import { z } from "zod";
 
 // server/_core/notification.ts
+init_env();
 import { TRPCError as TRPCError2 } from "@trpc/server";
 var TITLE_MAX_LENGTH = 1200;
 var CONTENT_MAX_LENGTH = 2e4;
@@ -8082,6 +8362,9 @@ var systemRouter = router({
   })
 });
 
+// server/routers.ts
+init_db();
+
 // server/cloudStorageService.ts
 import { S3Client, PutObjectCommand, GetObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
@@ -8140,7 +8423,11 @@ async function uploadDossierCloudFile(options) {
   };
 }
 
+// server/routers.ts
+init_alertsService();
+
 // server/whatsappService.ts
+init_db();
 function renderWhatsappHsmTemplate(options) {
   const { template, dossierNumber, clientName, variables } = options;
   const trackingUrl = variables.directTrackingUrl || `https://igs-suivis-de-dossier-saas.vercel.app/portail-client`;
@@ -8270,6 +8557,7 @@ ${rendered.fullText}`);
 }
 
 // server/clientReportService.ts
+init_db();
 async function generateClientConsolidatedReport(clientName, options) {
   const [allDossiers, allInvoices, allDebours, { rate }] = await Promise.all([
     listDossiers({ client: clientName }),
@@ -8479,74 +8767,11 @@ function generateClientReportHtml(report) {
 
 // server/routers.ts
 init_terminal49Client();
-
-// server/cronDemurrageReminders.ts
-async function runDemurrageReminderJob() {
-  const allDossiers = await listDossiers();
-  const unreleased = allDossiers.filter((d) => !d.goodsReleaseDate && d.eta);
-  const now = /* @__PURE__ */ new Date();
-  let j2Count = 0;
-  let overdueCount = 0;
-  let alertsCount = 0;
-  const details = [];
-  for (const dossier of unreleased) {
-    const risk = calculateDemurrageRisk(dossier.eta, dossier.goodsReleaseDate, 7, now);
-    if (risk.isRisk) {
-      if (risk.isWarningJ2) j2Count++;
-      if (risk.isOverdue) overdueCount++;
-      let alertMessage = "";
-      if (risk.isWarningJ2) {
-        alertMessage = `\u26A0\uFE0F [ALERTE FRANCHISE J-2] Le dossier ${dossier.dossierNumber} (BL: ${dossier.blLtaNumber || "N/A"}) pour ${dossier.client || "Client"} arrive \xE0 expiration de franchise portuaire dans ${risk.daysRemaining} jour(s) (Quai PAC). Proc\xE9dez d'urgence \xE0 la sortie marchandise.`;
-      } else if (risk.isOverdue) {
-        alertMessage = `\u{1F6A8} [SURESTARIE D\xC9PASS\xC9E (+${risk.daysOverFreeTime}j)] Le dossier ${dossier.dossierNumber} (BL: ${dossier.blLtaNumber || "N/A"}) pour ${dossier.client || "Client"} est en d\xE9passement de franchise depuis ${risk.daysOverFreeTime} jour(s). Frais de surestaries en cours au Port Autonome de Conakry.`;
-      }
-      await addNotification({
-        dossierId: dossier.id,
-        dossierNumber: dossier.dossierNumber,
-        type: "SURESTARIES_RISQUE",
-        title: risk.isWarningJ2 ? "Risque Surestarie Portuaire (J-2)" : "D\xE9passement de Franchise PAC",
-        message: alertMessage,
-        recipientRole: "declarant",
-        recipientEmail: "transit@igs-logistics.gn"
-      });
-      sendDossierWhatsAppAlert({
-        dossierNumber: dossier.dossierNumber,
-        clientName: dossier.client || "Client IGS",
-        recipientPhone: "+224621001122",
-        messageText: alertMessage
-      });
-      sendDossierEmailAlert({
-        dossierNumber: dossier.dossierNumber,
-        clientName: dossier.client || "Client IGS",
-        recipientEmail: "logistique@igs-logistics.gn",
-        subject: `[URGENT] ${risk.statusLabel} \u2014 Dossier ${dossier.dossierNumber}`,
-        htmlContent: `<p>${alertMessage}</p>`
-      });
-      alertsCount++;
-      details.push({
-        dossierId: dossier.id,
-        dossierNumber: dossier.dossierNumber,
-        client: dossier.client || "Non renseign\xE9",
-        blLtaNumber: dossier.blLtaNumber || "Non renseign\xE9",
-        eta: dossier.eta ? new Date(dossier.eta).toISOString().slice(0, 10) : "N/A",
-        daysOnQuay: risk.daysOnQuay,
-        riskStatus: risk.statusLabel,
-        alertDispatched: true
-      });
-    }
-  }
-  return {
-    timestamp: now.toISOString(),
-    totalDossiersScanned: allDossiers.length,
-    unreleasedDossiersCount: unreleased.length,
-    j2WarningCount: j2Count,
-    overdueCount,
-    alertsSentCount: alertsCount,
-    details
-  };
-}
+init_dossierRules();
+init_cronDemurrageReminders();
 
 // server/exchangeRateService.ts
+init_db();
 var _memoryExchangeRatesHistory = [
   {
     id: 1,
@@ -9214,6 +9439,10 @@ var appRouter = router({
     importBatch: declarantProcedure.input(z2.array(dossierPayload)).mutation(async ({ ctx, input }) => {
       invalidateDashboardCache();
       return importDossiersBatch(input, ctx.user.id, ctx.user.name || "Importateur Excel");
+    }),
+    syncAllStates: protectedProcedure.mutation(async () => {
+      invalidateDashboardCache();
+      return syncAllDossierStates();
     })
   }),
   // 4. PORTAIL CLIENT PUBLIC / DIRECT (AVEC JWT SIGNÉ & OTP)
@@ -10105,6 +10334,7 @@ function registerRestRoutes(app2) {
 }
 
 // server/_core/context.ts
+init_db();
 async function createContext(opts) {
   let user = null;
   try {

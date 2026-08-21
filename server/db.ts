@@ -46,15 +46,116 @@ let _memoryReferenceItems: ReferenceItem[] = initialImportData.referenceItems.ma
   createdAt: new Date(),
 }));
 
+export function computeDaysOnQuay(
+  eta: Date | string | null | undefined,
+  goodsReleaseDate: Date | string | null | undefined,
+  now: Date = new Date()
+): number {
+  if (!eta) return 0;
+  const etaDate = new Date(eta);
+  if (isNaN(etaDate.getTime())) return 0;
+
+  if (goodsReleaseDate) {
+    const releaseDate = new Date(goodsReleaseDate);
+    if (!isNaN(releaseDate.getTime())) {
+      return Math.max(0, Math.floor((releaseDate.getTime() - etaDate.getTime()) / (1000 * 60 * 60 * 24)));
+    }
+  }
+
+  if (now.getTime() < etaDate.getTime()) {
+    return 0; // Navire pas encore accosté
+  }
+  return Math.max(0, Math.floor((now.getTime() - etaDate.getTime()) / (1000 * 60 * 60 * 24)));
+}
+
+export function enrichDossierFields(dossier: Dossier, now: Date = new Date()): Dossier {
+  const daysOnQuay = computeDaysOnQuay(dossier.eta, dossier.goodsReleaseDate, now);
+  const state = calculateDossierState({
+    clientDossierNumber: dossier.clientDossierNumber,
+    client: dossier.client,
+    blLtaNumber: dossier.blLtaNumber,
+    cargoNature: dossier.cargoNature,
+    transportMode: dossier.transportMode,
+    eta: dossier.eta,
+    originPort: dossier.originPort,
+    destinationPort: dossier.destinationPort,
+    container: dossier.container,
+    bulk: dossier.bulk,
+    goodsReleaseDate: dossier.goodsReleaseDate,
+    declarationNumber: dossier.declarationNumber,
+    bulletinNumber: dossier.bulletinNumber,
+  });
+
+  let calculatedPriority: "Basse" | "Normale" | "Haute" = state.calculatedPriority;
+  if (!dossier.goodsReleaseDate && daysOnQuay >= 5) {
+    calculatedPriority = "Haute";
+  }
+
+  let portStatus = dossier.portStatus;
+  let customsStatus = dossier.customsStatus;
+  let fieldAlert = dossier.fieldAlert;
+  let badStatus = dossier.badStatus;
+  let baeStatus = dossier.baeStatus;
+
+  if (dossier.goodsReleaseDate) {
+    portStatus = "Marchandise Sortie de Quai (PAC)";
+    customsStatus = "BAE Accordé & Régularisé";
+    badStatus = "Obtenu";
+    baeStatus = "Accordé";
+    fieldAlert = null;
+  } else if (daysOnQuay > 7) {
+    portStatus = `🚨 Dépassement Franchise (+${daysOnQuay - 7}j Surestaries)`;
+    customsStatus = dossier.declarationNumber ? "Déclaration SYDONIA en cours" : "En attente DDI / SYDONIA";
+    badStatus = dossier.blLtaNumber ? "Obtenu" : "En cours";
+    baeStatus = "En attente validation";
+    fieldAlert = `🚨 Dépassement franchise quai PAC (+${daysOnQuay - 7}j)`;
+  } else if (daysOnQuay >= 5) {
+    portStatus = `⚠️ Franchise Quai Expire Bientôt (J-${Math.max(1, 7 - daysOnQuay)})`;
+    customsStatus = dossier.declarationNumber ? "Déclaration SYDONIA en cours" : "En attente DDI / SYDONIA";
+    badStatus = dossier.blLtaNumber ? "Obtenu" : "En cours";
+    baeStatus = "En cours";
+    fieldAlert = `⚠️ Risque expiration franchise sous ${Math.max(1, 7 - daysOnQuay) * 24}h`;
+  } else if (daysOnQuay > 0) {
+    portStatus = `Navire à quai / Franchise PAC en cours (${daysOnQuay}/7j)`;
+    customsStatus = dossier.declarationNumber ? "Déclaration SYDONIA en cours" : "En attente DDI";
+    badStatus = dossier.blLtaNumber ? "Obtenu" : "En cours";
+    baeStatus = "En cours";
+    fieldAlert = state.calculatedStatus === "À régulariser" ? "DDI / Bulletin à fournir" : null;
+  } else if (dossier.eta) {
+    portStatus = `En mer / Arrivée prévue (${new Date(dossier.eta).toLocaleDateString("fr-FR")})`;
+    customsStatus = "Documents préalables";
+    badStatus = "En attente";
+    baeStatus = "En attente";
+    fieldAlert = state.calculatedStatus === "À régulariser" ? "DDI / Connaissement à finaliser" : null;
+  }
+
+  const financialStatus = dossier.goodsReleaseDate
+    ? "Facturé & Recouvrable"
+    : (dossier.financialStatus || "Fact. Proforma / En attente débours");
+
+  return {
+    ...dossier,
+    daysOnQuay,
+    calculatedStatus: state.calculatedStatus,
+    calculatedPriority,
+    completionRate: state.completionRate,
+    portStatus,
+    customsStatus,
+    badStatus,
+    baeStatus,
+    fieldAlert,
+    financialStatus,
+  };
+}
+
 let _memoryDossiers: Dossier[] = initialImportData.dossiers.map((source, idx) => {
   const payload = {
     ...source,
     eta: fromSourceDate(source.eta),
     goodsReleaseDate: fromSourceDate(source.goodsReleaseDate),
   };
-  const state = calculateDossierState(payload);
   const now = new Date();
-  return {
+  const rawDossier: Dossier = {
     id: idx + 1,
     version: 1,
     dossierNumber: source.dossierNumber,
@@ -75,9 +176,9 @@ let _memoryDossiers: Dossier[] = initialImportData.dossiers.map((source, idx) =>
     ddiGucegNumber: idx % 2 === 0 ? `DDI-2026-GUCEG-${100 + idx + 1}` : null,
     badStatus: idx % 3 === 0 ? "Obtenu" : "En attente",
     baeStatus: idx % 3 === 0 ? "Accordé" : "En attente",
-    calculatedStatus: state.calculatedStatus,
-    calculatedPriority: state.calculatedPriority,
-    completionRate: state.completionRate,
+    calculatedStatus: "À régulariser",
+    calculatedPriority: "Normale",
+    completionRate: 50,
     documentStatus: null,
     customsStatus: null,
     portStatus: null,
@@ -85,7 +186,7 @@ let _memoryDossiers: Dossier[] = initialImportData.dossiers.map((source, idx) =>
     fieldOperation: null,
     responsible: idx % 2 === 0 ? "Mamadou Diallo" : "Alpha Barry",
     nextAction: null,
-    fieldAlert: state.calculatedStatus === "À régulariser" ? "DDI / Bulletin à fournir" : null,
+    fieldAlert: null,
     deliveryLocation: null,
     declarant: "Mamadou Diallo",
     service: "Transit & Dédouanement",
@@ -100,6 +201,8 @@ let _memoryDossiers: Dossier[] = initialImportData.dossiers.map((source, idx) =>
     createdAt: now,
     updatedAt: now,
   };
+
+  return enrichDossierFields(rawDossier, now);
 });
 
 let _memoryDocuments: Document[] = [
@@ -1540,6 +1643,115 @@ export async function updateDossier(
     invalidateDossiersCache();
     return updated;
   });
+}
+
+/**
+ * Analyse générale et mise à jour de tous les états opérationnels, douaniers,
+ * délais de quai (PAC), risques de surestaries et rapprochements financiers.
+ */
+export async function syncAllDossierStates(): Promise<{
+  timestamp: string;
+  totalAnalyzed: number;
+  updatedCount: number;
+  regularizedCount: number;
+  toRegularizeCount: number;
+  overdueDemurrageCount: number;
+  warningJ2Count: number;
+  details: Array<{
+    dossierId: number;
+    dossierNumber: string;
+    client: string;
+    calculatedStatus: string;
+    calculatedPriority: string;
+    daysOnQuay: number;
+    portStatus: string | null;
+    customsStatus: string | null;
+    financialStatus: string | null;
+  }>;
+}> {
+  const now = new Date();
+  let updatedCount = 0;
+  let regularizedCount = 0;
+  let toRegularizeCount = 0;
+  let overdueDemurrageCount = 0;
+  let warningJ2Count = 0;
+  const details: any[] = [];
+
+  for (let i = 0; i < _memoryDossiers.length; i++) {
+    const original = _memoryDossiers[i];
+    const enriched = enrichDossierFields(original, now);
+
+    const hasChanged =
+      original.calculatedStatus !== enriched.calculatedStatus ||
+      original.calculatedPriority !== enriched.calculatedPriority ||
+      original.daysOnQuay !== enriched.daysOnQuay ||
+      original.completionRate !== enriched.completionRate ||
+      original.portStatus !== enriched.portStatus ||
+      original.customsStatus !== enriched.customsStatus ||
+      original.financialStatus !== enriched.financialStatus ||
+      original.fieldAlert !== enriched.fieldAlert;
+
+    if (hasChanged) {
+      updatedCount++;
+      _memoryDossiers[i] = {
+        ...enriched,
+        updatedAt: now,
+      };
+
+      // Consignation dans l'historique d'audit
+      await logAuditEvent({
+        dossierId: enriched.id,
+        userName: "Système IGS (Analyse & Mise à Jour Globale)",
+        userRole: "system",
+        action: "SYNCHRONISATION_STATUTS_GLOBAL",
+        fieldChanged: "Statuts, Délais Quai & Priorité",
+        previousValue: `${original.calculatedStatus} (${original.daysOnQuay ?? 0}j quai - ${original.calculatedPriority})`,
+        newValue: `${enriched.calculatedStatus} (${enriched.daysOnQuay ?? 0}j quai - ${enriched.calculatedPriority})`,
+        comment: `Mise à jour automatique par le moteur d'analyse opérationnelle IGS (${now.toLocaleDateString("fr-FR")})`,
+      });
+    }
+
+    if (enriched.calculatedStatus === "Régularisé") regularizedCount++;
+    else toRegularizeCount++;
+
+    const daysOnQuayNum = enriched.daysOnQuay ?? 0;
+    if (!enriched.goodsReleaseDate && daysOnQuayNum > 7) overdueDemurrageCount++;
+    else if (!enriched.goodsReleaseDate && daysOnQuayNum >= 5) warningJ2Count++;
+
+    // S'assurer qu'une pro-forma existe pour ce dossier
+    await ensureProformaInvoiceForDossier(_memoryDossiers[i]);
+
+    details.push({
+      dossierId: enriched.id,
+      dossierNumber: enriched.dossierNumber,
+      client: enriched.client || "Client IGS",
+      calculatedStatus: enriched.calculatedStatus,
+      calculatedPriority: enriched.calculatedPriority,
+      daysOnQuay: enriched.daysOnQuay,
+      portStatus: enriched.portStatus,
+      customsStatus: enriched.customsStatus,
+      financialStatus: enriched.financialStatus,
+    });
+  }
+
+  // Également déclencher la mise à jour des surestaries PAC
+  try {
+    const { runDemurrageReminderJob } = await import("./cronDemurrageReminders");
+    await runDemurrageReminderJob();
+  } catch (e) {}
+
+  invalidateDossiersCache();
+
+  return {
+    timestamp: now.toISOString(),
+    totalAnalyzed: _memoryDossiers.length,
+    updatedCount,
+    regularizedCount,
+    toRegularizeCount,
+    overdueDemurrageCount,
+    warningJ2Count,
+    details,
+  };
 }
 
 export async function importDossiersBatch(

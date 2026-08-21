@@ -24,6 +24,7 @@ import {
   List,
   Loader2,
   Plus,
+  RefreshCw,
   Search,
   ShieldAlert,
   SlidersHorizontal,
@@ -322,6 +323,19 @@ function DossiersContent() {
   const { data: refs } = trpc.reference.list.useQuery();
   const utils = trpc.useUtils();
 
+  const syncAllMutation = trpc.dossier.syncAllStates.useMutation({
+    onSuccess: (data) => {
+      utils.dossier.invalidate();
+      utils.dashboard.invalidate();
+      toast.success(
+        `Analyse terminée : ${data.totalAnalyzed} dossiers analysés, ${data.updatedCount} actualisés (${data.regularizedCount} régularisés, ${data.overdueDemurrageCount} en surestarie PAC).`
+      );
+    },
+    onError: (err) => {
+      toast.error("Erreur lors de la synchronisation des états : " + err.message);
+    },
+  });
+
   const filteredDossiers = useMemo(() => {
     if (!rawDossiers) return [];
     let list = rawDossiers;
@@ -612,6 +626,17 @@ function DossiersContent() {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          <Button
+            variant="outline"
+            onClick={() => syncAllMutation.mutate()}
+            disabled={syncAllMutation.isPending}
+            className="h-10 rounded-xl border-[#d1ded8] bg-white text-[#194b3e] hover:bg-[#f0f6f3] shadow-sm font-medium"
+            title="Analyser tous les dossiers, recalculer les délais de quai PAC, risques de surestaries et statuts"
+          >
+            <RefreshCw className={`mr-2 h-4 w-4 ${syncAllMutation.isPending ? "animate-spin text-emerald-700" : ""}`} />
+            {syncAllMutation.isPending ? "Analyse en cours..." : "Actualiser & Synchroniser"}
+          </Button>
+
           <Button
             variant="outline"
             onClick={handleExportCSV}

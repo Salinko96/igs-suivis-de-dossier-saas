@@ -650,6 +650,11 @@ export const appRouter = router({
         invalidateDashboardCache();
         return db.importDossiersBatch(input, ctx.user.id, ctx.user.name || "Importateur Excel");
       }),
+    syncAllStates: protectedProcedure
+      .mutation(async () => {
+        invalidateDashboardCache();
+        return db.syncAllDossierStates();
+      }),
   }),
 
   // 4. PORTAIL CLIENT PUBLIC / DIRECT (AVEC JWT SIGNÉ & OTP)
