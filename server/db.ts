@@ -625,19 +625,22 @@ export async function upsertUser(user: InsertUser): Promise<void> {
         sessionRevokedAt: user.sessionRevokedAt ?? null,
         lastSignedIn: user.lastSignedIn ?? new Date(),
       };
-      await db.insert(users).values(values).onConflictDoUpdate({
-        target: users.openId,
-        set: {
-          name: values.name,
-          email: values.email,
-          role: values.role,
-          clientCompany: values.clientCompany,
-          phone: values.phone,
-          isActive: values.isActive,
-          sessionRevokedAt: values.sessionRevokedAt,
-          lastSignedIn: values.lastSignedIn,
-        },
-      });
+      await withDbTimeout(
+        db.insert(users).values(values).onConflictDoUpdate({
+          target: users.openId,
+          set: {
+            name: values.name,
+            email: values.email,
+            role: values.role,
+            clientCompany: values.clientCompany,
+            phone: values.phone,
+            isActive: values.isActive,
+            sessionRevokedAt: values.sessionRevokedAt,
+            lastSignedIn: values.lastSignedIn,
+          },
+        }),
+        1500
+      );
       return;
     } catch (err) {
       console.warn("[DB] Error inserting user in DB, saving in memory:", err);
@@ -807,21 +810,24 @@ export async function createUser(data: {
   const db = await getDb();
   if (db) {
     try {
-      const inserted = await db.insert(users).values({
-        openId: newUser.openId,
-        name: newUser.name,
-        email: newUser.email,
-        loginMethod: newUser.loginMethod,
-        role: newUser.role,
-        clientCompany: newUser.clientCompany,
-        phone: newUser.phone,
-        isActive: newUser.isActive,
-        sessionRevokedAt: newUser.sessionRevokedAt,
-        createdAt: newUser.createdAt,
-        updatedAt: newUser.updatedAt,
-        lastSignedIn: newUser.lastSignedIn,
-      }).returning();
-      if (inserted[0]) {
+      const inserted = await withDbTimeout(
+        db.insert(users).values({
+          openId: newUser.openId,
+          name: newUser.name,
+          email: newUser.email,
+          loginMethod: newUser.loginMethod,
+          role: newUser.role,
+          clientCompany: newUser.clientCompany,
+          phone: newUser.phone,
+          isActive: newUser.isActive,
+          sessionRevokedAt: newUser.sessionRevokedAt,
+          createdAt: newUser.createdAt,
+          updatedAt: newUser.updatedAt,
+          lastSignedIn: newUser.lastSignedIn,
+        }).returning(),
+        1500
+      );
+      if (inserted && inserted[0]) {
         _memoryUsers.push(inserted[0]);
         return inserted[0];
       }
@@ -872,16 +878,19 @@ export async function updateUser(
   const db = await getDb();
   if (db) {
     try {
-      await db.update(users).set({
-        name: updatedUser.name,
-        email: updatedUser.email,
-        phone: updatedUser.phone,
-        role: updatedUser.role,
-        clientCompany: updatedUser.clientCompany,
-        isActive: updatedUser.isActive,
-        sessionRevokedAt: updatedUser.sessionRevokedAt,
-        updatedAt: updatedUser.updatedAt,
-      }).where(eq(users.id, id));
+      await withDbTimeout(
+        db.update(users).set({
+          name: updatedUser.name,
+          email: updatedUser.email,
+          phone: updatedUser.phone,
+          role: updatedUser.role,
+          clientCompany: updatedUser.clientCompany,
+          isActive: updatedUser.isActive,
+          sessionRevokedAt: updatedUser.sessionRevokedAt,
+          updatedAt: updatedUser.updatedAt,
+        }).where(eq(users.id, id)),
+        1500
+      );
     } catch (err) {
       console.warn("[DB] Error updating user in DB:", err);
     }
@@ -909,11 +918,14 @@ export async function toggleUserStatus(id: number, isActive: boolean): Promise<U
   const db = await getDb();
   if (db) {
     try {
-      await db.update(users).set({
-        isActive,
-        sessionRevokedAt: updatedUser.sessionRevokedAt,
-        updatedAt: now,
-      }).where(eq(users.id, id));
+      await withDbTimeout(
+        db.update(users).set({
+          isActive,
+          sessionRevokedAt: updatedUser.sessionRevokedAt,
+          updatedAt: now,
+        }).where(eq(users.id, id)),
+        1500
+      );
     } catch (err) {
       console.warn("[DB] Error toggling user status in DB:", err);
     }
@@ -921,6 +933,33 @@ export async function toggleUserStatus(id: number, isActive: boolean): Promise<U
 
   _memoryUsers[userIdx] = updatedUser;
   return updatedUser;
+}
+
+export async function deleteUser(id: number): Promise<{ success: boolean; user: User }> {
+  const userIdx = _memoryUsers.findIndex(u => u.id === id);
+  if (userIdx < 0) {
+    throw new Error(`Collaborateur introuvable avec l'ID ${id}`);
+  }
+
+  const existing = _memoryUsers[userIdx];
+  if (existing.role === "admin" && existing.id === 1) {
+    throw new Error("Impossible de supprimer le compte Administrateur Principal IGS.");
+  }
+
+  const db = await getDb();
+  if (db) {
+    try {
+      await withDbTimeout(
+        db.delete(users).where(eq(users.id, id)),
+        1500
+      );
+    } catch (err) {
+      console.warn("[DB] Error deleting user in DB:", err);
+    }
+  }
+
+  _memoryUsers.splice(userIdx, 1);
+  return { success: true, user: existing };
 }
 
 export async function getHRStats() {

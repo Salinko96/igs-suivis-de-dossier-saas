@@ -31,6 +31,7 @@ import {
 import { Switch } from "@/components/ui/switch";
 import { trpc } from "@/lib/trpc";
 import {
+  AlertTriangle,
   Anchor,
   Briefcase,
   Building2,
@@ -48,6 +49,7 @@ import {
   Search,
   Shield,
   ShieldAlert,
+  Trash2,
   UserCheck,
   UserPlus,
   Users,
@@ -132,9 +134,10 @@ export default function UsersPage() {
     }
   };
 
-  // Modal State (Create / Edit)
+  // Modal State (Create / Edit / Delete)
   const [modalOpen, setModalOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<UserItem | null>(null);
+  const [deleteConfirmUser, setDeleteConfirmUser] = useState<UserItem | null>(null);
 
   // Form State
   const [formName, setFormName] = useState("");
@@ -149,6 +152,7 @@ export default function UsersPage() {
     onSuccess: (newUser) => {
       toast.success(`Collaborateur ${newUser.name} créé avec succès`);
       utils.user.list.invalidate();
+      utils.user.listPaginated.invalidate();
       utils.user.getHRStats.invalidate();
       setModalOpen(false);
       resetForm();
@@ -162,6 +166,7 @@ export default function UsersPage() {
     onSuccess: (updated) => {
       toast.success(`Profil de ${updated.name} mis à jour`);
       utils.user.list.invalidate();
+      utils.user.listPaginated.invalidate();
       utils.user.getHRStats.invalidate();
       setModalOpen(false);
       resetForm();
@@ -179,10 +184,24 @@ export default function UsersPage() {
         toast.warning(`Session révoquée et compte suspendu : ${user.name}`);
       }
       utils.user.list.invalidate();
+      utils.user.listPaginated.invalidate();
       utils.user.getHRStats.invalidate();
     },
     onError: (err) => {
       toast.error(`Erreur changement de statut : ${err.message}`);
+    },
+  });
+
+  const deleteUserMutation = trpc.user.delete.useMutation({
+    onSuccess: (data) => {
+      toast.success(`Collaborateur ${data.user.name || ""} supprimé avec succès`);
+      utils.user.list.invalidate();
+      utils.user.listPaginated.invalidate();
+      utils.user.getHRStats.invalidate();
+      setDeleteConfirmUser(null);
+    },
+    onError: (err) => {
+      toast.error(`Erreur suppression : ${err.message}`);
     },
   });
 
@@ -789,11 +808,19 @@ export default function UsersPage() {
                               <DropdownMenuItem
                                 onClick={() => handleToggleStatus(user, !isActive)}
                                 className={`cursor-pointer text-xs ${
-                                  isActive ? "text-rose-600 hover:text-rose-700" : "text-emerald-700 hover:text-emerald-800"
+                                  isActive ? "text-amber-700 hover:text-amber-800" : "text-emerald-700 hover:text-emerald-800"
                                 }`}
                               >
                                 <Power className="mr-2 h-3.5 w-3.5" />
-                                {isActive ? "Désactiver & Révoquer Session" : "Réactiver le compte"}
+                                {isActive ? "Suspendre la session" : "Réactiver le compte"}
+                              </DropdownMenuItem>
+                              <DropdownMenuSeparator />
+                              <DropdownMenuItem
+                                onClick={() => setDeleteConfirmUser(user)}
+                                className="cursor-pointer text-xs text-rose-600 hover:text-rose-700 hover:bg-rose-50"
+                              >
+                                <Trash2 className="mr-2 h-3.5 w-3.5" />
+                                Supprimer le collaborateur
                               </DropdownMenuItem>
                             </DropdownMenuContent>
                           </DropdownMenu>
@@ -1003,6 +1030,58 @@ export default function UsersPage() {
                 </Button>
               </DialogFooter>
             </form>
+          </DialogContent>
+        </Dialog>
+
+        {/* Delete Collaborator Confirmation Dialog */}
+        <Dialog open={!!deleteConfirmUser} onOpenChange={(open) => !open && setDeleteConfirmUser(null)}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle className="text-base font-bold text-rose-700 flex items-center gap-2">
+                <AlertTriangle className="h-5 w-5 text-rose-600" />
+                Supprimer le collaborateur
+              </DialogTitle>
+              <DialogDescription className="text-xs text-muted-foreground pt-2">
+                Êtes-vous sûr de vouloir supprimer définitivement le collaborateur{" "}
+                <strong className="text-emerald-950">{deleteConfirmUser?.name || "ce collaborateur"}</strong>{" "}
+                {deleteConfirmUser?.email ? `(${deleteConfirmUser.email})` : ""}?
+                <br />
+                <span className="block mt-2 text-rose-800 font-medium bg-rose-50 p-2 rounded-lg border border-rose-200">
+                  ⚠️ Cette action retirera définitivement ce compte de la liste de vos collaborateurs IGS.
+                </span>
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter className="flex justify-end gap-2 pt-4">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setDeleteConfirmUser(null)}
+                disabled={deleteUserMutation.isPending}
+                className="text-xs"
+              >
+                Annuler
+              </Button>
+              <Button
+                type="button"
+                variant="destructive"
+                size="sm"
+                onClick={() => {
+                  if (deleteConfirmUser) {
+                    deleteUserMutation.mutate({ id: deleteConfirmUser.id });
+                  }
+                }}
+                disabled={deleteUserMutation.isPending}
+                className="bg-rose-600 hover:bg-rose-700 text-white text-xs font-medium"
+              >
+                {deleteUserMutation.isPending ? (
+                  <RefreshCw className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Trash2 className="mr-1.5 h-3.5 w-3.5" />
+                )}
+                {deleteUserMutation.isPending ? "Suppression en cours..." : "Confirmer la suppression"}
+              </Button>
+            </DialogFooter>
           </DialogContent>
         </Dialog>
       </div>

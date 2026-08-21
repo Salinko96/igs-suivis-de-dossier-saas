@@ -404,6 +404,16 @@ export const appRouter = router({
       .mutation(async ({ input }) => {
         return db.toggleUserStatus(input.id, input.isActive);
       }),
+
+    delete: adminProcedure
+      .input(
+        z.object({
+          id: z.number().int().positive(),
+        })
+      )
+      .mutation(async ({ input }) => {
+        return db.deleteUser(input.id);
+      }),
   }),
 
   // 2. RÉFÉRENTIELS LOGISTIQUES & DOUANIERS

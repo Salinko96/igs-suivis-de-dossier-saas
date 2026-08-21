@@ -127,4 +127,42 @@ describe("Tier 2 - tRPC Server RBAC & Integration: Auth Role Simulation (R1, R4)
       );
     });
   });
+
+  describe("4. Gestion des Collaborateurs & Sécurité (toggleStatus & delete)", () => {
+    it("permet à l'admin de suspendre, réactiver et supprimer un collaborateur", async () => {
+      const { ctx } = createMockContext({ id: 1, role: "admin", name: "Admin IGS" });
+      const caller = appRouter.createCaller(ctx);
+
+      // Création d'un collaborateur de test
+      const created = await caller.user.create({
+        name: "Agent Test PAC",
+        email: `agent.test.${Date.now()}@igs-logistics.gn`,
+        role: "declarant",
+        phone: "+224 620 99 88 77",
+      });
+      expect(created).toBeDefined();
+      expect(created.isActive).toBe(true);
+
+      // Suspension de la session
+      const suspended = await caller.user.toggleStatus({ id: created.id, isActive: false });
+      expect(suspended.isActive).toBe(false);
+      expect(suspended.sessionRevokedAt).toBeDefined();
+
+      // Réactivation du compte
+      const reactivated = await caller.user.toggleStatus({ id: created.id, isActive: true });
+      expect(reactivated.isActive).toBe(true);
+
+      // Suppression définitive du collaborateur
+      const deleted = await caller.user.delete({ id: created.id });
+      expect(deleted.success).toBe(true);
+      expect(deleted.user.id).toBe(created.id);
+    });
+
+    it("interdit la suppression du compte Administrateur Principal IGS", async () => {
+      const { ctx } = createMockContext({ id: 1, role: "admin", name: "Admin IGS" });
+      const caller = appRouter.createCaller(ctx);
+
+      await expect(caller.user.delete({ id: 1 })).rejects.toThrow();
+    });
+  });
 });
