@@ -194,4 +194,106 @@ export function registerRestRoutes(app: express.Express) {
       });
     }
   });
+
+  // -------------------------------------------------------------
+  // TERMINAL49 SHIPPING TRACKING REST API ENDPOINTS
+  // -------------------------------------------------------------
+
+  // GET /api/terminal49/shipments - Liste des cargaisons suivies
+  app.get("/api/terminal49/shipments", async (req: Request, res: Response) => {
+    res.setHeader("Content-Type", "application/json");
+    try {
+      const { terminal49 } = await import("./terminal49Client");
+      const page = parseInt(String(req.query.page || "1"), 10);
+      const size = parseInt(String(req.query.size || "10"), 10);
+
+      const result = await terminal49.listShipments({ page, size });
+      if (result.error) {
+        return res.status(400).json(result);
+      }
+      return res.status(200).json(result);
+    } catch (err: any) {
+      return res.status(500).json({ data: null, error: err.message || "Erreur serveur Terminal49" });
+    }
+  });
+
+  // GET /api/terminal49/shipments/:id - Détail d'une cargaison
+  app.get("/api/terminal49/shipments/:id", async (req: Request, res: Response) => {
+    res.setHeader("Content-Type", "application/json");
+    try {
+      const { terminal49 } = await import("./terminal49Client");
+      const id = req.params.id;
+      const result = await terminal49.getShipment(id);
+      if (result.error) {
+        return res.status(404).json(result);
+      }
+      return res.status(200).json(result);
+    } catch (err: any) {
+      return res.status(500).json({ data: null, error: err.message || "Erreur serveur Terminal49" });
+    }
+  });
+
+  // GET /api/terminal49/containers/:id - Détail d'un conteneur
+  app.get("/api/terminal49/containers/:id", async (req: Request, res: Response) => {
+    res.setHeader("Content-Type", "application/json");
+    try {
+      const { terminal49 } = await import("./terminal49Client");
+      const id = req.params.id;
+      const result = await terminal49.getContainer(id);
+      if (result.error) {
+        return res.status(404).json(result);
+      }
+      return res.status(200).json(result);
+    } catch (err: any) {
+      return res.status(500).json({ data: null, error: err.message || "Erreur serveur Terminal49" });
+    }
+  });
+
+  // POST /api/terminal49/tracking_requests - Création d'une demande de suivi
+  app.post("/api/terminal49/tracking_requests", async (req: Request, res: Response) => {
+    res.setHeader("Content-Type", "application/json");
+    try {
+      const { terminal49 } = await import("./terminal49Client");
+      const { requestNumber, requestType, shippingLineScac } = req.body || {};
+
+      if (!requestNumber) {
+        return res.status(400).json({ data: null, error: "Le champ requestNumber est obligatoire." });
+      }
+
+      const result = await terminal49.createTrackingRequest({
+        requestNumber,
+        requestType,
+        shippingLineScac,
+      });
+
+      if (result.error) {
+        return res.status(400).json(result);
+      }
+      return res.status(201).json(result);
+    } catch (err: any) {
+      return res.status(500).json({ data: null, error: err.message || "Erreur serveur Terminal49" });
+    }
+  });
+
+  // GET /api/terminal49/track - Recherche directe par BL / Conteneur
+  app.get("/api/terminal49/track", async (req: Request, res: Response) => {
+    res.setHeader("Content-Type", "application/json");
+    try {
+      const { terminal49 } = await import("./terminal49Client");
+      const number = String(req.query.number || "");
+      const scac = typeof req.query.scac === "string" ? req.query.scac : undefined;
+
+      if (!number.trim()) {
+        return res.status(400).json({ data: null, error: "Numéro de suivi requis (paramètre 'number')." });
+      }
+
+      const result = await terminal49.trackByNumber(number, scac);
+      if (result.error) {
+        return res.status(400).json(result);
+      }
+      return res.status(200).json(result);
+    } catch (err: any) {
+      return res.status(500).json({ data: null, error: err.message || "Erreur serveur Terminal49" });
+    }
+  });
 }

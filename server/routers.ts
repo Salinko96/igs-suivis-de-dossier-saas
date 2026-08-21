@@ -18,6 +18,7 @@ import { uploadDossierCloudFile } from "./cloudStorageService";
 import { sendDossierWhatsAppAlert, sendDossierEmailAlert } from "./alertsService";
 import { sendWhatsappBusinessMessage } from "./whatsappService";
 import { generateClientConsolidatedReport, generateClientReportHtml } from "./clientReportService";
+import { terminal49 } from "./terminal49Client";
 import { validateStatusTransition, calculateDemurrageRisk } from "./dossierRules";
 import { runDemurrageReminderJob } from "./cronDemurrageReminders";
 import { 
@@ -1358,6 +1359,55 @@ export const appRouter = router({
         demurrageRisk: calculateDemurrageRisk(d.eta, d.goodsReleaseDate, 7, now),
       }));
     }),
+  }),
+
+  // 16. TERMINAL49 SUIVI MARITIME EN TEMPS RÉEL (JSON:API v2)
+  terminal49: router({
+    trackByNumber: publicProcedure
+      .input(
+        z.object({
+          number: z.string().min(1),
+          scac: z.string().optional(),
+        })
+      )
+      .query(async ({ input }) => {
+        return terminal49.trackByNumber(input.number, input.scac);
+      }),
+
+    getShipment: publicProcedure
+      .input(z.object({ shipmentId: z.string().min(1) }))
+      .query(async ({ input }) => {
+        return terminal49.getShipment(input.shipmentId);
+      }),
+
+    getContainer: publicProcedure
+      .input(z.object({ containerId: z.string().min(1) }))
+      .query(async ({ input }) => {
+        return terminal49.getContainer(input.containerId);
+      }),
+
+    listShipments: protectedProcedure
+      .input(
+        z.object({
+          page: z.number().int().positive().optional(),
+          size: z.number().int().positive().optional(),
+        })
+      )
+      .query(async ({ input }) => {
+        return terminal49.listShipments({ page: input.page, size: input.size });
+      }),
+
+    createTracking: protectedProcedure
+      .input(
+        z.object({
+          requestNumber: z.string().min(1),
+          requestType: z.enum(["bill_of_lading", "booking_number", "container"]).optional(),
+          shippingLineScac: z.string().optional(),
+        })
+      )
+      .mutation(async ({ input }) => {
+        return terminal49.createTrackingRequest(input);
+      }),
   }),
 
   // TABLEAU DE BORD OPÉRATIONNEL

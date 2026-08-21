@@ -8,6 +8,361 @@ var __export = (target, all) => {
     __defProp(target, name, { get: all[name], enumerable: true });
 };
 
+// server/terminal49Client.ts
+var terminal49Client_exports = {};
+__export(terminal49Client_exports, {
+  Terminal49Client: () => Terminal49Client,
+  parseJsonApiShipment: () => parseJsonApiShipment,
+  terminal49: () => terminal49
+});
+function parseJsonApiShipment(resource, included = []) {
+  const attrs = resource.attributes || {};
+  const containerResources = included.filter((r) => r.type === "container");
+  const transportEventResources = included.filter(
+    (r) => r.type === "transport_event" || r.type === "port_event" || r.type === "event"
+  );
+  const events = transportEventResources.map((ev) => {
+    const evAttrs = ev.attributes || {};
+    return {
+      id: ev.id,
+      eventType: evAttrs.event_type || "status_change",
+      title: formatEventTitle(evAttrs.event_type || void 0, evAttrs.description || void 0),
+      description: evAttrs.description || evAttrs.event_type || "\xC9v\xE9nement de transport",
+      location: evAttrs.location || attrs.port_of_discharge_name || "Port Autonome de Conakry",
+      timestamp: evAttrs.timestamp || (/* @__PURE__ */ new Date()).toISOString(),
+      isActual: evAttrs.is_actual ?? true,
+      vesselName: evAttrs.vessel_name || attrs.vessel_name || null,
+      voyageNumber: evAttrs.voyage_number || attrs.voyage_number || null
+    };
+  }).sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+  const containers = containerResources.map((c) => {
+    const cAttrs = c.attributes || {};
+    const holds = Array.isArray(cAttrs.holds_at_pod) ? cAttrs.holds_at_pod.map((h) => ({
+      name: h.name || "Contr\xF4le Douanier / Quai",
+      status: h.status || "En cours"
+    })) : [];
+    return {
+      id: c.id,
+      number: cAttrs.number || "CONT-NON-RENSEIGN\xC9",
+      sealNumber: cAttrs.seal_number || null,
+      equipmentType: cAttrs.equipment_type || cAttrs.equipment_description || "40HC",
+      equipmentDescription: cAttrs.equipment_description || null,
+      status: cAttrs.status || "in_transit",
+      availableForPickup: Boolean(cAttrs.available_for_pickup),
+      lastFreeDay: cAttrs.last_free_day_on || null,
+      hasHolds: Boolean(cAttrs.has_holds || holds.length > 0),
+      holds,
+      fees: cAttrs.fees ? {
+        total: cAttrs.fees.total || 0,
+        currency: cAttrs.fees.currency || "USD",
+        demurrage: cAttrs.fees.demurrage || 0
+      } : null,
+      dischargedAt: cAttrs.discharged_at || null,
+      gatedOutAt: cAttrs.gated_out_at || null,
+      events: events.slice(0, 5)
+    };
+  });
+  const rawStatus = (attrs.status || "in_transit").toLowerCase();
+  let normalizedStatus = "in_transit";
+  if (rawStatus.includes("arrive") || rawStatus.includes("berthed")) normalizedStatus = "arrived";
+  else if (rawStatus.includes("discharge")) normalizedStatus = "discharged";
+  else if (rawStatus.includes("complete") || rawStatus.includes("delivered")) normalizedStatus = "completed";
+  else if (rawStatus.includes("pending") || rawStatus.includes("booked")) normalizedStatus = "pending";
+  return {
+    id: resource.id,
+    billOfLadingNumber: attrs.bill_of_lading_number || "BL-NON-DISPONIBLE",
+    bookingNumber: attrs.booking_number || null,
+    shippingLine: {
+      scac: attrs.shipping_line_scac || "MSC",
+      name: attrs.shipping_line_name || attrs.shipping_line_short_name || "Armateur Partenaire"
+    },
+    status: normalizedStatus,
+    vessel: {
+      name: attrs.vessel_name || "Navire Porte-Conteneurs",
+      imo: attrs.vessel_imo || null,
+      voyage: attrs.voyage_number || null
+    },
+    origin: {
+      portName: attrs.port_of_loading_name || "Port de Chargement",
+      locode: attrs.port_of_loading_locode || null,
+      etd: attrs.etd_at || null,
+      atd: attrs.atd_at || null
+    },
+    destination: {
+      portName: attrs.port_of_discharge_name || attrs.destination_name || "Port Autonome de Conakry (PAC)",
+      locode: attrs.port_of_discharge_locode || "GNCKY",
+      eta: attrs.eta_at || null,
+      ata: attrs.ata_at || null
+    },
+    containersCount: attrs.containers_count || containers.length || 1,
+    containers,
+    events,
+    updatedAt: attrs.updated_at || (/* @__PURE__ */ new Date()).toISOString(),
+    rawAttributes: attrs
+  };
+}
+function formatEventTitle(eventType, description) {
+  if (!eventType) return description || "Mise \xE0 jour transport";
+  const map = {
+    vessel_departure: "D\xE9part navire du port de chargement",
+    vessel_arrival: "Arriv\xE9e navire au Port Autonome de Conakry",
+    container_discharge: "D\xE9chargement conteneur sur terre-plein quai",
+    customs_hold_placed: "Mise sous contr\xF4le douanier (SYDONIA)",
+    customs_hold_released: "Mainlev\xE9e douani\xE8re accord\xE9e (BAE)",
+    gate_out: "Sortie de quai / Livraison transporteur",
+    empty_container_returned: "Retour conteneur vide au parc armateur"
+  };
+  return map[eventType] || description || eventType.replace(/_/g, " ");
+}
+var TERMINAL49_BASE_URL, FETCH_TIMEOUT_MS, Terminal49Client, terminal49;
+var init_terminal49Client = __esm({
+  "server/terminal49Client.ts"() {
+    "use strict";
+    TERMINAL49_BASE_URL = "https://api.terminal49.com/v2";
+    FETCH_TIMEOUT_MS = 1e4;
+    Terminal49Client = class {
+      apiKey;
+      baseUrl;
+      constructor(apiKey, baseUrl = TERMINAL49_BASE_URL) {
+        this.apiKey = apiKey || process.env.TERMINAL49_API_KEY || "";
+        this.baseUrl = baseUrl;
+      }
+      getHeaders() {
+        return {
+          // Directives strictes: "Authorization: Token ${process.env.TERMINAL49_API_KEY}" (PAS Bearer)
+          Authorization: `Token ${this.apiKey}`,
+          "Content-Type": "application/vnd.api+json",
+          Accept: "application/vnd.api+json"
+        };
+      }
+      /**
+       * Effectue un appel HTTP fetch avec timeout de 10s via AbortController
+       */
+      async request(endpoint, options = {}) {
+        if (!this.apiKey) {
+          return {
+            data: null,
+            error: "Cl\xE9 API Terminal49 non configur\xE9e. Veuillez renseigner TERMINAL49_API_KEY."
+          };
+        }
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+        const url = `${this.baseUrl}${endpoint.startsWith("/") ? endpoint : `/${endpoint}`}`;
+        try {
+          const response = await fetch(url, {
+            ...options,
+            signal: controller.signal,
+            headers: {
+              ...this.getHeaders(),
+              ...options.headers || {}
+            }
+          });
+          clearTimeout(timeoutId);
+          const jsonText = await response.text();
+          let parsed = null;
+          try {
+            parsed = jsonText ? JSON.parse(jsonText) : {};
+          } catch {
+            parsed = { raw: jsonText };
+          }
+          if (!response.ok) {
+            const errorDetail = parsed?.errors?.[0]?.detail || parsed?.errors?.[0]?.title || parsed?.message || `Erreur HTTP ${response.status} (${response.statusText})`;
+            return {
+              data: null,
+              error: `[Terminal49 API] ${errorDetail}`
+            };
+          }
+          return {
+            data: parsed,
+            error: null
+          };
+        } catch (err) {
+          clearTimeout(timeoutId);
+          if (err.name === "AbortError") {
+            return {
+              data: null,
+              error: "D\xE9lai d'attente d\xE9pass\xE9 (timeout 10s) lors de la requ\xEAte vers Terminal49."
+            };
+          }
+          return {
+            data: null,
+            error: `Erreur r\xE9seau Terminal49: ${err.message || String(err)}`
+          };
+        }
+      }
+      /**
+       * POST /tracking_requests
+       * Crée une demande de suivi pour un connaissement (BL), numéro de booking ou numéro de conteneur
+       */
+      async createTrackingRequest(input) {
+        const payload = {
+          data: {
+            type: "tracking_request",
+            attributes: {
+              request_number: input.requestNumber.trim(),
+              request_type: input.requestType || "bill_of_lading",
+              ...input.shippingLineScac ? { shipping_line_scac: input.shippingLineScac.trim() } : {}
+            }
+          }
+        };
+        const res = await this.request(
+          "/tracking_requests",
+          {
+            method: "POST",
+            body: JSON.stringify(payload)
+          }
+        );
+        if (res.error || !res.data) {
+          return { data: null, error: res.error };
+        }
+        const trkReq = res.data.data;
+        const trackedShipmentId = trkReq?.attributes?.tracked_object_id || trkReq?.relationships?.shipment?.data?.id;
+        if (trackedShipmentId) {
+          const shipmentRes = await this.getShipment(trackedShipmentId);
+          if (shipmentRes.data) {
+            return { data: shipmentRes.data, error: null };
+          }
+        }
+        return {
+          data: {
+            requestId: trkReq.id,
+            status: trkReq.attributes?.status || "processing"
+          },
+          error: null
+        };
+      }
+      /**
+       * GET /shipments
+       * Liste les cargaisons suivies avec leurs conteneurs et événements inclus
+       */
+      async listShipments(options = {}) {
+        const page = options.page || 1;
+        const size = Math.min(options.size || 10, 10);
+        const query = `?page[number]=${page}&page[size]=${size}&include=containers,transport_events`;
+        const res = await this.request(`/shipments${query}`, { method: "GET" });
+        if (res.error || !res.data) {
+          return { data: null, error: res.error };
+        }
+        const resources = Array.isArray(res.data.data) ? res.data.data : [];
+        const included = res.data.included || [];
+        const shipments = resources.map((r) => parseJsonApiShipment(r, included));
+        return {
+          data: shipments,
+          error: null
+        };
+      }
+      /**
+       * GET /shipments/{id}
+       * Récupère le détail complet d'un shipment incluant les conteneurs et les événements de transport
+       */
+      async getShipment(shipmentId) {
+        if (!shipmentId) {
+          return { data: null, error: "Identifiant de shipment manquant." };
+        }
+        const query = "?include=containers,transport_events,shipping_line";
+        const res = await this.request(`/shipments/${encodeURIComponent(shipmentId)}${query}`, { method: "GET" });
+        if (res.error || !res.data) {
+          return { data: null, error: res.error };
+        }
+        const shipment = parseJsonApiShipment(
+          res.data.data,
+          res.data.included || []
+        );
+        return {
+          data: shipment,
+          error: null
+        };
+      }
+      /**
+       * GET /containers/{id}
+       * Récupère les données d'un conteneur spécifique et ses événements de quai
+       */
+      async getContainer(containerId) {
+        if (!containerId) {
+          return { data: null, error: "Identifiant de conteneur manquant." };
+        }
+        const query = "?include=transport_events";
+        const res = await this.request(`/containers/${encodeURIComponent(containerId)}${query}`, { method: "GET" });
+        if (res.error || !res.data) {
+          return { data: null, error: res.error };
+        }
+        const c = res.data.data;
+        const cAttrs = c.attributes || {};
+        const events = (res.data.included || []).map((ev) => {
+          const evAttrs = ev.attributes || {};
+          return {
+            id: ev.id,
+            eventType: evAttrs.event_type || "status_update",
+            title: formatEventTitle(evAttrs.event_type || void 0, evAttrs.description || void 0),
+            description: evAttrs.description || "\xC9v\xE9nement quai",
+            location: evAttrs.location || "Port Autonome de Conakry",
+            timestamp: evAttrs.timestamp || (/* @__PURE__ */ new Date()).toISOString(),
+            isActual: evAttrs.is_actual ?? true
+          };
+        });
+        const container = {
+          id: c.id,
+          number: cAttrs.number || containerId,
+          sealNumber: cAttrs.seal_number || null,
+          equipmentType: cAttrs.equipment_type || "40HC",
+          equipmentDescription: cAttrs.equipment_description || null,
+          status: cAttrs.status || "active",
+          availableForPickup: Boolean(cAttrs.available_for_pickup),
+          lastFreeDay: cAttrs.last_free_day_on || null,
+          hasHolds: Boolean(cAttrs.has_holds || cAttrs.holds_at_pod && cAttrs.holds_at_pod.length > 0),
+          holds: Array.isArray(cAttrs.holds_at_pod) ? cAttrs.holds_at_pod.map((h) => ({ name: h.name || "Contr\xF4le", status: h.status || "Actif" })) : [],
+          fees: cAttrs.fees ? {
+            total: cAttrs.fees.total || 0,
+            currency: cAttrs.fees.currency || "USD",
+            demurrage: cAttrs.fees.demurrage || 0
+          } : null,
+          dischargedAt: cAttrs.discharged_at || null,
+          gatedOutAt: cAttrs.gated_out_at || null,
+          events
+        };
+        return {
+          data: container,
+          error: null
+        };
+      }
+      /**
+       * Recherche ou création automatique de suivi par numéro de BL / Booking / Conteneur
+       */
+      async trackByNumber(number, scac) {
+        const cleanNumber = number.trim();
+        if (!cleanNumber) {
+          return { data: null, error: "Num\xE9ro de suivi manquant." };
+        }
+        const listRes = await this.listShipments({ size: 10 });
+        if (listRes.data && listRes.data.length > 0) {
+          const match = listRes.data.find(
+            (s) => s.billOfLadingNumber.toLowerCase() === cleanNumber.toLowerCase() || s.bookingNumber && s.bookingNumber.toLowerCase() === cleanNumber.toLowerCase() || s.containers.some((c) => c.number.toLowerCase() === cleanNumber.toLowerCase())
+          );
+          if (match) {
+            return { data: match, error: null };
+          }
+        }
+        const createRes = await this.createTrackingRequest({
+          requestNumber: cleanNumber,
+          requestType: cleanNumber.length === 11 && /^[A-Z]{4}\d{7}$/i.test(cleanNumber) ? "container" : "bill_of_lading",
+          shippingLineScac: scac
+        });
+        if (createRes.error) {
+          return { data: null, error: createRes.error };
+        }
+        if (createRes.data && "billOfLadingNumber" in createRes.data) {
+          return { data: createRes.data, error: null };
+        }
+        return {
+          data: null,
+          error: `Suivi initi\xE9 pour le num\xE9ro \xAB ${cleanNumber} \xBB. Les donn\xE9es maritimes sont en cours de synchronisation aupr\xE8s de l'armateur.`
+        };
+      }
+    };
+    terminal49 = new Terminal49Client();
+  }
+});
+
 // server/supabase.ts
 var supabase_exports = {};
 __export(supabase_exports, {
@@ -8107,6 +8462,9 @@ function generateClientReportHtml(report) {
   `;
 }
 
+// server/routers.ts
+init_terminal49Client();
+
 // server/cronDemurrageReminders.ts
 async function runDemurrageReminderJob() {
   const allDossiers = await listDossiers();
@@ -9440,6 +9798,40 @@ var appRouter = router({
       }));
     })
   }),
+  // 16. TERMINAL49 SUIVI MARITIME EN TEMPS RÉEL (JSON:API v2)
+  terminal49: router({
+    trackByNumber: publicProcedure.input(
+      z2.object({
+        number: z2.string().min(1),
+        scac: z2.string().optional()
+      })
+    ).query(async ({ input }) => {
+      return terminal49.trackByNumber(input.number, input.scac);
+    }),
+    getShipment: publicProcedure.input(z2.object({ shipmentId: z2.string().min(1) })).query(async ({ input }) => {
+      return terminal49.getShipment(input.shipmentId);
+    }),
+    getContainer: publicProcedure.input(z2.object({ containerId: z2.string().min(1) })).query(async ({ input }) => {
+      return terminal49.getContainer(input.containerId);
+    }),
+    listShipments: protectedProcedure.input(
+      z2.object({
+        page: z2.number().int().positive().optional(),
+        size: z2.number().int().positive().optional()
+      })
+    ).query(async ({ input }) => {
+      return terminal49.listShipments({ page: input.page, size: input.size });
+    }),
+    createTracking: protectedProcedure.input(
+      z2.object({
+        requestNumber: z2.string().min(1),
+        requestType: z2.enum(["bill_of_lading", "booking_number", "container"]).optional(),
+        shippingLineScac: z2.string().optional()
+      })
+    ).mutation(async ({ input }) => {
+      return terminal49.createTrackingRequest(input);
+    })
+  }),
   // TABLEAU DE BORD OPÉRATIONNEL
   dashboard: router({
     get: protectedProcedure.query(async () => getCachedDashboard())
@@ -9611,6 +10003,88 @@ function registerRestRoutes(app2) {
         error: "Erreur serveur interne lors de la suppression du dossier",
         details: err.message
       });
+    }
+  });
+  app2.get("/api/terminal49/shipments", async (req, res) => {
+    res.setHeader("Content-Type", "application/json");
+    try {
+      const { terminal49: terminal492 } = await Promise.resolve().then(() => (init_terminal49Client(), terminal49Client_exports));
+      const page = parseInt(String(req.query.page || "1"), 10);
+      const size = parseInt(String(req.query.size || "10"), 10);
+      const result = await terminal492.listShipments({ page, size });
+      if (result.error) {
+        return res.status(400).json(result);
+      }
+      return res.status(200).json(result);
+    } catch (err) {
+      return res.status(500).json({ data: null, error: err.message || "Erreur serveur Terminal49" });
+    }
+  });
+  app2.get("/api/terminal49/shipments/:id", async (req, res) => {
+    res.setHeader("Content-Type", "application/json");
+    try {
+      const { terminal49: terminal492 } = await Promise.resolve().then(() => (init_terminal49Client(), terminal49Client_exports));
+      const id = req.params.id;
+      const result = await terminal492.getShipment(id);
+      if (result.error) {
+        return res.status(404).json(result);
+      }
+      return res.status(200).json(result);
+    } catch (err) {
+      return res.status(500).json({ data: null, error: err.message || "Erreur serveur Terminal49" });
+    }
+  });
+  app2.get("/api/terminal49/containers/:id", async (req, res) => {
+    res.setHeader("Content-Type", "application/json");
+    try {
+      const { terminal49: terminal492 } = await Promise.resolve().then(() => (init_terminal49Client(), terminal49Client_exports));
+      const id = req.params.id;
+      const result = await terminal492.getContainer(id);
+      if (result.error) {
+        return res.status(404).json(result);
+      }
+      return res.status(200).json(result);
+    } catch (err) {
+      return res.status(500).json({ data: null, error: err.message || "Erreur serveur Terminal49" });
+    }
+  });
+  app2.post("/api/terminal49/tracking_requests", async (req, res) => {
+    res.setHeader("Content-Type", "application/json");
+    try {
+      const { terminal49: terminal492 } = await Promise.resolve().then(() => (init_terminal49Client(), terminal49Client_exports));
+      const { requestNumber, requestType, shippingLineScac } = req.body || {};
+      if (!requestNumber) {
+        return res.status(400).json({ data: null, error: "Le champ requestNumber est obligatoire." });
+      }
+      const result = await terminal492.createTrackingRequest({
+        requestNumber,
+        requestType,
+        shippingLineScac
+      });
+      if (result.error) {
+        return res.status(400).json(result);
+      }
+      return res.status(201).json(result);
+    } catch (err) {
+      return res.status(500).json({ data: null, error: err.message || "Erreur serveur Terminal49" });
+    }
+  });
+  app2.get("/api/terminal49/track", async (req, res) => {
+    res.setHeader("Content-Type", "application/json");
+    try {
+      const { terminal49: terminal492 } = await Promise.resolve().then(() => (init_terminal49Client(), terminal49Client_exports));
+      const number = String(req.query.number || "");
+      const scac = typeof req.query.scac === "string" ? req.query.scac : void 0;
+      if (!number.trim()) {
+        return res.status(400).json({ data: null, error: "Num\xE9ro de suivi requis (param\xE8tre 'number')." });
+      }
+      const result = await terminal492.trackByNumber(number, scac);
+      if (result.error) {
+        return res.status(400).json(result);
+      }
+      return res.status(200).json(result);
+    } catch (err) {
+      return res.status(500).json({ data: null, error: err.message || "Erreur serveur Terminal49" });
     }
   });
 }

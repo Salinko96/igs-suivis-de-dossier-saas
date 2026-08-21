@@ -5,6 +5,7 @@ import { DocumentManager } from "@/components/DocumentManager";
 import { WhatsAppDispatchModal } from "@/components/WhatsAppDispatchModal";
 import { ClientReportModal } from "@/components/ClientReportModal";
 import { ClientPreferencesModal } from "@/components/ClientPreferencesModal";
+import { TrackingWidget } from "@/components/tracking/tracking-widget";
 import Breadcrumbs from "@/components/Breadcrumbs";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -48,6 +49,7 @@ import {
   Share2,
   ShieldAlert,
   ShieldCheck,
+  Ship,
   Trash2,
   UploadCloud,
   User,
@@ -934,6 +936,9 @@ function DetailContent() {
           </TabsTrigger>
           {!isNew && (
             <>
+              <TabsTrigger value="tracking" className="rounded-xl text-xs data-[state=active]:bg-[#0b3b32] data-[state=active]:text-white">
+                <Ship size={14} className="mr-1.5 text-[#d9a94b]" /> Suivi Maritime Direct
+              </TabsTrigger>
               <TabsTrigger value="customs" className="rounded-xl text-xs data-[state=active]:bg-[#0b3b32] data-[state=active]:text-white">
                 <ShieldCheck size={14} className="mr-1.5" /> Suivi Douane & PAC
               </TabsTrigger>
@@ -1109,6 +1114,18 @@ function DetailContent() {
             </div>
           </form>
         </TabsContent>
+
+        {/* ONGLET SUIVI MARITIME DIRECT (AIS & TERMINAL49) */}
+        {!isNew && dossier && (
+          <TabsContent value="tracking" className="space-y-4">
+            <TrackingWidget
+              blLtaNumber={dossier.blLtaNumber}
+              dossierNumber={dossier.dossierNumber}
+              clientName={dossier.client}
+              defaultEta={dossier.eta}
+            />
+          </TabsContent>
+        )}
 
         {/* ONGLET 2: Suivi Douane & Port PAC */}
         {!isNew && dossier && (
