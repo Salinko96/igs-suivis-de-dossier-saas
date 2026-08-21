@@ -9325,7 +9325,7 @@ var appRouter = router({
       }
       return res;
     }),
-    logs: adminProcedure.input(z2.object({ dossierId: z2.number().optional() }).optional()).query(async ({ input }) => {
+    logs: protectedProcedure.input(z2.object({ dossierId: z2.number().optional() }).optional()).query(async ({ input }) => {
       return listPortalAccessLogs(input?.dossierId);
     })
   }),

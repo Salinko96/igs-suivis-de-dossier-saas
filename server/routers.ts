@@ -782,7 +782,7 @@ export const appRouter = router({
         return res;
       }),
 
-    logs: adminProcedure
+    logs: protectedProcedure
       .input(z.object({ dossierId: z.number().optional() }).optional())
       .query(async ({ input }) => {
         return db.listPortalAccessLogs(input?.dossierId);
