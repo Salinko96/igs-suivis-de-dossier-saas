@@ -12,6 +12,7 @@ var __export = (target, all) => {
 var terminal49Client_exports = {};
 __export(terminal49Client_exports, {
   Terminal49Client: () => Terminal49Client,
+  detectScacFromNumber: () => detectScacFromNumber,
   parseJsonApiShipment: () => parseJsonApiShipment,
   terminal49: () => terminal49
 });
@@ -114,6 +115,18 @@ function formatEventTitle(eventType, description) {
   };
   return map[eventType] || description || eventType.replace(/_/g, " ");
 }
+function detectScacFromNumber(number) {
+  const upper = number.toUpperCase().trim();
+  if (upper.startsWith("MEDU") || upper.startsWith("MSCU")) return "MSCU";
+  if (upper.startsWith("MAEU") || upper.startsWith("MSK")) return "MAEU";
+  if (upper.startsWith("CMA") || upper.startsWith("CMDU")) return "CMDU";
+  if (upper.startsWith("HLCU")) return "HLCU";
+  if (upper.startsWith("COSU") || upper.startsWith("COS")) return "COSU";
+  if (upper.startsWith("ONEY")) return "ONEY";
+  if (upper.startsWith("GRI")) return "GRIM";
+  if (upper.startsWith("EID") || upper.startsWith("EMC")) return "EGLV";
+  return "MSCU";
+}
 var TERMINAL49_BASE_URL, FETCH_TIMEOUT_MS, Terminal49Client, terminal49;
 var init_terminal49Client = __esm({
   "server/terminal49Client.ts"() {
@@ -195,13 +208,15 @@ var init_terminal49Client = __esm({
        * Crée une demande de suivi pour un connaissement (BL), numéro de booking ou numéro de conteneur
        */
       async createTrackingRequest(input) {
+        const scac = input.shippingLineScac?.trim() || detectScacFromNumber(input.requestNumber);
         const payload = {
           data: {
             type: "tracking_request",
             attributes: {
               request_number: input.requestNumber.trim(),
-              request_type: input.requestType || "bill_of_lading",
-              ...input.shippingLineScac ? { shipping_line_scac: input.shippingLineScac.trim() } : {}
+              request_type: input.requestType || (input.requestNumber.trim().length === 11 && /^[A-Z]{4}\d{7}$/i.test(input.requestNumber.trim()) ? "container" : "bill_of_lading"),
+              scac,
+              shipping_line_scac: scac
             }
           }
         };

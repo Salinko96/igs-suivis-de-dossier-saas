@@ -132,6 +132,19 @@ function formatEventTitle(eventType?: string, description?: string): string {
   return map[eventType] || description || eventType.replace(/_/g, " ");
 }
 
+export function detectScacFromNumber(number: string): string {
+  const upper = number.toUpperCase().trim();
+  if (upper.startsWith("MEDU") || upper.startsWith("MSCU")) return "MSCU";
+  if (upper.startsWith("MAEU") || upper.startsWith("MSK")) return "MAEU";
+  if (upper.startsWith("CMA") || upper.startsWith("CMDU")) return "CMDU";
+  if (upper.startsWith("HLCU")) return "HLCU";
+  if (upper.startsWith("COSU") || upper.startsWith("COS")) return "COSU";
+  if (upper.startsWith("ONEY")) return "ONEY";
+  if (upper.startsWith("GRI")) return "GRIM";
+  if (upper.startsWith("EID") || upper.startsWith("EMC")) return "EGLV"; // Evergreen
+  return "MSCU"; // Default armateur principal PAC Conakry
+}
+
 /**
  * Client HTTP sécurisé pour l'API Terminal49 v2
  */
@@ -231,13 +244,16 @@ export class Terminal49Client {
   public async createTrackingRequest(
     input: CreateTrackingRequestInput
   ): Promise<ApiResponsePattern<TrackedShipmentDetail | { requestId: string; status: string }>> {
+    const scac = input.shippingLineScac?.trim() || detectScacFromNumber(input.requestNumber);
+
     const payload = {
       data: {
         type: "tracking_request",
         attributes: {
           request_number: input.requestNumber.trim(),
-          request_type: input.requestType || "bill_of_lading",
-          ...(input.shippingLineScac ? { shipping_line_scac: input.shippingLineScac.trim() } : {}),
+          request_type: input.requestType || (input.requestNumber.trim().length === 11 && /^[A-Z]{4}\d{7}$/i.test(input.requestNumber.trim()) ? "container" : "bill_of_lading"),
+          scac,
+          shipping_line_scac: scac,
         },
       },
     };
