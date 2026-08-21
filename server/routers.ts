@@ -380,7 +380,7 @@ export const appRouter = router({
     update: adminProcedure
       .input(
         z.object({
-          id: z.number().int().positive(),
+          id: z.union([z.number(), z.string()]),
           name: z.string().min(2).optional(),
           email: z.string().email().optional(),
           phone: z.string().optional().nullable(),
@@ -397,7 +397,7 @@ export const appRouter = router({
     toggleStatus: adminProcedure
       .input(
         z.object({
-          id: z.number().int().positive(),
+          id: z.union([z.number(), z.string()]),
           isActive: z.boolean(),
         })
       )
@@ -408,7 +408,7 @@ export const appRouter = router({
     delete: adminProcedure
       .input(
         z.object({
-          id: z.number().int().positive(),
+          id: z.union([z.number(), z.string()]),
         })
       )
       .mutation(async ({ input }) => {

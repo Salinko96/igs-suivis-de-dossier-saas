@@ -4782,12 +4782,43 @@ async function createUser(data) {
   _memoryUsers.push(newUser);
   return newUser;
 }
-async function updateUser(id, data) {
-  const userIdx = _memoryUsers.findIndex((u) => u.id === id);
-  if (userIdx < 0) {
-    throw new Error(`Utilisateur avec ID ${id} introuvable`);
+async function updateUser(idOrIdentifier, data) {
+  const targetId = Number(idOrIdentifier);
+  const targetStr = String(idOrIdentifier).trim();
+  let userIdx = _memoryUsers.findIndex(
+    (u) => !isNaN(targetId) && Number(u.id) === targetId || u.openId && u.openId === targetStr || u.email && u.email.toLowerCase() === targetStr.toLowerCase()
+  );
+  let existing = userIdx >= 0 ? _memoryUsers[userIdx] : void 0;
+  const db = await getDb();
+  if (!existing && db) {
+    try {
+      const rows = await withDbTimeout(
+        db.select().from(users).where(
+          !isNaN(targetId) ? eq(users.id, targetId) : eq(users.openId, targetStr)
+        ).limit(1),
+        1500
+      );
+      if (rows && rows[0]) {
+        existing = rows[0];
+        _memoryUsers.push(existing);
+        userIdx = _memoryUsers.length - 1;
+      }
+    } catch (e) {
+    }
   }
-  const existing = _memoryUsers[userIdx];
+  if (!existing) {
+    const initialMatch = initialUsersData.find(
+      (u) => !isNaN(targetId) && Number(u.id) === targetId || u.openId && u.openId === targetStr || u.email && u.email.toLowerCase() === targetStr.toLowerCase()
+    );
+    if (initialMatch) {
+      existing = { ...initialMatch };
+      _memoryUsers.push(existing);
+      userIdx = _memoryUsers.length - 1;
+    }
+  }
+  if (!existing) {
+    throw new Error(`Collaborateur introuvable avec l'ID ${idOrIdentifier}`);
+  }
   const now = /* @__PURE__ */ new Date();
   const updatedUser = {
     ...existing,
@@ -4800,7 +4831,6 @@ async function updateUser(id, data) {
     sessionRevokedAt: data.isActive === false && existing.isActive !== false ? now : data.isActive === true ? null : existing.sessionRevokedAt,
     updatedAt: now
   };
-  const db = await getDb();
   if (db) {
     try {
       await withDbTimeout(
@@ -4813,22 +4843,57 @@ async function updateUser(id, data) {
           isActive: updatedUser.isActive,
           sessionRevokedAt: updatedUser.sessionRevokedAt,
           updatedAt: updatedUser.updatedAt
-        }).where(eq(users.id, id)),
+        }).where(
+          !isNaN(targetId) ? eq(users.id, targetId) : eq(users.openId, existing.openId)
+        ),
         1500
       );
     } catch (err) {
       console.warn("[DB] Error updating user in DB:", err);
     }
   }
-  _memoryUsers[userIdx] = updatedUser;
+  if (userIdx >= 0) {
+    _memoryUsers[userIdx] = updatedUser;
+  }
   return updatedUser;
 }
-async function toggleUserStatus(id, isActive) {
-  const userIdx = _memoryUsers.findIndex((u) => u.id === id);
-  if (userIdx < 0) {
-    throw new Error(`Utilisateur introuvable avec l'ID ${id}`);
+async function toggleUserStatus(idOrIdentifier, isActive) {
+  const targetId = Number(idOrIdentifier);
+  const targetStr = String(idOrIdentifier).trim();
+  let userIdx = _memoryUsers.findIndex(
+    (u) => !isNaN(targetId) && Number(u.id) === targetId || u.openId && u.openId === targetStr || u.email && u.email.toLowerCase() === targetStr.toLowerCase()
+  );
+  let existing = userIdx >= 0 ? _memoryUsers[userIdx] : void 0;
+  const db = await getDb();
+  if (!existing && db) {
+    try {
+      const rows = await withDbTimeout(
+        db.select().from(users).where(
+          !isNaN(targetId) ? eq(users.id, targetId) : eq(users.openId, targetStr)
+        ).limit(1),
+        1500
+      );
+      if (rows && rows[0]) {
+        existing = rows[0];
+        _memoryUsers.push(existing);
+        userIdx = _memoryUsers.length - 1;
+      }
+    } catch (e) {
+    }
   }
-  const existing = _memoryUsers[userIdx];
+  if (!existing) {
+    const initialMatch = initialUsersData.find(
+      (u) => !isNaN(targetId) && Number(u.id) === targetId || u.openId && u.openId === targetStr || u.email && u.email.toLowerCase() === targetStr.toLowerCase()
+    );
+    if (initialMatch) {
+      existing = { ...initialMatch };
+      _memoryUsers.push(existing);
+      userIdx = _memoryUsers.length - 1;
+    }
+  }
+  if (!existing) {
+    throw new Error(`Collaborateur introuvable avec l'ID ${idOrIdentifier}`);
+  }
   const now = /* @__PURE__ */ new Date();
   const updatedUser = {
     ...existing,
@@ -4836,7 +4901,6 @@ async function toggleUserStatus(id, isActive) {
     sessionRevokedAt: !isActive ? now : null,
     updatedAt: now
   };
-  const db = await getDb();
   if (db) {
     try {
       await withDbTimeout(
@@ -4844,37 +4908,75 @@ async function toggleUserStatus(id, isActive) {
           isActive,
           sessionRevokedAt: updatedUser.sessionRevokedAt,
           updatedAt: now
-        }).where(eq(users.id, id)),
+        }).where(
+          !isNaN(targetId) ? eq(users.id, targetId) : eq(users.openId, existing.openId)
+        ),
         1500
       );
     } catch (err) {
       console.warn("[DB] Error toggling user status in DB:", err);
     }
   }
-  _memoryUsers[userIdx] = updatedUser;
+  if (userIdx >= 0) {
+    _memoryUsers[userIdx] = updatedUser;
+  }
   return updatedUser;
 }
-async function deleteUser(id) {
-  const userIdx = _memoryUsers.findIndex((u) => u.id === id);
-  if (userIdx < 0) {
-    throw new Error(`Collaborateur introuvable avec l'ID ${id}`);
+async function deleteUser(idOrIdentifier) {
+  const targetId = Number(idOrIdentifier);
+  const targetStr = String(idOrIdentifier).trim();
+  let userIdx = _memoryUsers.findIndex(
+    (u) => !isNaN(targetId) && Number(u.id) === targetId || u.openId && u.openId === targetStr || u.email && u.email.toLowerCase() === targetStr.toLowerCase()
+  );
+  let existing = userIdx >= 0 ? _memoryUsers[userIdx] : void 0;
+  const db = await getDb();
+  if (!existing && db) {
+    try {
+      const rows = await withDbTimeout(
+        db.select().from(users).where(
+          !isNaN(targetId) ? eq(users.id, targetId) : eq(users.openId, targetStr)
+        ).limit(1),
+        1500
+      );
+      if (rows && rows[0]) {
+        existing = rows[0];
+      }
+    } catch (e) {
+    }
   }
-  const existing = _memoryUsers[userIdx];
-  if (existing.role === "admin" && existing.id === 1) {
+  if (!existing) {
+    const initialMatch = initialUsersData.find(
+      (u) => !isNaN(targetId) && Number(u.id) === targetId || u.openId && u.openId === targetStr || u.email && u.email.toLowerCase() === targetStr.toLowerCase()
+    );
+    if (initialMatch) {
+      existing = { ...initialMatch };
+    }
+  }
+  if (!existing) {
+    throw new Error(`Collaborateur introuvable avec l'ID ${idOrIdentifier}`);
+  }
+  if (existing.role === "admin" && (existing.id === 1 || existing.openId === "igs_admin_root")) {
     throw new Error("Impossible de supprimer le compte Administrateur Principal IGS.");
   }
-  const db = await getDb();
   if (db) {
     try {
       await withDbTimeout(
-        db.delete(users).where(eq(users.id, id)),
+        db.delete(users).where(
+          !isNaN(targetId) ? eq(users.id, targetId) : eq(users.openId, existing.openId)
+        ),
         1500
       );
     } catch (err) {
       console.warn("[DB] Error deleting user in DB:", err);
     }
   }
-  _memoryUsers.splice(userIdx, 1);
+  if (userIdx >= 0) {
+    _memoryUsers.splice(userIdx, 1);
+  } else {
+    _memoryUsers = _memoryUsers.filter(
+      (u) => Number(u.id) !== targetId && u.openId !== existing?.openId && u.email !== existing?.email
+    );
+  }
   return { success: true, user: existing };
 }
 async function getHRStats() {
@@ -9238,7 +9340,7 @@ var appRouter = router({
     }),
     update: adminProcedure.input(
       z2.object({
-        id: z2.number().int().positive(),
+        id: z2.union([z2.number(), z2.string()]),
         name: z2.string().min(2).optional(),
         email: z2.string().email().optional(),
         phone: z2.string().optional().nullable(),
@@ -9252,7 +9354,7 @@ var appRouter = router({
     }),
     toggleStatus: adminProcedure.input(
       z2.object({
-        id: z2.number().int().positive(),
+        id: z2.union([z2.number(), z2.string()]),
         isActive: z2.boolean()
       })
     ).mutation(async ({ input }) => {
@@ -9260,7 +9362,7 @@ var appRouter = router({
     }),
     delete: adminProcedure.input(
       z2.object({
-        id: z2.number().int().positive()
+        id: z2.union([z2.number(), z2.string()])
       })
     ).mutation(async ({ input }) => {
       return deleteUser(input.id);

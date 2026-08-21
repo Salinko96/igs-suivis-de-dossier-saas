@@ -158,6 +158,15 @@ describe("Tier 2 - tRPC Server RBAC & Integration: Auth Role Simulation (R1, R4)
       expect(deleted.user.id).toBe(created.id);
     });
 
+    it("permet de supprimer un collaborateur par ID numérique (ex: ID 43 Souleymane Diallo)", async () => {
+      const { ctx } = createMockContext({ id: 1, role: "admin", name: "Admin IGS" });
+      const caller = appRouter.createCaller(ctx);
+
+      const deleted = await caller.user.delete({ id: 43 });
+      expect(deleted.success).toBe(true);
+      expect(deleted.user.name).toContain("Souleymane Diallo");
+    });
+
     it("interdit la suppression du compte Administrateur Principal IGS", async () => {
       const { ctx } = createMockContext({ id: 1, role: "admin", name: "Admin IGS" });
       const caller = appRouter.createCaller(ctx);

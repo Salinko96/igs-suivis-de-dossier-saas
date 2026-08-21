@@ -841,7 +841,7 @@ export async function createUser(data: {
 }
 
 export async function updateUser(
-  id: number,
+  idOrIdentifier: number | string,
   data: Partial<{
     name: string;
     email: string;
@@ -851,12 +851,50 @@ export async function updateUser(
     isActive: boolean;
   }>
 ): Promise<User> {
-  const userIdx = _memoryUsers.findIndex(u => u.id === id);
-  if (userIdx < 0) {
-    throw new Error(`Utilisateur avec ID ${id} introuvable`);
+  const targetId = Number(idOrIdentifier);
+  const targetStr = String(idOrIdentifier).trim();
+
+  let userIdx = _memoryUsers.findIndex(u =>
+    (!isNaN(targetId) && Number(u.id) === targetId) ||
+    (u.openId && u.openId === targetStr) ||
+    (u.email && u.email.toLowerCase() === targetStr.toLowerCase())
+  );
+
+  let existing = userIdx >= 0 ? _memoryUsers[userIdx] : undefined;
+  const db = await getDb();
+  if (!existing && db) {
+    try {
+      const rows = await withDbTimeout(
+        db.select().from(users).where(
+          !isNaN(targetId) ? eq(users.id, targetId) : eq(users.openId, targetStr)
+        ).limit(1),
+        1500
+      );
+      if (rows && rows[0]) {
+        existing = rows[0];
+        _memoryUsers.push(existing);
+        userIdx = _memoryUsers.length - 1;
+      }
+    } catch (e) {}
   }
 
-  const existing = _memoryUsers[userIdx];
+  if (!existing) {
+    const initialMatch = initialUsersData.find(u =>
+      (!isNaN(targetId) && Number(u.id) === targetId) ||
+      (u.openId && u.openId === targetStr) ||
+      (u.email && u.email.toLowerCase() === targetStr.toLowerCase())
+    );
+    if (initialMatch) {
+      existing = { ...initialMatch };
+      _memoryUsers.push(existing);
+      userIdx = _memoryUsers.length - 1;
+    }
+  }
+
+  if (!existing) {
+    throw new Error(`Collaborateur introuvable avec l'ID ${idOrIdentifier}`);
+  }
+
   const now = new Date();
   const updatedUser: User = {
     ...existing,
@@ -875,7 +913,6 @@ export async function updateUser(
     updatedAt: now,
   };
 
-  const db = await getDb();
   if (db) {
     try {
       await withDbTimeout(
@@ -888,7 +925,9 @@ export async function updateUser(
           isActive: updatedUser.isActive,
           sessionRevokedAt: updatedUser.sessionRevokedAt,
           updatedAt: updatedUser.updatedAt,
-        }).where(eq(users.id, id)),
+        }).where(
+          !isNaN(targetId) ? eq(users.id, targetId) : eq(users.openId, existing.openId)
+        ),
         1500
       );
     } catch (err) {
@@ -896,17 +935,57 @@ export async function updateUser(
     }
   }
 
-  _memoryUsers[userIdx] = updatedUser;
+  if (userIdx >= 0) {
+    _memoryUsers[userIdx] = updatedUser;
+  }
   return updatedUser;
 }
 
-export async function toggleUserStatus(id: number, isActive: boolean): Promise<User> {
-  const userIdx = _memoryUsers.findIndex(u => u.id === id);
-  if (userIdx < 0) {
-    throw new Error(`Utilisateur introuvable avec l'ID ${id}`);
+export async function toggleUserStatus(idOrIdentifier: number | string, isActive: boolean): Promise<User> {
+  const targetId = Number(idOrIdentifier);
+  const targetStr = String(idOrIdentifier).trim();
+
+  let userIdx = _memoryUsers.findIndex(u =>
+    (!isNaN(targetId) && Number(u.id) === targetId) ||
+    (u.openId && u.openId === targetStr) ||
+    (u.email && u.email.toLowerCase() === targetStr.toLowerCase())
+  );
+
+  let existing = userIdx >= 0 ? _memoryUsers[userIdx] : undefined;
+  const db = await getDb();
+  if (!existing && db) {
+    try {
+      const rows = await withDbTimeout(
+        db.select().from(users).where(
+          !isNaN(targetId) ? eq(users.id, targetId) : eq(users.openId, targetStr)
+        ).limit(1),
+        1500
+      );
+      if (rows && rows[0]) {
+        existing = rows[0];
+        _memoryUsers.push(existing);
+        userIdx = _memoryUsers.length - 1;
+      }
+    } catch (e) {}
   }
 
-  const existing = _memoryUsers[userIdx];
+  if (!existing) {
+    const initialMatch = initialUsersData.find(u =>
+      (!isNaN(targetId) && Number(u.id) === targetId) ||
+      (u.openId && u.openId === targetStr) ||
+      (u.email && u.email.toLowerCase() === targetStr.toLowerCase())
+    );
+    if (initialMatch) {
+      existing = { ...initialMatch };
+      _memoryUsers.push(existing);
+      userIdx = _memoryUsers.length - 1;
+    }
+  }
+
+  if (!existing) {
+    throw new Error(`Collaborateur introuvable avec l'ID ${idOrIdentifier}`);
+  }
+
   const now = new Date();
   const updatedUser: User = {
     ...existing,
@@ -915,7 +994,6 @@ export async function toggleUserStatus(id: number, isActive: boolean): Promise<U
     updatedAt: now,
   };
 
-  const db = await getDb();
   if (db) {
     try {
       await withDbTimeout(
@@ -923,7 +1001,9 @@ export async function toggleUserStatus(id: number, isActive: boolean): Promise<U
           isActive,
           sessionRevokedAt: updatedUser.sessionRevokedAt,
           updatedAt: now,
-        }).where(eq(users.id, id)),
+        }).where(
+          !isNaN(targetId) ? eq(users.id, targetId) : eq(users.openId, existing.openId)
+        ),
         1500
       );
     } catch (err) {
@@ -931,26 +1011,63 @@ export async function toggleUserStatus(id: number, isActive: boolean): Promise<U
     }
   }
 
-  _memoryUsers[userIdx] = updatedUser;
+  if (userIdx >= 0) {
+    _memoryUsers[userIdx] = updatedUser;
+  }
   return updatedUser;
 }
 
-export async function deleteUser(id: number): Promise<{ success: boolean; user: User }> {
-  const userIdx = _memoryUsers.findIndex(u => u.id === id);
-  if (userIdx < 0) {
-    throw new Error(`Collaborateur introuvable avec l'ID ${id}`);
+export async function deleteUser(idOrIdentifier: number | string): Promise<{ success: boolean; user: User }> {
+  const targetId = Number(idOrIdentifier);
+  const targetStr = String(idOrIdentifier).trim();
+
+  let userIdx = _memoryUsers.findIndex(u =>
+    (!isNaN(targetId) && Number(u.id) === targetId) ||
+    (u.openId && u.openId === targetStr) ||
+    (u.email && u.email.toLowerCase() === targetStr.toLowerCase())
+  );
+
+  let existing = userIdx >= 0 ? _memoryUsers[userIdx] : undefined;
+  const db = await getDb();
+  if (!existing && db) {
+    try {
+      const rows = await withDbTimeout(
+        db.select().from(users).where(
+          !isNaN(targetId) ? eq(users.id, targetId) : eq(users.openId, targetStr)
+        ).limit(1),
+        1500
+      );
+      if (rows && rows[0]) {
+        existing = rows[0];
+      }
+    } catch (e) {}
   }
 
-  const existing = _memoryUsers[userIdx];
-  if (existing.role === "admin" && existing.id === 1) {
+  if (!existing) {
+    const initialMatch = initialUsersData.find(u =>
+      (!isNaN(targetId) && Number(u.id) === targetId) ||
+      (u.openId && u.openId === targetStr) ||
+      (u.email && u.email.toLowerCase() === targetStr.toLowerCase())
+    );
+    if (initialMatch) {
+      existing = { ...initialMatch };
+    }
+  }
+
+  if (!existing) {
+    throw new Error(`Collaborateur introuvable avec l'ID ${idOrIdentifier}`);
+  }
+
+  if (existing.role === "admin" && (existing.id === 1 || existing.openId === "igs_admin_root")) {
     throw new Error("Impossible de supprimer le compte Administrateur Principal IGS.");
   }
 
-  const db = await getDb();
   if (db) {
     try {
       await withDbTimeout(
-        db.delete(users).where(eq(users.id, id)),
+        db.delete(users).where(
+          !isNaN(targetId) ? eq(users.id, targetId) : eq(users.openId, existing.openId)
+        ),
         1500
       );
     } catch (err) {
@@ -958,7 +1075,16 @@ export async function deleteUser(id: number): Promise<{ success: boolean; user: 
     }
   }
 
-  _memoryUsers.splice(userIdx, 1);
+  if (userIdx >= 0) {
+    _memoryUsers.splice(userIdx, 1);
+  } else {
+    _memoryUsers = _memoryUsers.filter(u =>
+      Number(u.id) !== targetId &&
+      u.openId !== existing?.openId &&
+      u.email !== existing?.email
+    );
+  }
+
   return { success: true, user: existing };
 }
 
