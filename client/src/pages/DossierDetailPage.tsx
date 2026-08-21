@@ -215,13 +215,23 @@ function ReferenceSelectOrInput({
   );
 }
 
+const FALLBACK_REGIMES = [
+  { id: 1001, category: "regime", label: "Mise à la consommation directe (IM4 - TTC)" },
+  { id: 1002, category: "regime", label: "Mise à la consommation sous exonération (IM4 - EXO)" },
+  { id: 1003, category: "regime", label: "Transit National / International (IM8 - DDI / TRIE)" },
+  { id: 1004, category: "regime", label: "Admission Temporaire (IM5 - AT)" },
+  { id: 1005, category: "regime", label: "Enlèvement provisoire" },
+  { id: 1006, category: "regime", label: "Entrepôt de Douane (IM7 - ED)" },
+  { id: 1007, category: "regime", label: "Exportation / Réexportation (EX)" },
+];
+
 function ReferenceSelect({
   label,
   field,
   category,
   form,
   setForm,
-  references,
+  references = [],
   required = false,
   invalid = false,
   errorMessage,
@@ -238,7 +248,14 @@ function ReferenceSelect({
   errorMessage?: string;
   disabled?: boolean;
 }) {
-  const choices = references.filter(item => item.category === category);
+  let choices = (references || []).filter(item => item.category === category);
+  if (choices.length === 0 && category === "regime") {
+    choices = FALLBACK_REGIMES;
+  }
+
+  const currentValue = form[field] ? String(form[field]).trim() : "";
+  const isLegacyValue = Boolean(currentValue && !choices.some(choice => choice.label === currentValue));
+
   return (
     <div className="space-y-1.5">
       <Label htmlFor={field} className="text-xs font-semibold text-[#516760]">
@@ -247,7 +264,7 @@ function ReferenceSelect({
       </Label>
       <select
         id={field}
-        value={form[field] || ""}
+        value={currentValue}
         disabled={disabled}
         aria-invalid={invalid}
         aria-describedby={invalid ? `${field}-error` : undefined}
@@ -257,12 +274,22 @@ function ReferenceSelect({
         } ${disabled ? "bg-gray-50 text-gray-500 cursor-not-allowed" : ""}`}
       >
         <option value="">Sélectionner…</option>
+        {isLegacyValue && (
+          <option value={currentValue} className="bg-amber-50 text-amber-900 font-medium">
+            {currentValue} (Valeur historique)
+          </option>
+        )}
         {choices.map(choice => (
           <option key={choice.id} value={choice.label}>
             {choice.label}
           </option>
         ))}
       </select>
+      {isLegacyValue && (
+        <p className="text-[11px] text-amber-700 font-medium">
+          Ce dossier utilise une valeur historique ({currentValue}). Si vous modifiez ce champ, seules les options en vigueur seront proposées.
+        </p>
+      )}
       {invalid && (
         <p id={`${field}-error`} role="alert" className="text-[11px] font-medium text-[#ba4a36]">
           {errorMessage || "Ce champ est requis."}

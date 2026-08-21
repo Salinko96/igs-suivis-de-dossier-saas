@@ -185,3 +185,34 @@ export function calculateDemurrageRisk(
     urgencyLevel: "normal",
   };
 }
+
+/**
+ * Référentiels Officiels des Régimes Douaniers (Douane Guinée / SYDONIA World)
+ */
+export const VALID_CUSTOMS_REGIMES = [
+  "Mise à la consommation directe (IM4 - TTC)",
+  "Mise à la consommation sous exonération (IM4 - EXO)",
+  "Transit National / International (IM8 - DDI / TRIE)",
+  "Admission Temporaire (IM5 - AT)",
+  "Enlèvement provisoire",
+  "Entrepôt de Douane (IM7 - ED)",
+  "Exportation / Réexportation (EX)",
+] as const;
+
+export type ValidCustomsRegime = (typeof VALID_CUSTOMS_REGIMES)[number];
+
+export const DEPRECATED_CUSTOMS_REGIMES = [
+  "TTC",
+  "EXO",
+  "AT",
+  "Régime Minier / Convention (EXO-MIN)",
+] as const;
+
+export type DeprecatedCustomsRegime = (typeof DEPRECATED_CUSTOMS_REGIMES)[number];
+
+export function isDeprecatedCustomsRegime(regime?: string | null): boolean {
+  if (!regime) return false;
+  const trimmed = regime.trim();
+  return (DEPRECATED_CUSTOMS_REGIMES as readonly string[]).includes(trimmed);
+}
+

@@ -507,7 +507,12 @@ function calculateDemurrageRisk(eta, goodsReleaseDate, freeDays = 7, referenceDa
     urgencyLevel: "normal"
   };
 }
-var REQUIRED_DOSSIER_FIELDS, hasValue;
+function isDeprecatedCustomsRegime(regime) {
+  if (!regime) return false;
+  const trimmed = regime.trim();
+  return DEPRECATED_CUSTOMS_REGIMES.includes(trimmed);
+}
+var REQUIRED_DOSSIER_FIELDS, hasValue, DEPRECATED_CUSTOMS_REGIMES;
 var init_dossierRules = __esm({
   "server/dossierRules.ts"() {
     "use strict";
@@ -525,6 +530,12 @@ var init_dossierRules = __esm({
       "bulletinNumber"
     ];
     hasValue = (value) => value !== null && value !== void 0 && String(value).trim() !== "";
+    DEPRECATED_CUSTOMS_REGIMES = [
+      "TTC",
+      "EXO",
+      "AT",
+      "R\xE9gime Minier / Convention (EXO-MIN)"
+    ];
   }
 });
 
@@ -1864,21 +1875,6 @@ var init_initialImportData = __esm({
           "sortOrder": 3
         },
         {
-          "category": "regime",
-          "label": "TTC",
-          "sortOrder": 1
-        },
-        {
-          "category": "regime",
-          "label": "EXO",
-          "sortOrder": 2
-        },
-        {
-          "category": "regime",
-          "label": "AT",
-          "sortOrder": 3
-        },
-        {
           "category": "declarant_igs",
           "label": "Interne",
           "sortOrder": 1
@@ -2461,37 +2457,37 @@ var init_initialImportData = __esm({
         {
           "category": "regime",
           "label": "Mise \xE0 la consommation directe (IM4 - TTC)",
-          "sortOrder": 4
+          "sortOrder": 1
         },
         {
           "category": "regime",
           "label": "Mise \xE0 la consommation sous exon\xE9ration (IM4 - EXO)",
-          "sortOrder": 5
-        },
-        {
-          "category": "regime",
-          "label": "R\xE9gime Minier / Convention (EXO-MIN)",
-          "sortOrder": 6
+          "sortOrder": 2
         },
         {
           "category": "regime",
           "label": "Transit National / International (IM8 - DDI / TRIE)",
-          "sortOrder": 7
+          "sortOrder": 3
         },
         {
           "category": "regime",
           "label": "Admission Temporaire (IM5 - AT)",
-          "sortOrder": 8
+          "sortOrder": 4
+        },
+        {
+          "category": "regime",
+          "label": "Enl\xE8vement provisoire",
+          "sortOrder": 5
         },
         {
           "category": "regime",
           "label": "Entrep\xF4t de Douane (IM7 - ED)",
-          "sortOrder": 9
+          "sortOrder": 6
         },
         {
           "category": "regime",
           "label": "Exportation / R\xE9exportation (EX)",
-          "sortOrder": 10
+          "sortOrder": 7
         },
         {
           "category": "statut_douane",
@@ -8959,6 +8955,13 @@ var dossierCreatePayload = dossierPayload.superRefine((data, ctx) => {
       path: ["client"]
     });
   }
+  if (data.regime && isDeprecatedCustomsRegime(data.regime)) {
+    ctx.addIssue({
+      code: z2.ZodIssueCode.custom,
+      message: `Le r\xE9gime douanier "${data.regime}" est obsol\xE8te et ne peut plus \xEAtre s\xE9lectionn\xE9. Veuillez choisir un r\xE9gime en vigueur (ex: Mise \xE0 la consommation directe, Admission Temporaire, Enl\xE8vement provisoire...).`,
+      path: ["regime"]
+    });
+  }
 });
 var filtersSchema = z2.object({
   search: z2.string().trim().max(200).optional(),
@@ -9311,8 +9314,14 @@ var appRouter = router({
         if (isNaN(numId) || numId <= 0) {
           throw new TRPCError4({ code: "BAD_REQUEST", message: `Identifiant de dossier invalide: ${input.id}` });
         }
+        const existing = await getDossier(numId);
+        if (existing && input.data.regime && isDeprecatedCustomsRegime(input.data.regime) && existing.regime !== input.data.regime) {
+          throw new TRPCError4({
+            code: "BAD_REQUEST",
+            message: `Le r\xE9gime douanier "${input.data.regime}" est obsol\xE8te et ne peut plus \xEAtre s\xE9lectionn\xE9 lors d'une modification.`
+          });
+        }
         if (input.data.calculatedStatus === "R\xE9gularis\xE9") {
-          const existing = await getDossier(numId);
           if (existing) {
             const check = validateStatusTransition(existing, "R\xE9gularis\xE9", input.data);
             if (!check.valid) {

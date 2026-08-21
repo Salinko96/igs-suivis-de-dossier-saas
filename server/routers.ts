@@ -19,7 +19,7 @@ import { sendDossierWhatsAppAlert, sendDossierEmailAlert } from "./alertsService
 import { sendWhatsappBusinessMessage } from "./whatsappService";
 import { generateClientConsolidatedReport, generateClientReportHtml } from "./clientReportService";
 import { terminal49 } from "./terminal49Client";
-import { validateStatusTransition, calculateDemurrageRisk } from "./dossierRules";
+import { validateStatusTransition, calculateDemurrageRisk, isDeprecatedCustomsRegime } from "./dossierRules";
 import { runDemurrageReminderJob } from "./cronDemurrageReminders";
 import { 
   fetchLiveExchangeRate, 
@@ -81,6 +81,14 @@ const dossierCreatePayload = dossierPayload.superRefine((data, ctx) => {
       code: z.ZodIssueCode.custom,
       message: "Impossible de créer un dossier vide. Veuillez renseigner au minimum le client ou la référence de transport.",
       path: ["client"],
+    });
+  }
+
+  if (data.regime && isDeprecatedCustomsRegime(data.regime)) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: `Le régime douanier "${data.regime}" est obsolète et ne peut plus être sélectionné. Veuillez choisir un régime en vigueur (ex: Mise à la consommation directe, Admission Temporaire, Enlèvement provisoire...).`,
+      path: ["regime"],
     });
   }
 });
@@ -506,9 +514,18 @@ export const appRouter = router({
             throw new TRPCError({ code: "BAD_REQUEST", message: `Identifiant de dossier invalide: ${input.id}` });
           }
 
+          const existing = await db.getDossier(numId);
+
+          // Validation stricte contre la sélection d'un régime douanier obsolète
+          if (existing && input.data.regime && isDeprecatedCustomsRegime(input.data.regime) && existing.regime !== input.data.regime) {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message: `Le régime douanier "${input.data.regime}" est obsolète et ne peut plus être sélectionné lors d'une modification.`,
+            });
+          }
+
           // Validation stricte de la State Machine
           if (input.data.calculatedStatus === "Régularisé") {
-            const existing = await db.getDossier(numId);
             if (existing) {
               const check = validateStatusTransition(existing, "Régularisé", input.data);
               if (!check.valid) {

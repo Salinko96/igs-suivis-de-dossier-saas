@@ -1197,21 +1197,6 @@ export const initialImportData = {
       "sortOrder": 3
     },
     {
-      "category": "regime",
-      "label": "TTC",
-      "sortOrder": 1
-    },
-    {
-      "category": "regime",
-      "label": "EXO",
-      "sortOrder": 2
-    },
-    {
-      "category": "regime",
-      "label": "AT",
-      "sortOrder": 3
-    },
-    {
       "category": "declarant_igs",
       "label": "Interne",
       "sortOrder": 1
@@ -1794,37 +1779,37 @@ export const initialImportData = {
     {
       "category": "regime",
       "label": "Mise à la consommation directe (IM4 - TTC)",
-      "sortOrder": 4
+      "sortOrder": 1
     },
     {
       "category": "regime",
       "label": "Mise à la consommation sous exonération (IM4 - EXO)",
-      "sortOrder": 5
-    },
-    {
-      "category": "regime",
-      "label": "Régime Minier / Convention (EXO-MIN)",
-      "sortOrder": 6
+      "sortOrder": 2
     },
     {
       "category": "regime",
       "label": "Transit National / International (IM8 - DDI / TRIE)",
-      "sortOrder": 7
+      "sortOrder": 3
     },
     {
       "category": "regime",
       "label": "Admission Temporaire (IM5 - AT)",
-      "sortOrder": 8
+      "sortOrder": 4
+    },
+    {
+      "category": "regime",
+      "label": "Enlèvement provisoire",
+      "sortOrder": 5
     },
     {
       "category": "regime",
       "label": "Entrepôt de Douane (IM7 - ED)",
-      "sortOrder": 9
+      "sortOrder": 6
     },
     {
       "category": "regime",
       "label": "Exportation / Réexportation (EX)",
-      "sortOrder": 10
+      "sortOrder": 7
     },
     {
       "category": "statut_douane",
