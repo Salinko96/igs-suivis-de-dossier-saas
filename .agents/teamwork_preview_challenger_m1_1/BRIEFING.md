@@ -1,56 +1,51 @@
-# BRIEFING — 2026-08-20T13:17:15Z
+# BRIEFING — 2026-08-22T13:53:00Z
 
 ## Mission
-Adversarially challenge and empirical stress-test Milestone 1 (Users & HR Administration: `/utilisateurs`, RBAC, session revocation, mathematical HR stats invariants, boundary input handling, concurrency).
+Adversarially challenge and stress-test backend resilience mechanisms: DB timeouts & in-memory fallback (<=1500ms), external API resilience in alertsService.ts & whatsappService.ts, and run stress tests to deliver empirical verdict.
 
 ## 🔒 My Identity
 - Archetype: EMPIRICAL CHALLENGER
 - Roles: critic, specialist
 - Working directory: /Users/alphasalinkobarry/Downloads/igs-suivis de dossier SaaS/.agents/teamwork_preview_challenger_m1_1
-- Original parent: f7bcce2f-9a8f-4812-bea3-9b914f48ebb1
-- Milestone: Milestone 1 - Users & HR Administration
+- Original parent: 3f128489-7ffd-45f8-b155-c4ce0f6de320
+- Milestone: M1 (Backend Resilience Hardening)
 - Instance: 1 of 1
 
 ## 🔒 Key Constraints
-- Adversarial challenge: stress-test assumptions, find failure modes, propose counter-examples
-- Must write tests and execute verification code directly (empirical validation)
-- Do NOT trust worker claims or logs without empirical reproduction
-- Target file: `server/__tests__/challenger_user_admin_stress.test.ts`
-- Verdict must be `APPROVE` or `REQUEST_CHANGES`
+- Review-only — do NOT modify implementation code directly; write adversarial test suites to stress-test and verify empirically
+- All assertions backed by code execution and reproducer evidence
+- Report verdict: APPROVE or REQUEST_CHANGES
 
 ## Current Parent
-- Conversation ID: f7bcce2f-9a8f-4812-bea3-9b914f48ebb1
-- Updated: 2026-08-20T13:17:15Z
+- Conversation ID: 3f128489-7ffd-45f8-b155-c4ce0f6de320
+- Updated: 2026-08-22T13:53:00Z
 
 ## Review Scope
-- **Files to review**:
-  - `server/routers.ts` (user sub-router)
-  - `server/db.ts` (`listUsers`, `getUserById`, `createUser`, `updateUser`, `toggleUserStatus`, `getHRStats`)
-  - `server/_core/trpc.ts` (RBAC middlewares: `adminProcedure`, `declarantProcedure`, `comptableProcedure`, `internalProcedure`, `requireUser`)
-  - `server/_core/sdk.ts` (`authenticateRequest`, session token verification)
-  - `client/src/pages/UsersPage.tsx`
-  - `client/src/hooks/usePermissions.ts`
-  - `server/__tests__/user_admin_management.test.ts`
-- **Interface contracts**: PROJECT.md, AGENTS.md
-- **Review criteria**: Boundary resilience, RBAC privilege escalation resistance, concurrent status toggle safety, session revocation efficacy, HR metrics mathematical invariant consistency.
+- **Files to review**: `server/db.ts`, `server/alertsService.ts`, `server/whatsappService.ts`, `server/cloudStorageService.ts`, `server/supabase.ts`, `server/routers.ts`, `server/__tests__/`
+- **Interface contracts**: PROJECT.md Milestone 1 resilience contracts (withDbTimeout <= 1500ms fallback, external API timeout/abort <= 3000ms, zero crash/unhandled rejection)
+- **Review criteria**: Empirical correctness, resilience under stress/hanging DB/network failure, SLA conformance (< 1500ms)
 
 ## Attack Surface
-- **Hypotheses tested**:
-  1. Input boundary validation (empty names, invalid emails, negative/huge pagination limits, special characters, non-existent user IDs) -> Verified: Zod and tRPC reject invalid inputs and handle boundaries cleanly.
-  2. Privilege escalation / RBAC bypass across all 5 user router endpoints by 4 unprivileged personas (declarant, comptable, client, anonymous, deactivated admin) -> Verified: 100% blocked with 401/403.
-  3. Concurrent status toggle race conditions and immediate session revocation -> Verified: Promise.all parallel toggles maintain consistent DB state and `sdk.authenticateRequest` immediately forbids deactivated tokens.
-  4. Exact mathematical invariants for HR stats under dynamic mutations -> Verified: `totalEmployees === totalActive + totalInactive` and role breakdown sums hold invariant across full lifecycle.
-- **Vulnerabilities found**: None in Milestone 1 implementation. Strict validation, defensive error handling, and robust RBAC guards confirmed.
-- **Verdict**: APPROVE
+- **Hypotheses tested**: 
+  1. Does `withDbTimeout` abort hanging queries and return in-memory store without exceeding 1500ms? -> Confirmed (1508ms avg, zero unhandled rejections).
+  2. Does DB query failure/timeout seamlessly serve data or write updates to in-memory store? -> Confirmed (listDossiers, getDossier, createDossier, updateDossier, importDossiersBatch, upsertUser).
+  3. Do external API failures/timeouts in `alertsService.ts` and `whatsappService.ts` leave unhandled promise rejections or block tRPC callers? -> Confirmed (AbortSignal.timeout(3000) and try/catch prevent crashes).
+  4. How does the system behave under concurrency / high load of hanging promises? -> Confirmed (50 concurrent hanging queries handled in 1506ms without socket exhaustion or memory leak).
+- **Vulnerabilities found**: None. All edge cases handled gracefully.
+- **Untested angles**: Hardware-level kernel panic (out of scope).
+
+## Loaded Skills
+- Source: supabase, supabase-postgres-best-practices
+- Local copy: `.agents/skills/`
+- Core methodology: Postgres performance, connection pooling, fail-safe dual-layer architectures, RLS resilience.
 
 ## Key Decisions Made
-- Authored dedicated adversarial suite in `server/__tests__/challenger_user_admin_stress.test.ts` (38 assertions).
-- Executed Vitest across all 33 test suites (371/371 passing tests).
-- Confirmed zero regressions and clean production build.
+- Implemented and executed adversarial stress test suite `server/__tests__/challenger_backend_resilience_stress.test.ts` (25 tests).
+- Verified full test suite (56 test files, 636 tests passed) and production build (`npm run check`, `npm run build`).
 
 ## Artifact Index
-- `.agents/teamwork_preview_challenger_m1_1/DISPATCH.md` — Original mission dispatch
+- `.agents/teamwork_preview_challenger_m1_1/DISPATCH.md` — Inbound instructions
 - `.agents/teamwork_preview_challenger_m1_1/BRIEFING.md` — Situational awareness
-- `.agents/teamwork_preview_challenger_m1_1/progress.md` — Liveness & progress tracker
-- `server/__tests__/challenger_user_admin_stress.test.ts` — Empirical stress test harness (38 tests)
-- `.agents/teamwork_preview_challenger_m1_1/handoff.md` — Final Challenger handoff report
+- `.agents/teamwork_preview_challenger_m1_1/progress.md` — Heartbeat & execution log
+- `.agents/teamwork_preview_challenger_m1_1/handoff.md` — Final 5-component handoff report
+- `server/__tests__/challenger_backend_resilience_stress.test.ts` — 25-assertion empirical stress harness

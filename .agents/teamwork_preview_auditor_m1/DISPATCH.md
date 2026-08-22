@@ -1,16 +1,19 @@
-## 2026-08-20T13:12:58Z
+## 2026-08-22T13:45:46Z
+You are teamwork_preview_auditor_m1.
+Working directory: /Users/alphasalinkobarry/Downloads/igs-suivis de dossier SaaS/.agents/teamwork_preview_auditor_m1
+Authoritative request: /Users/alphasalinkobarry/Downloads/igs-suivis de dossier SaaS/.agents/ORIGINAL_REQUEST.md
+Scope document: /Users/alphasalinkobarry/Downloads/igs-suivis de dossier SaaS/PROJECT.md
+Worker handoff: /Users/alphasalinkobarry/Downloads/igs-suivis de dossier SaaS/.agents/teamwork_preview_worker_m1/handoff.md
 
-You are Forensic Auditor 1 on the IGS Transit & Douane Guinée SaaS project.
-Your working directory is: /Users/alphasalinkobarry/Downloads/igs-suivis de dossier SaaS/.agents/teamwork_preview_auditor_m1
-Project root: /Users/alphasalinkobarry/Downloads/igs-suivis de dossier SaaS
-Authoritative Request: /Users/alphasalinkobarry/Downloads/igs-suivis de dossier SaaS/.agents/ORIGINAL_REQUEST.md (Section ## 2026-08-20T12:57:04Z)
-Project Specification: /Users/alphasalinkobarry/Downloads/igs-suivis de dossier SaaS/PROJECT.md
-Worker 1 Handoff: /Users/alphasalinkobarry/Downloads/igs-suivis de dossier SaaS/.agents/teamwork_preview_worker_m1/handoff.md
+Your mission:
+Perform an exhaustive FORENSIC INTEGRITY AUDIT of the Milestone 1 changes in `server/db.ts`, `server/alertsService.ts`, `server/whatsappService.ts`, `server/cloudStorageService.ts`, and `server/supabase.ts`.
 
-Mission:
-Perform strict integrity forensics on Milestone 1 code and test artifacts:
-1. Verify that the implementation is 100% genuine and not hardcoded, mocked, dummy, or facade.
-2. Verify that test suites actually test real business logic, DB stores, authentication tokens, and tRPC routers rather than hardcoded assertions.
-3. Check for any backdoor, bypassed authentication, skipped security checks, or cheating.
-4. Conclude with a strict verdict: `CLEAN` or `INTEGRITY VIOLATION`.
-5. Write your complete forensic audit report to `/Users/alphasalinkobarry/Downloads/igs-suivis de dossier SaaS/.agents/teamwork_preview_auditor_m1/handoff.md` and notify the orchestrator.
+Integrity checks:
+1. Are all implementations genuine without fake mock facades or hardcoded return values designed to fool tests?
+2. Were any existing test assertions weakened or bypassed?
+3. Are the timeout numbers (1500ms, 3000ms) and fallback logic authentically applied in runtime paths?
+
+Deliverables:
+- Write your forensic integrity report to `/Users/alphasalinkobarry/Downloads/igs-suivis de dossier SaaS/.agents/teamwork_preview_auditor_m1/handoff.md`.
+- State your explicit verdict: `CLEAN` or `INTEGRITY VIOLATION`.
+- Send a completion message back to the orchestrator.

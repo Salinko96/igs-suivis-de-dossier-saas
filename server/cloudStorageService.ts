@@ -47,25 +47,41 @@ export async function uploadDossierCloudFile(options: UploadFileOptions): Promis
   const client = getS3Client();
   if (client) {
     try {
-      const command = new PutObjectCommand({
-        Bucket: BUCKET_NAME,
-        Key: fileKey,
-        Body: options.fileBuffer,
-        ContentType: options.mimeType,
+      const uploadPromise = (async (): Promise<StorageUploadResult> => {
+        const command = new PutObjectCommand({
+          Bucket: BUCKET_NAME,
+          Key: fileKey,
+          Body: options.fileBuffer,
+          ContentType: options.mimeType,
+        });
+        await client.send(command);
+
+        // Générer une URL signée de 7 jours ou URL publique
+        const getCommand = new GetObjectCommand({ Bucket: BUCKET_NAME, Key: fileKey });
+        const signedUrl = await getSignedUrl(client, getCommand, { expiresIn: 604800 });
+
+        return {
+          fileUrl: signedUrl,
+          storageProvider: (S3_ENDPOINT?.includes("supabase") ? "supabase" : "s3") as "supabase" | "s3",
+          fileKey,
+        };
+      })();
+
+      let timer: any;
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error("STORAGE_UPLOAD_TIMEOUT")), 3000);
       });
-      await client.send(command);
 
-      // Générer une URL signée de 7 jours ou URL publique
-      const getCommand = new GetObjectCommand({ Bucket: BUCKET_NAME, Key: fileKey });
-      const signedUrl = await getSignedUrl(client, getCommand, { expiresIn: 604800 });
-
-      return {
-        fileUrl: signedUrl,
-        storageProvider: S3_ENDPOINT?.includes("supabase") ? "supabase" : "s3",
-        fileKey,
-      };
+      try {
+        const result = await Promise.race([uploadPromise, timeoutPromise]);
+        clearTimeout(timer);
+        return result;
+      } catch (timeoutOrSendErr) {
+        clearTimeout(timer);
+        throw timeoutOrSendErr;
+      }
     } catch (err) {
-      console.warn("[Storage] Cloud S3 upload error, fallback to resilient local storage:", err);
+      console.warn("[Storage] Cloud S3 upload error or timeout, fallback to resilient local storage:", err);
     }
   }
 

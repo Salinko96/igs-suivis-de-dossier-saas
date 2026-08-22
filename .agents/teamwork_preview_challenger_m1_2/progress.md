@@ -1,16 +1,13 @@
-# Progress — Challenger 2 (Session Revocation & Auth Lifecycle)
+# Progress — challenger_m1_2
 
-**Last visited:** 2026-08-20T13:18:00Z
-**Status:** Completed (APPROVE)
+Last visited: 2026-08-22T14:03:15Z
 
-- [x] Initialized DISPATCH.md and BRIEFING.md
-- [x] Investigate codebase (`server/_core/trpc.ts`, `server/_core/sdk.ts`, `server/routers.ts`, `server/db.ts`, `drizzle/schema.ts`)
-- [x] Formulated attack surface and adversarial scenarios across 4 dimensions
-- [x] Implemented test suite `server/__tests__/challenger_session_lifecycle.test.ts` (16 adversarial test cases)
-- [x] Executed dedicated test suite: `npx vitest run server/__tests__/challenger_session_lifecycle.test.ts` (16/16 passed)
-- [x] Executed global test suite: `npm run test` (34/34 files passed, 387/387 tests passed)
-- [x] Verified static typing: `npm run check` (0 errors)
-- [x] Verified production build: `npm run build` (Vite + esbuild successful)
-- [x] Formulated verdict: `APPROVE`
-- [x] Wrote handoff report to `.agents/teamwork_preview_challenger_m1_2/handoff.md`
-- [ ] Notify orchestrator
+## Status
+- [x] Step 1: Record dispatch message in DISPATCH.md
+- [x] Step 2: Initialize BRIEFING.md
+- [x] Step 3: Investigate codebase (`server/db.ts`, `server/cloudStorageService.ts`, `server/storage.ts`, `server/routers.ts`)
+- [x] Step 4: Write empirical test suite for batch import under DB pressure & storage timeout fallback (`server/__tests__/challenger_m1_batch_storage_resilience.test.ts`)
+- [x] Step 5: Execute empirical tests via vitest (11/11 passed)
+- [x] Step 6: Run full test suite (`npm test` 56/56 suites, 636/636 tests passed), typecheck (`npm run check` 0 errors), build (`npm run build` success)
+- [x] Step 7: Document findings and write `handoff.md` (Verdict: APPROVE)
+- [ ] Step 8: Send completion message to parent

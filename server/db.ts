@@ -572,7 +572,7 @@ let _memoryNotifications: Notification[] = [
 let _memoryPortalLogs: PortalAccessLog[] = [];
 let _memoryClientSessions: ClientAccessSession[] = [];
 
-export async function withDbTimeout<T>(queryPromise: Promise<T>, timeoutMs = 2500): Promise<T> {
+export async function withDbTimeout<T>(queryPromise: Promise<T>, timeoutMs = 1500): Promise<T> {
   let timer: any;
   const timeout = new Promise<never>((_, reject) => {
     timer = setTimeout(() => reject(new Error("DB_QUERY_TIMEOUT")), timeoutMs);
@@ -1350,7 +1350,7 @@ export async function getDossierByPortalCode(portalAccessCode: string) {
             .from(dossiers)
             .where(or(...conditions))
             .limit(1),
-          2000
+          1500
         )
       )[0];
 
@@ -1539,7 +1539,7 @@ export async function listAuditLogs(filters?: {
       try {
         const rows = await withDbTimeout(
           db.select().from(dossierStatusHistory).orderBy(desc(dossierStatusHistory.createdAt)),
-          2000
+          1500
         );
         if (rows.length > 0) {
           _memoryHistory = rows;
@@ -1802,7 +1802,7 @@ export async function updateDossier(
             db.update(dossiers).set({ ...input, ...state, version: nextVersion, updatedById: userId, updatedAt: now }).where(eq(dossiers.id, id)),
             historyEntries.length > 0 ? db.insert(dossierStatusHistory).values(historyEntries) : Promise.resolve(),
           ]),
-          2000
+          1500
         );
       } catch (e) {
         console.warn("[DB] updateDossier DB sync error or timeout, saved in memory:", e);
@@ -2186,7 +2186,9 @@ export async function importDossiersBatch(
         dbPromises.push(db.insert(dossierStatusHistory).values(historyBatch));
       }
 
-      await Promise.allSettled(dbPromises);
+      if (dbPromises.length > 0) {
+        await withDbTimeout(Promise.allSettled(dbPromises), 1500);
+      }
     } catch (e) {
       console.warn("[DB] Batch sync partial warning:", e);
     }

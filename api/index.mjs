@@ -622,7 +622,8 @@ ${params.messageText}
           to: cleanPhone,
           type: "text",
           text: { body: formattedText }
-        })
+        }),
+        signal: AbortSignal.timeout(3e3)
       });
     } catch (err) {
       console.warn("[WhatsApp Dispatch Error]", err);
@@ -652,7 +653,8 @@ async function sendDossierEmailAlert(params) {
           to: email,
           subject: params.subject,
           html: params.htmlContent
-        })
+        }),
+        signal: AbortSignal.timeout(3e3)
       });
       const data = await res.json();
       console.log("[Resend Email Result]", data);
@@ -4558,7 +4560,7 @@ function enrichDossierFields(dossier, now = /* @__PURE__ */ new Date()) {
     financialStatus
   };
 }
-async function withDbTimeout(queryPromise, timeoutMs = 2500) {
+async function withDbTimeout(queryPromise, timeoutMs = 1500) {
   let timer;
   const timeout = new Promise((_, reject) => {
     timer = setTimeout(() => reject(new Error("DB_QUERY_TIMEOUT")), timeoutMs);
@@ -5180,7 +5182,7 @@ async function getDossierByPortalCode(portalAccessCode) {
       }
       const row = (await withDbTimeout(
         db.select().from(dossiers).where(or(...conditions)).limit(1),
-        2e3
+        1500
       ))[0];
       if (row) return row;
     } catch (e) {
@@ -5310,7 +5312,7 @@ async function listAuditLogs(filters) {
       try {
         const rows = await withDbTimeout(
           db.select().from(dossierStatusHistory).orderBy(desc(dossierStatusHistory.createdAt)),
-          2e3
+          1500
         );
         if (rows.length > 0) {
           _memoryHistory = rows;
@@ -5525,7 +5527,7 @@ async function updateDossier(id, input, userId, authorName, options) {
             db.update(dossiers).set({ ...input, ...state, version: nextVersion, updatedById: userId, updatedAt: now }).where(eq(dossiers.id, id)),
             historyEntries.length > 0 ? db.insert(dossierStatusHistory).values(historyEntries) : Promise.resolve()
           ]),
-          2e3
+          1500
         );
       } catch (e) {
         console.warn("[DB] updateDossier DB sync error or timeout, saved in memory:", e);
@@ -5825,7 +5827,9 @@ async function importDossiersBatch(items, userId, authorName) {
       if (historyBatch.length > 0) {
         dbPromises.push(db.insert(dossierStatusHistory).values(historyBatch));
       }
-      await Promise.allSettled(dbPromises);
+      if (dbPromises.length > 0) {
+        await withDbTimeout(Promise.allSettled(dbPromises), 1500);
+      }
     } catch (e) {
       console.warn("[DB] Batch sync partial warning:", e);
     }
@@ -7824,55 +7828,104 @@ function isSupabaseConfigured() {
   return Boolean(url && key);
 }
 async function uploadInvoicePdf(invoiceNumber, pdfBuffer, mimeType = "application/pdf") {
+  const base64Data = Buffer.from(pdfBuffer).toString("base64");
+  const fallbackDataUrl = `data:${mimeType};base64,${base64Data}`;
   const supabase = getSupabaseServerClient();
-  if (!supabase) return null;
+  if (!supabase) return fallbackDataUrl;
   const cleanNumber = invoiceNumber.replace(/[^a-zA-Z0-9_-]/g, "_");
   const fileName = `facture_${cleanNumber}_${Date.now()}.pdf`;
   const filePath = `invoices/${fileName}`;
   try {
-    const { data, error } = await supabase.storage.from("factures").upload(filePath, pdfBuffer, {
-      contentType: mimeType,
-      upsert: true
+    const uploadPromise = (async () => {
+      const { data, error } = await supabase.storage.from("factures").upload(filePath, pdfBuffer, {
+        contentType: mimeType,
+        upsert: true
+      });
+      if (error) {
+        console.warn("[Supabase Storage] Error uploading invoice PDF:", error.message);
+        return fallbackDataUrl;
+      }
+      const { data: publicUrlData } = supabase.storage.from("factures").getPublicUrl(data.path);
+      return publicUrlData.publicUrl || fallbackDataUrl;
+    })();
+    let timer;
+    const timeoutPromise = new Promise((resolve) => {
+      timer = setTimeout(() => {
+        console.warn("[Supabase Storage] Invoice PDF upload timed out after 3000ms, using Base64 fallback");
+        resolve(fallbackDataUrl);
+      }, 3e3);
     });
-    if (error) {
-      console.warn("[Supabase Storage] Error uploading invoice PDF:", error.message);
-      return null;
+    try {
+      const res = await Promise.race([uploadPromise, timeoutPromise]);
+      clearTimeout(timer);
+      return res || fallbackDataUrl;
+    } catch (raceErr) {
+      clearTimeout(timer);
+      console.warn("[Supabase Storage] Exception during invoice PDF upload race:", raceErr);
+      return fallbackDataUrl;
     }
-    const { data: publicUrlData } = supabase.storage.from("factures").getPublicUrl(data.path);
-    return publicUrlData.publicUrl;
   } catch (err) {
     console.warn("[Supabase Storage] Exception during invoice PDF upload:", err);
-    return null;
+    return fallbackDataUrl;
   }
 }
 async function uploadPaymentProof(invoiceId, fileBuffer, originalFileName, mimeType = "image/jpeg") {
+  const base64Data = Buffer.from(fileBuffer).toString("base64");
+  const fallbackDataUrl = `data:${mimeType};base64,${base64Data}`;
   const supabase = getSupabaseServerClient();
-  if (!supabase) return null;
+  if (!supabase) return fallbackDataUrl;
   const ext = originalFileName.split(".").pop() || "jpg";
   const filePath = `payments/invoice_${invoiceId}_${Date.now()}.${ext}`;
   try {
-    const { data, error } = await supabase.storage.from("preuves_paiement").upload(filePath, fileBuffer, {
-      contentType: mimeType,
-      upsert: true
+    const uploadPromise = (async () => {
+      const { data, error } = await supabase.storage.from("preuves_paiement").upload(filePath, fileBuffer, {
+        contentType: mimeType,
+        upsert: true
+      });
+      if (error) {
+        console.warn("[Supabase Storage] Error uploading payment proof:", error.message);
+        return fallbackDataUrl;
+      }
+      const { data: publicUrlData } = supabase.storage.from("preuves_paiement").getPublicUrl(data.path);
+      return publicUrlData.publicUrl || fallbackDataUrl;
+    })();
+    let timer;
+    const timeoutPromise = new Promise((resolve) => {
+      timer = setTimeout(() => {
+        console.warn("[Supabase Storage] Payment proof upload timed out after 3000ms, using Base64 fallback");
+        resolve(fallbackDataUrl);
+      }, 3e3);
     });
-    if (error) {
-      console.warn("[Supabase Storage] Error uploading payment proof:", error.message);
-      return null;
+    try {
+      const res = await Promise.race([uploadPromise, timeoutPromise]);
+      clearTimeout(timer);
+      return res || fallbackDataUrl;
+    } catch (raceErr) {
+      clearTimeout(timer);
+      console.warn("[Supabase Storage] Exception during payment proof upload race:", raceErr);
+      return fallbackDataUrl;
     }
-    const { data: publicUrlData } = supabase.storage.from("preuves_paiement").getPublicUrl(data.path);
-    return publicUrlData.publicUrl;
   } catch (err) {
     console.warn("[Supabase Storage] Exception during payment proof upload:", err);
-    return null;
+    return fallbackDataUrl;
   }
 }
 async function getSignedDownloadUrl(bucket, filePath, expiresInSeconds = 3600) {
   const supabase = getSupabaseServerClient();
   if (!supabase) return null;
   try {
-    const { data, error } = await supabase.storage.from(bucket).createSignedUrl(filePath, expiresInSeconds);
-    if (error || !data?.signedUrl) return null;
-    return data.signedUrl;
+    const fetchPromise = (async () => {
+      const { data, error } = await supabase.storage.from(bucket).createSignedUrl(filePath, expiresInSeconds);
+      if (error || !data?.signedUrl) return null;
+      return data.signedUrl;
+    })();
+    let timer;
+    const timeoutPromise = new Promise((resolve) => {
+      timer = setTimeout(() => resolve(null), 3e3);
+    });
+    const res = await Promise.race([fetchPromise, timeoutPromise]);
+    clearTimeout(timer);
+    return res;
   } catch {
     return null;
   }
@@ -8562,22 +8615,36 @@ async function uploadDossierCloudFile(options) {
   const client = getS3Client();
   if (client) {
     try {
-      const command = new PutObjectCommand({
-        Bucket: BUCKET_NAME,
-        Key: fileKey,
-        Body: options.fileBuffer,
-        ContentType: options.mimeType
+      const uploadPromise = (async () => {
+        const command = new PutObjectCommand({
+          Bucket: BUCKET_NAME,
+          Key: fileKey,
+          Body: options.fileBuffer,
+          ContentType: options.mimeType
+        });
+        await client.send(command);
+        const getCommand = new GetObjectCommand({ Bucket: BUCKET_NAME, Key: fileKey });
+        const signedUrl = await getSignedUrl(client, getCommand, { expiresIn: 604800 });
+        return {
+          fileUrl: signedUrl,
+          storageProvider: S3_ENDPOINT?.includes("supabase") ? "supabase" : "s3",
+          fileKey
+        };
+      })();
+      let timer;
+      const timeoutPromise = new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error("STORAGE_UPLOAD_TIMEOUT")), 3e3);
       });
-      await client.send(command);
-      const getCommand = new GetObjectCommand({ Bucket: BUCKET_NAME, Key: fileKey });
-      const signedUrl = await getSignedUrl(client, getCommand, { expiresIn: 604800 });
-      return {
-        fileUrl: signedUrl,
-        storageProvider: S3_ENDPOINT?.includes("supabase") ? "supabase" : "s3",
-        fileKey
-      };
+      try {
+        const result = await Promise.race([uploadPromise, timeoutPromise]);
+        clearTimeout(timer);
+        return result;
+      } catch (timeoutOrSendErr) {
+        clearTimeout(timer);
+        throw timeoutOrSendErr;
+      }
     } catch (err) {
-      console.warn("[Storage] Cloud S3 upload error, fallback to resilient local storage:", err);
+      console.warn("[Storage] Cloud S3 upload error or timeout, fallback to resilient local storage:", err);
     }
   }
   const base64Data = Buffer.from(options.fileBuffer).toString("base64");
@@ -8679,7 +8746,8 @@ ${rendered.fullText}`);
           to: cleanPhone,
           type: "text",
           text: { body: rendered.fullText }
-        })
+        }),
+        signal: AbortSignal.timeout(3e3)
       });
       const data = await response.json();
       if (data.messages && data.messages[0]?.id) {

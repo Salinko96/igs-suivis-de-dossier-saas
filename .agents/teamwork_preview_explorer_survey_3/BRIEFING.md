@@ -1,43 +1,40 @@
-# BRIEFING — 2026-08-20T13:02:00Z
+# BRIEFING — 2026-08-22T13:15:00Z
 
 ## Mission
-Survey and investigate codebase for R4 (PWA & Offline Quai Mode), Navigation/Layout, and Testing/Build setup.
+Comprehensive technical survey of business calculation engines (demurrage, customs, PAC storage, currencies, invoices) and automated test/build/typing infrastructure.
 
 ## 🔒 My Identity
 - Archetype: explorer
-- Roles: survey, investigation, synthesis
+- Roles: technical investigator, calculation auditor, test architect
 - Working directory: /Users/alphasalinkobarry/Downloads/igs-suivis de dossier SaaS/.agents/teamwork_preview_explorer_survey_3
-- Original parent: f7bcce2f-9a8f-4812-bea3-9b914f48ebb1
-- Milestone: Survey R4 (PWA & Offline Quai Mode), Navigation, Test/Build
+- Original parent: 3f128489-7ffd-45f8-b155-c4ce0f6de320
+- Milestone: initial survey complete
 
 ## 🔒 Key Constraints
 - Read-only investigation — do NOT implement
-- Follow AGENTS.md rules and project architecture
-- Produce structured survey report in survey_report.md
-- Self-contained handoff.md with 5-component structure
+- Produce structured analysis.md and handoff.md in working directory
+- Communicate via send_message to orchestrator parent
 
 ## Current Parent
-- Conversation ID: f7bcce2f-9a8f-4812-bea3-9b914f48ebb1
-- Updated: not yet
+- Conversation ID: 3f128489-7ffd-45f8-b155-c4ce0f6de320
+- Updated: 2026-08-22T13:15:00Z
 
 ## Investigation State
-- **Explored paths**:
-  - `client/src/components/DashboardLayout.tsx` (sidebar, items, role filtering, cloche popover, header)
-  - `client/src/App.tsx` and `client/src/components/ProtectedRoute.tsx` (routing & protection)
-  - `client/src/hooks/usePermissions.ts` & `client/src/_core/hooks/useAuth.ts`
-  - `client/index.html` and `client/public/` (manifest, icons, meta tags)
-  - `client/src/main.tsx` (QueryClient, tRPC client with network fallback)
-  - `package.json`, `vite.config.ts`, `vitest.config.ts`, `tsconfig.json`
-  - Test suite: 31 test files, 311 tests passed in Vitest
+- **Explored paths**: `server/services/`, `client/src/lib/`, `shared/`, `server/dossierRules.ts`, `server/exchangeRateService.ts`, `server/alertsService.ts`, `server/cronDemurrageReminders.ts`, `server/clientReportService.ts`, `server/terminal49Client.ts`, `server/db.ts`, `server/routers.ts`, `client/src/pages/FinancesPage.tsx`, `client/src/lib/pdfGenerator.ts`, all 54 test files in `server/__tests__/` and `client/src/__tests__/`.
 - **Key findings**:
-  - `DashboardLayout.tsx` has clean extensible `allMenuItems` array; ready to add `/utilisateurs` with role `["admin"]`.
-  - PWA: No `manifest.json`, no `sw.js`, no PWA meta tags currently exist. Full architecture specified for offline Quai Conakry mode.
-  - Test & Build: `npm run check` has 0 errors; `npm run build` succeeds completely; `npm run test` executes 311 tests (all passing). `vitest.config.ts` needs `client/src/**/*.test.ts` added to `include` to auto-run client tests.
-- **Unexplored areas**: None (survey complete across all required areas).
+  1. Complete financial calculation engine (GNF/USD conversion, 18% VAT strictly on HT transit fees, separation of non-taxable customs/PAC débours, live/fallback exchange rates, manual override audit trail).
+  2. Strict customs regime validation (7 official SYDONIA/DDI regimes, deprecation rejection, transition to Régularisé blocked without goodsReleaseDate + declarationNumber).
+  3. PAC 7-day franchise demurrage risk engine with proactive alerts (J-2 and Overdue).
+  4. Client/Server invoice PDF generation with tamper-proof 2D QR verification codes.
+  5. 100% test pass rate (54 test files, 600 tests passed in 25.89s), 0 TypeScript errors (`npm run check`), clean production build (`npm run build`).
+- **Unexplored areas**: None within survey scope.
 
 ## Key Decisions Made
-- Fully documented exact integration blueprint for `/utilisateurs`, PWA manifest, service worker caching tiers, online/offline status hook & banner, and test config.
+- Structured findings into `analysis.md` and 5-component `handoff.md`.
+- Formulated 4-tier recommended test expansion matrix for 100% reliability.
 
 ## Artifact Index
-- survey_report.md — Full investigation report (completed)
-- handoff.md — Final 5-component handoff report
+- `DISPATCH.md` — assignment recording
+- `progress.md` — liveness heartbeat
+- `analysis.md` — comprehensive technical survey findings
+- `handoff.md` — 5-component handoff report

@@ -1,63 +1,52 @@
-# BRIEFING — 2026-08-20T13:17:55Z
+# BRIEFING — 2026-08-22T13:46:00Z
 
 ## Mission
-Adversarially verify the session revocation and auth lifecycle of Milestone 1 (Admin User Management):
-1. Write and execute test suite `server/__tests__/challenger_session_lifecycle.test.ts`.
-2. Stress test active login -> deactivation -> instant revocation -> reactivation -> unauthorized tampering attempts.
-3. Provide rigorous verdict (APPROVE / REQUEST_CHANGES) backed by concrete empirical evidence.
+Adversarially challenge the batch import and storage resilience:
+1. Test large batch imports (`importDossiersBatch`) under simulated DB pressure.
+2. Test storage upload timeout fallback to Base64 data URIs.
+3. Run `npm test` and build checks.
 
 ## 🔒 My Identity
-- Archetype: EMPIRICAL CHALLENGER
+- Archetype: empirical-challenger
 - Roles: critic, specialist
 - Working directory: /Users/alphasalinkobarry/Downloads/igs-suivis de dossier SaaS/.agents/teamwork_preview_challenger_m1_2
-- Original parent: f7bcce2f-9a8f-4812-bea3-9b914f48ebb1
-- Milestone: Milestone 1 - Admin User Management & Session Revocation
+- Original parent: 3f128489-7ffd-45f8-b155-c4ce0f6de320
+- Milestone: M1 Hardening Validation
 - Instance: 2 of 2
 
 ## 🔒 Key Constraints
-- Review & Verification focus: verify implementation code by executing tests and challenge harness.
-- Write tests in `server/__tests__/challenger_session_lifecycle.test.ts`.
-- Run commands and tests directly to produce empirical proof.
+- Review-only — do NOT modify implementation code
+- Empirical verification mandatory — write and run tests
+- `.agents/` contains only agent metadata
 
 ## Current Parent
-- Conversation ID: f7bcce2f-9a8f-4812-bea3-9b914f48ebb1
-- Updated: 2026-08-20T13:17:55Z
+- Conversation ID: 3f128489-7ffd-45f8-b155-c4ce0f6de320
+- Updated: 2026-08-22T13:46:00Z
 
 ## Review Scope
-- **Files to review**:
-  - `server/_core/trpc.ts`
-  - `server/_core/sdk.ts`
-  - `server/_core/cookies.ts`
-  - `server/routers.ts`
-  - `server/db.ts`
-  - `drizzle/schema.ts`
-  - `server/__tests__/user_admin_management.test.ts`
-- **Interface contracts**: `PROJECT.md`, `AGENTS.md`
-- **Review criteria**: Session revocation immediacy, token validation edge cases, RBAC tampering prevention, role elevation protection, unauthenticated/unauthorized tampering.
+- **Files to review**: `server/db.ts`, `server/cloudStorageService.ts`, `server/routers.ts`, `server/storage.ts`
+- **Interface contracts**: `PROJECT.md` M1 requirements (Serverless & DB Resilience Hardening)
+- **Review criteria**: DB pressure resilience in `importDossiersBatch`, timeout fallback to Base64 in `uploadDossierCloudFile` / `storagePut`, error isolation, test & build pass rate
 
 ## Attack Surface
 - **Hypotheses tested**:
-  - H1: Active user login -> successful session token issuance -> instant deactivation via `toggleUserStatus` -> immediate rejection on next tRPC query/mutation with 403 FORBIDDEN. (PASSED)
-  - H2: Reactivation restores access immediately with no lag or stale cache. (PASSED)
-  - H3: Unauthenticated and non-admin callers cannot create, modify, promote roles, toggle status, or inspect HR data. (PASSED)
-  - H4: Forged, expired, or malformed JWT session cookies are immediately rejected by `sdk.verifySession` & `sdk.authenticateRequest`. (PASSED)
-  - H5: Deactivated admin accounts are strictly rejected on `adminProcedure` and `protectedProcedure`. (PASSED)
-  - H6: Multi-tenant user isolation ensures deactivation of User A has zero effect on User B. (PASSED)
-- **Vulnerabilities found**: None in current session revocation and RBAC guards. All security defenses hold under adversarial testing.
-- **Untested angles**: OAuth remote provider callbacks (mocked in tests).
+  1. Large batch imports (`importDossiersBatch`) with hundreds of dossiers, edge cases (malformed BL, conflicting numbers, high latency, DB error injection) should handle DB pressure gracefully, batch correctly, and isolate errors.
+  2. Cloud storage file upload (`uploadDossierCloudFile` / storage service) must timeout gracefully when external storage hangs or fails, and fallback to Base64 data URI storage without throwing unhandled exceptions.
+  3. Memory fallback / DB recovery mechanisms remain consistent.
+- **Vulnerabilities found**: [TBD]
+- **Untested angles**: [TBD]
 
 ## Loaded Skills
-- **Source**: N/A
-- **Local copy**: N/A
-- **Core methodology**: N/A
+- None specified by orchestrator
 
 ## Key Decisions Made
-- Implemented and executed 16 stress tests in `server/__tests__/challenger_session_lifecycle.test.ts` covering 4 adversarial dimensions.
-- Full test suite passed (34 test files, 387 tests, 100% success). Type check and build passed without error. Verdict: APPROVE.
+- Inspect `server/db.ts`, `server/cloudStorageService.ts`, `server/storage.ts`, and `server/routers.ts` to examine implementation details of batch import and storage fallback.
+- Write a comprehensive empirical test file in `server/__tests__/challenger_m1_batch_storage_resilience.test.ts`.
+- Execute tests via Vitest, run `npm test`, `npm run check`, and `npm run build`.
+- Document observations, logic chain, caveats, conclusion, and verification method in `handoff.md`.
 
 ## Artifact Index
 - `.agents/teamwork_preview_challenger_m1_2/DISPATCH.md` — Dispatch record
-- `.agents/teamwork_preview_challenger_m1_2/progress.md` — Progress tracker
 - `.agents/teamwork_preview_challenger_m1_2/BRIEFING.md` — Situational awareness
-- `server/__tests__/challenger_session_lifecycle.test.ts` — Adversarial test suite
-- `.agents/teamwork_preview_challenger_m1_2/handoff.md` — Handoff report
+- `.agents/teamwork_preview_challenger_m1_2/progress.md` — Liveness & heartbeat
+- `.agents/teamwork_preview_challenger_m1_2/handoff.md` — Final 5-component handoff report

@@ -1,16 +1,23 @@
-# Audit Progress — Milestone 1 Forensic Audit
+# Progress — teamwork_preview_auditor_m1
 
-Last visited: 2026-08-20T13:17:25Z
-Auditor: Forensic Auditor 1 (`teamwork_preview_auditor_m1`)
+**Last visited**: 2026-08-22T13:52:00Z
+**Status**: Forensic audit complete, writing final handoff report
 
-## Plan & Check Status
-
-- [x] Step 0: Initialize auditor context (DISPATCH.md, BRIEFING.md, progress.md)
-- [x] Step 1: Examine M1 source files in detail (`drizzle/schema.ts`, `server/initialUsersData.ts`, `server/db.ts`, `server/_core/sdk.ts`, `server/_core/trpc.ts`, `server/routers.ts`)
-- [x] Step 2: Examine M1 frontend files (`client/src/pages/UsersPage.tsx`, `client/src/components/DashboardLayout.tsx`, `client/src/App.tsx`, `client/src/hooks/usePermissions.ts`)
-- [x] Step 3: Examine test files (`server/__tests__/user_admin_management.test.ts`, `server/__tests__/challenger_user_admin_stress.test.ts`) for assertion integrity, mock cheating, or self-certification
-- [x] Step 4: Run typecheck (`npm run check`) and tests (`npm run test`) independently
-- [x] Step 5: Adversarial review / stress testing (check edge cases: empty strings, sql injection, session revocation edge cases, role escalation)
-- [x] Step 6: Mode-specific integrity verification (Development mode against prohibited patterns)
-- [x] Step 7: Formulate verdict and write `handoff.md`
-- [x] Step 8: Notify orchestrator via `send_message`
+## Completed Steps
+- [x] Initialized DISPATCH.md and BRIEFING.md
+- [x] Reviewed ORIGINAL_REQUEST.md, PROJECT.md, and worker handoff report
+- [x] Inspected git diffs across all modified files (`server/db.ts`, `server/alertsService.ts`, `server/whatsappService.ts`, `server/cloudStorageService.ts`, `server/supabase.ts`, `api/index.mjs`)
+- [x] Verified zero modifications to test suites (`git diff -- '**/*test*'`)
+- [x] Executed full TypeScript typecheck (`npm run check` -> 0 errors)
+- [x] Executed full production build (`npm run build` -> 0 errors)
+- [x] Executed official test suites (`54/54 test files passed, 600/600 tests passed`)
+- [x] Performed empirical forensic runtime checks on:
+  - `withDbTimeout` hanging query rejection at 1500ms
+  - `withDbTimeout` fast query resolution (< 1ms)
+  - `uploadDossierCloudFile` 3000ms timeout race & Base64 data URI fallback
+  - `uploadInvoicePdf` 3000ms timeout race & Base64 data URI fallback
+  - `uploadPaymentProof` 3000ms timeout race & Base64 data URI fallback
+  - `getSignedDownloadUrl` 3000ms timeout race & null fallback
+  - `sendDossierWhatsAppAlert` & `sendDossierEmailAlert` & `sendWhatsappBusinessMessage` `AbortSignal.timeout(3000)` handling
+- [x] Verified zero mock facades, zero hardcoded return values, zero weakened assertions
+- [x] Formulated final verdict: `CLEAN`

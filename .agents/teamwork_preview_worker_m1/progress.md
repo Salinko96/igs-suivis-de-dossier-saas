@@ -1,15 +1,12 @@
-# Progress — Milestone 1 (Administration & Gestion des 100 Employés)
+# Progress - teamwork_preview_worker_m1
 
-Last visited: 2026-08-20T13:12:35Z
-Status: Completed (100% Pass)
+Last visited: 2026-08-22T13:40:10Z
 
-## Steps
-- [x] 1. Codebase Investigation & Survey Review
-- [x] 2. Update Database Schema (`drizzle/schema.ts`) with `isActive`, `sessionRevokedAt`
-- [x] 3. Enrich `server/db.ts` with 111 realistic Guinean collaborators seed (`server/initialUsersData.ts`) & HR helper functions
-- [x] 4. Implement Session Revocation & Auth rejection for inactive users (`server/_core/sdk.ts`, `server/_core/trpc.ts`)
-- [x] 5. Implement User tRPC router (`server/routers.ts`) with adminProcedure
-- [x] 6. Frontend: `usePermissions.ts`, `UsersPage.tsx`, `DashboardLayout.tsx`, `App.tsx`
-- [x] 7. Comprehensive Unit & Integration Tests (`server/__tests__/user_admin_management.test.ts`)
-- [x] 8. Verify with `npm run check` and `npm run test` (32 test files, 333 tests passing)
-- [x] 9. Write `handoff.md` and notify parent
+## Status
+- [x] Initialized workspace and briefing
+- [x] Investigate code in `server/db.ts`, `server/alertsService.ts`, `server/whatsappService.ts`, `server/cloudStorageService.ts`, `server/supabase.ts`
+- [x] Implement Task 1: `server/db.ts` timeouts and batch wrapping
+- [x] Implement Task 2: `server/alertsService.ts` and `server/whatsappService.ts` 3000ms fetch timeout & error handling
+- [x] Implement Task 3: `server/cloudStorageService.ts` and `server/supabase.ts` 3000ms storage upload timeout & Base64 fallback
+- [x] Verification: `npm run check` (0 errors), `npm test` (600/600 pass), `npm run build` (success)
+- [x] Write `handoff.md` and notify orchestrator

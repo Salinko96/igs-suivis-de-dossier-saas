@@ -1,59 +1,72 @@
-# Project: IGS Transit & Douane Guinée SaaS — Enterprise 100% Ready
+# Project: IGS Logistics Dossier SaaS Resilience Hardening
 
 ## Architecture
-- **Frontend**: React 19, Vite, Tailwind CSS v4, Lucide React, Shadcn UI components, TanStack Query, Wouter routing, PWA Service Worker.
-- **Backend**: Node.js, Express, tRPC (end-to-end type safety), Jose JWT session auth, Drizzle ORM.
-- **Database**: Supabase PostgreSQL + in-memory resilient data store in `server/db.ts`.
+- **Backend Stack**: Express 4, tRPC v11, Drizzle ORM, Supabase/PostgreSQL with automatic fail-safe in-memory dual-layer store.
+- **Frontend Stack**: React 19, Vite 7, Tailwind CSS 4, TanStack Query v5, Wouter routing, shadcn/ui components, Lucide icons, PWA Service Worker.
+- **External Integrations**: BCRG/OpenExchange rates, Terminal49 maritime tracking, Meta WhatsApp Cloud API, Resend transactional emails, AWS S3 / Supabase storage.
+- **Core Modules**:
+  1. Dossiers Management & Timeline Tracking (`/dossiers`, `/dossiers/:id`)
+  2. Customs & SYDONIA Regimes (`/controles`)
+  3. Port Autonome de Conakry & Demurrage Engine (`/port-conakry`)
+  4. Finance, Invoicing & Multi-Currency (`/finances`)
+  5. Audit Trail & Regulatory Compliance (`/audit`)
+  6. Client Portal & Public Verification (`/portail-client`)
+  7. Team Tasks & Operations (`/taches`)
+  8. Notifications & Alerts Engine
+  9. Users & RBAC Administration (`/utilisateurs`)
 
 ## Feature Inventory
 | # | Feature | Description | Milestone | Source |
 |---|---------|-------------|-----------|--------|
-| 1 | Users DB Schema & Seed | Add `isActive`, `sessionRevokedAt` to `users` table; seed 111 realistic Guinean collaborator profiles | M1 | ORIGINAL_REQUEST R1 |
-| 2 | Session Revocation & Auth Security | Immediate rejection of inactive users in `sdk.authenticateRequest` and `requireUser` | M1 | ORIGINAL_REQUEST R1 |
-| 3 | HR & User Admin tRPC Routes | Create `user.list`, `user.create`, `user.update`, `user.toggleStatus`, `user.getHRStats` under `adminProcedure` | M1 | ORIGINAL_REQUEST R1 |
-| 4 | Admin User Management UI (`/utilisateurs`) | Dedicated interface with 4 KPI cards, filterable 100-employee table, status toggle, create/edit modal | M1 | ORIGINAL_REQUEST R1 |
-| 5 | Sidebar & Route Guards | Add menu item in `DashboardLayout.tsx` for admin, route guard in `App.tsx`, `canManageUsers` in `usePermissions.ts` | M1 | ORIGINAL_REQUEST R1 |
-| 6 | Optimistic Locking Schema & Backend | Add `version` to `dossiers`, check `expectedVersion`/`expectedUpdatedAt` in `updateDossier`, throw `TRPCError CONFLICT` | M2 | ORIGINAL_REQUEST R2 |
-| 7 | Conflict Detection & Resolution UI | Create `ConflictResolutionModal` with side-by-side diff preview, merge options and fresh reload | M2 | ORIGINAL_REQUEST R2 |
-| 8 | Audit Trail DB Schema & Service | Enrich audit log model (`action`, `entityType`, `entityId`, `userRole`, before/after data snapshots, metadata) and `logAuditEvent` service | M3 | ORIGINAL_REQUEST R3 |
-| 9 | Comprehensive Action Logging | Log customs transitions (DDI, SYDONIA, BLD, BAD, BAE, Sortie PAC) and financial operations (`createInvoice`, `recordInvoicePayment`, `createPacDisbursement`) | M3 | ORIGINAL_REQUEST R3 |
-| 10 | Dossier Audit History View | Complete audit history timeline on `/dossiers/[id]` with timestamp, actor name, action badge, and detailed field diffs | M3 | ORIGINAL_REQUEST R3 |
-| 11 | PWA Manifest & App Icons | High-res icons, theme color `#0b3b32`, standalone display, meta tags in `index.html` | M4 | ORIGINAL_REQUEST R4 |
-| 12 | Service Worker & Offline Cache Strategy | `sw.js` with Cache-First static assets and Network-First cache fallback for tRPC dossier data on Conakry docks | M4 | ORIGINAL_REQUEST R4 |
-| 13 | Network Status Indicator & PWA Install Banner | `useOnlineStatus` hook, `NetworkStatusBanner`, `PWAInstallBanner` with `beforeinstallprompt` support | M4 | ORIGINAL_REQUEST R4 |
-| 14 | E2E & Full Regression Verification | Comprehensive automated unit, integration, and E2E tests for all 4 enterprise modules, build validation | M5 | ORIGINAL_REQUEST Criteria |
+| 1 | Serverless DB Timeout Standard | Standardize all DB queries and `withDbTimeout` to <= 1500ms | M1 | survey_1 |
+| 2 | Batch Import DB Timeout Wrapping | Wrap batch writes in `importDossiersBatch` with `withDbTimeout` | M1 | survey_1 |
+| 3 | External API Timeout Protection | Add `AbortController` (3000ms) to WhatsApp & Resend APIs | M1 | survey_1 |
+| 4 | Storage Upload Fail-Safe | Add timeout (3000ms) with fallback to Base64 in storage uploads | M1 | survey_1 |
+| 5 | Frontend Query & Loader Stability | Triple-layer chunk recovery, lazy retry, and instant feedback | M2 | survey_2 |
+| 6 | Optimistic UI & Concurrency Diffs | Optimistic updates for notifications and conflict resolution modal | M2 | survey_2 |
+| 7 | Business Logic & PAC Storage Curves | Progressive 7-day franchise and storage fee calculations | M3 | survey_3 |
+| 8 | Currency & 18% VAT Fiscal Logic | Taxable agency fee isolation and multi-currency exchange rates | M3 | survey_3 |
+| 9 | 4-Tier Automated Test Suite Expansion | Full unit, integration, stress, and multi-module workflow tests | M4 | survey_1,2,3 |
+| 10 | 100% Production Build & Typecheck | Zero TypeScript errors (`npm run check`) & clean build (`npm run build`) | M4 | survey_1,2,3 |
 
 ## Milestones
 | # | Name | Scope | Dependencies | Status |
 |---|------|-------|-------------|--------|
-| M1 | Module d'Administration & Gestion des 100 Employés | Schema `users`, 111 collaborators seed, `adminProcedure` tRPC routes, session revocation, `/utilisateurs` page, sidebar integration | none | DONE |
-| M2 | Détection des Conflits d'Édition Simultanée | Column `version` on `dossiers`, tRPC `expectedVersion` check, `TRPCError CONFLICT`, `ConflictResolutionModal`, merge/reload logic | none | DONE |
-| M3 | Journal d'Audit & Traçabilité Réglementaire | Audit schema with `action`/`entityType`/`userRole`, `logAuditEvent` helper, customs & financial event logging, `/dossiers/[id]` timeline | none | DONE |
-| M4 | Mode Mobile & PWA Installable pour Agents sur le Quai | `manifest.json`, `sw.js` cache-first & network-first, `NetworkStatusBanner`, `PWAInstallBanner`, `useOnlineStatus` | none | PLANNED |
-| M5 | Final E2E Test Verification & Hardening | Pass 100% test suite, adversarial tests, TypeScript check (`npm run check`), build (`npm run build`) | M1, M2, M3, M4 | PLANNED |
+| 1 | Serverless & DB Resilience Hardening | `server/db.ts`, `server/alertsService.ts`, `server/whatsappService.ts`, `server/cloudStorageService.ts`, `server/supabase.ts` | none | DONE |
+| 2 | Frontend Query & UX Stability Review | `client/src/main.tsx`, `client/src/App.tsx`, `client/src/pages/`, `client/src/components/` | none | DONE |
+| 3 | Business Calculations & Multi-Currency Engine | `server/dossierRules.ts`, `server/exchangeRateService.ts`, `server/services/`, `client/src/lib/pdfGenerator.ts` | M1 | DONE |
+| 4 | 4-Tier Automated E2E Hardening & Verification | Complete test suite execution (636 tests), stress testing, `npm run check`, `npm run build` | M1, M2, M3 | DONE |
 
 ## Interface Contracts
-### User Admin ↔ Client / Nav
-- `user.list`: `adminProcedure.input({ search?: string, role?: Role, isActive?: boolean, limit?: number, offset?: number }) => { users: User[], total: number }`
-- `user.getHRStats`: `adminProcedure.query() => { totalEmployees: number, activeDeclarantsAtPort: number, activeComptables: number, connectedClients: number, totalActive: number, totalInactive: number }`
-- `user.toggleStatus`: `adminProcedure.input({ id: number, isActive: boolean }) => { success: boolean, user: User }`
+### `server/db.ts` ↔ tRPC Routers
+- `withDbTimeout<T>(queryPromise: Promise<T>, timeoutMs = 1500): Promise<T>`
+- Fallback to in-memory store occurs within <= 1500ms on DB delay/failure.
 
-### Dossier Concurrency ↔ Frontend
-- `dossier.update`: `internalProcedure.input({ id: number | string, expectedVersion?: number, expectedUpdatedAt?: string | Date, forceOverwrite?: boolean, data: Partial<Dossier> }) => Dossier`
-- On mismatch: throws `TRPCError({ code: "CONFLICT", message: "Conflit d'édition simultanée..." })`
-
-### Audit Trail ↔ Dossier Detail
-- `audit.list`: `protectedProcedure.input({ dossierId: number }) => AuditLogItem[]`
-- Audit log entry: `{ id: number, dossierId: number, userId: number, userName: string, userRole: string, action: string, entityType: string, entityId: number, fieldChanged?: string, previousValue?: string, newValue?: string, comment?: string, createdAt: Date }`
+### External Notifications ↔ `server/alertsService.ts` & `server/whatsappService.ts`
+- External HTTP `fetch` requests bounded by `AbortSignal.timeout(3000)`.
+- Fails gracefully without throwing unhandled promise rejections.
 
 ## Code Layout
-- `drizzle/schema.ts` — PostgreSQL table definitions (`users`, `dossiers`, `audit_logs` / `dossier_status_history`, etc.)
-- `server/db.ts` — Data access layer, in-memory store, seed data
-- `server/routers.ts` — tRPC procedures (`user`, `dossier`, `audit`, `invoice`, `auth`)
-- `server/_core/sdk.ts` & `server/_core/trpc.ts` — Auth context and session validation
-- `client/src/App.tsx` — Routing and protected routes
-- `client/src/components/DashboardLayout.tsx` — Main sidebar and header navigation
-- `client/src/pages/UsersPage.tsx` — Collaborator administration and HR stats
-- `client/src/components/ConflictResolutionModal.tsx` — Concurrency conflict diff and merge modal
-- `client/src/components/NetworkStatusBanner.tsx` & `PWAInstallBanner.tsx` — PWA & offline support
-- `client/public/manifest.json` & `client/public/sw.js` — PWA manifest and Service Worker
+```
+├── client/
+│   ├── src/
+│   │   ├── components/   # UI components (shadcn/ui, modals, layout)
+│   │   ├── hooks/        # Custom React hooks (realtime, auth, queries)
+│   │   ├── pages/        # 9 module pages & client portal
+│   │   ├── lib/          # utils, tRPC client, PDF/Excel generators, PWA sync
+│   │   ├── App.tsx       # Routing with lazyWithRetry & ErrorBoundary
+│   │   └── main.tsx      # Entrypoint & custom fetch network interceptor
+├── server/
+│   ├── _core/            # Express app, serverless handlers
+│   ├── routers.ts        # 18 tRPC routers & RBAC procedures
+│   ├── db.ts             # Drizzle ORM + in-memory dual layer store
+│   ├── auth.ts           # JWT authentication & session verification
+│   ├── dossierRules.ts   # Demurrage, customs regimes, status state machine
+│   ├── exchangeRateService.ts # Currency rates & history
+│   ├── alertsService.ts  # Multi-channel alerts (in-app, WhatsApp, email)
+│   ├── whatsappService.ts # Meta WhatsApp Cloud API integration
+│   ├── cloudStorageService.ts # AWS S3 / Supabase storage
+│   └── __tests__/        # Automated Vitest test suites (56 test suites, 636 tests)
+└── shared/
+    └── schema.ts         # Shared Zod schemas & TypeScript types
+```

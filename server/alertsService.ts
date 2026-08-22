@@ -114,6 +114,7 @@ export async function sendDossierWhatsAppAlert(params: {
           type: "text",
           text: { body: formattedText },
         }),
+        signal: AbortSignal.timeout(3000),
       });
     } catch (err) {
       console.warn("[WhatsApp Dispatch Error]", err);
@@ -157,6 +158,7 @@ export async function sendDossierEmailAlert(params: {
           subject: params.subject,
           html: params.htmlContent,
         }),
+        signal: AbortSignal.timeout(3000),
       });
       const data = await res.json();
       console.log("[Resend Email Result]", data);

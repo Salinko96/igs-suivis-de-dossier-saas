@@ -1,15 +1,19 @@
-# Progress — Explorer 1 (R1 Survey)
+# Progress — teamwork_preview_explorer_survey_1
 
-Last visited: 2026-08-20T13:02:20Z
-Status: Survey Completed
+- Last visited: 2026-08-22T13:16:30Z
+- Status: Completed
+- Current step: Handoff delivered to orchestrator
 
-## Tasks
-- [x] Initial setup (DISPATCH.md, BRIEFING.md, progress.md)
-- [x] Read ORIGINAL_REQUEST.md for full context on R1
-- [x] Inspect database schema (`server/schema.ts` / `drizzle/schema.ts` / `supabase`)
-- [x] Inspect authentication & session mechanism (`server/_core/sdk.ts`, `server/_core/context.ts`, `server/_core/trpc.ts`)
-- [x] Inspect tRPC routers (`server/routers.ts`, `server/_core/trpc.ts`)
-- [x] Inspect frontend router, pages & components (`client/src/App.tsx`, `client/src/pages/*`, admin protection)
-- [x] Write `survey_report.md`
-- [ ] Write `handoff.md`
-- [ ] Send final message to parent
+## Checklist
+- [x] Initialized DISPATCH.md and BRIEFING.md
+- [x] List and map all server files and dependencies
+- [x] Inspect `server/db.ts` (timeouts, fallback logic, error handling, mock data)
+- [x] Inspect `server/supabase.ts` (connection pooling, timeouts, client configuration)
+- [x] Inspect `server/auth.ts` (JWT verification, DB user lookup, error resilience)
+- [x] Inspect `server/routers.ts` (every tRPC router and procedure for timeouts, error handling, unhandled rejections)
+- [x] Inspect `server/services/` and background/cron tasks (demurrage, terminal49, syncAllStates, exports)
+- [x] Inspect `server/index.ts` and Express server setup (error middleware, request timeouts)
+- [x] Compile full inventory of gaps, missing timeouts, raw rejections, and unhandled promises
+- [x] Synthesize findings in `analysis.md`
+- [x] Produce 5-component `handoff.md`
+- [x] Send completion message to orchestrator

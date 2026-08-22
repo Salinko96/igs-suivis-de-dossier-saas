@@ -140,6 +140,7 @@ export async function sendWhatsappBusinessMessage(options: WhatsappSendOptions):
           type: "text",
           text: { body: rendered.fullText },
         }),
+        signal: AbortSignal.timeout(3000),
       });
       const data = await response.json();
       if (data.messages && data.messages[0]?.id) {

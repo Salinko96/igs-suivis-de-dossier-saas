@@ -1,37 +1,24 @@
-# E2E Test Infra: IGS Guinée SaaS — Role Simulation & Operational RBAC
+# E2E Test Infra: IGS Logistics Dossier SaaS
 
 ## Test Philosophy
-- Requirement-driven verification based on `ORIGINAL_REQUEST.md` (R1, R2, R3, R4).
-- Strict separation of personas: Déclarant PAC (Mamadou Diallo), Comptable (Fatoumata Camara), Administrateur IGS, and Client (Guinean Birimian Gold S.A).
-- Multi-tier validation: Pure Unit Logic (Tier 1) -> Server RBAC & tRPC Integration (Tier 2) -> Dynamic Navigation & Route Guards (Tier 3) -> Real-World Operational Persona Scenarios (Tier 4).
+- Multi-tier testing approach: Category-Partition, Boundary Value Analysis, Pairwise Combinations, Real-World Workloads.
+- 100% deterministic test execution in Vitest.
+- Complete isolation of external network calls via mock layers and in-memory dual-layer database fallback.
 
-## Feature Inventory & Test Mapping
-| # | Feature | Requirement Source | Tier 1 | Tier 2 | Tier 3 | Tier 4 |
-|---|---------|-------------------|:------:|:------:|:------:|:------:|
-| 1 | RBAC Middleware & Procedure Guards | ORIGINAL_REQUEST §R1 | ✓ | ✓ | ✓ | ✓ |
-| 2 | Role Simulation State & Profile Switching | ORIGINAL_REQUEST §R1, §R4 | ✓ | ✓ | ✓ | ✓ |
-| 3 | Déclarant PAC Operational Tasks Checklist & Persistence | ORIGINAL_REQUEST §R2 | ✓ | ✓ | ✓ | ✓ |
-| 4 | Customs Identifiers Editing (BL, DDI, Sydonia, BLD, BAE) | ORIGINAL_REQUEST §R2 | ✓ | ✓ | ✓ | ✓ |
-| 5 | Financial Data & Margin Shielding for Déclarant & Client | ORIGINAL_REQUEST §R2, §R1 | ✓ | ✓ | ✓ | ✓ |
-| 6 | Multi-Currency Engine GNF / USD & Rate Setting | ORIGINAL_REQUEST §R3 | ✓ | ✓ | ✓ | ✓ |
-| 7 | Invoicing Lifecycle (Proforma, Émise, Payée) & Débours | ORIGINAL_REQUEST §R3 | ✓ | ✓ | ✓ | ✓ |
-| 8 | Payment Tracking & Receipt / Quittance Generation | ORIGINAL_REQUEST §R3 | ✓ | ✓ | ✓ | ✓ |
-| 9 | Client Portal Company Isolation & Public Tracking | ORIGINAL_REQUEST §R1 | ✓ | ✓ | ✓ | ✓ |
+## Feature Inventory & Test Coverage Goals
+| # | Feature | Source | Tier 1 (Unit/Feature) | Tier 2 (Boundary/Error) | Tier 3 (Cross-Module) | Tier 4 (Workload/E2E) |
+|---|---------|--------|:---------------------:|:-----------------------:|:---------------------:|:---------------------:|
+| 1 | Dossiers & SYDONIA Customs | `server/dossierRules.ts` | 15 tests | 10 tests | 5 tests | 4 tests |
+| 2 | Port Demurrage & Franchise | `server/dossierRules.ts` | 10 tests | 8 tests | 4 tests | 3 tests |
+| 3 | Currency & Exchange Rates | `server/exchangeRateService.ts` | 14 tests | 8 tests | 4 tests | 3 tests |
+| 4 | Finances & 18% VAT Invoicing | `server/db.ts`, `server/routers.ts` | 15 tests | 10 tests | 6 tests | 4 tests |
+| 5 | Audit Trail & Concurrency | `server/db.ts`, `server/routers.ts` | 10 tests | 6 tests | 4 tests | 3 tests |
+| 6 | Client Portal Search & OTP | `server/routers.ts`, `client/src/pages/ClientPortalPage.tsx` | 8 tests | 6 tests | 3 tests | 2 tests |
+| 7 | Notifications & Alerts | `server/alertsService.ts` | 10 tests | 5 tests | 4 tests | 2 tests |
+| 8 | Serverless DB Resilience | `server/db.ts` | 12 tests | 8 tests | 4 tests | 3 tests |
 
 ## Test Architecture
-- **Runner**: Vitest v3 (`npm test` / `npx vitest run`)
-- **Location**: `server/__tests__/` and subdirectories
-- **Pass/Fail Semantics**: 0 failures, 100% assertions passing, 0 TypeScript compile errors (`npm run check`).
-
-## Real-World Application Scenarios (Tier 4)
-| # | Scenario | Personas Exercised | Complexity |
-|---|----------|--------------------|------------|
-| 1 | End-to-End Dossier Lifecycle: Dossier creation by Admin -> Customs filing & Sydonia entry by Mamadou Diallo -> Operational task checkbox toggle -> Multi-currency invoicing & payment receipt by Fatoumata Camara -> Public tracking by Client GBG | Admin, Déclarant, Comptable, Client | High |
-| 2 | RBAC Security Penetration & Leak Prevention: Déclarant attempts to access finance summary / invoice creation -> Client attempts to access internal notes or dossiers of other companies -> Comptable attempts to modify customs inspection data | Déclarant, Comptable, Client | High |
-| 3 | Instant Role Switching & Route Protection: Rapid switching between all 4 personas without reload -> verification of auto-redirection, menu visibility, and badge synchronization | All 4 Personas | Medium |
-
-## Coverage Thresholds
-- Tier 1: Pure business logic & conversions (≥5 tests per feature domain)
-- Tier 2: tRPC Server RBAC & Integration (≥5 tests per persona/procedure domain)
-- Tier 3: Navigation, Menu Filtering & Route Guarding (complete matrix coverage)
-- Tier 4: Real-world multi-persona integrated workflows (≥3 comprehensive scenarios)
+- **Test Runner**: `vitest` (configured in `vitest.config.ts`)
+- **Execution Command**: `npm test`
+- **Type Checking**: `npm run check` (`tsc --noEmit`)
+- **Production Build**: `npm run build`

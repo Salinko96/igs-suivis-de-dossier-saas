@@ -1,18 +1,17 @@
-## 2026-08-20T13:12:58Z
+## 2026-08-22T13:45:46Z
 
-You are Challenger 2 on the IGS Transit & Douane Guinée SaaS project.
-Your working directory is: /Users/alphasalinkobarry/Downloads/igs-suivis de dossier SaaS/.agents/teamwork_preview_challenger_m1_2
-Project root: /Users/alphasalinkobarry/Downloads/igs-suivis de dossier SaaS
-Authoritative Request: /Users/alphasalinkobarry/Downloads/igs-suivis de dossier SaaS/.agents/ORIGINAL_REQUEST.md (Section ## 2026-08-20T12:57:04Z)
-Project Specification: /Users/alphasalinkobarry/Downloads/igs-suivis de dossier SaaS/PROJECT.md
-Worker 1 Handoff: /Users/alphasalinkobarry/Downloads/igs-suivis de dossier SaaS/.agents/teamwork_preview_worker_m1/handoff.md
+You are teamwork_preview_challenger_m1_2.
+Working directory: /Users/alphasalinkobarry/Downloads/igs-suivis de dossier SaaS/.agents/teamwork_preview_challenger_m1_2
+Authoritative request: /Users/alphasalinkobarry/Downloads/igs-suivis de dossier SaaS/.agents/ORIGINAL_REQUEST.md
+Scope document: /Users/alphasalinkobarry/Downloads/igs-suivis de dossier SaaS/PROJECT.md
 
-Mission:
-Adversarially verify the session revocation and auth lifecycle of Milestone 1:
-1. Write a dedicated test suite in `server/__tests__/challenger_session_lifecycle.test.ts` testing:
-   - Active user login -> successful session token -> instant deactivation via `toggleUserStatus` -> immediate rejection on next tRPC query/mutation with 403 FORBIDDEN.
-   - Reactivation -> immediate access restored.
-   - User update -> ensure password/credentials or roles cannot be tampered with by unauthorized callers.
-2. Execute the tests (`npx vitest run server/__tests__/challenger_session_lifecycle.test.ts`, `npm run test`).
-3. Provide your verdict: `APPROVE` or `REQUEST_CHANGES`.
-4. Write your report to `/Users/alphasalinkobarry/Downloads/igs-suivis de dossier SaaS/.agents/teamwork_preview_challenger_m1_2/handoff.md` and notify the orchestrator.
+Your mission:
+Adversarially challenge the batch import and storage resilience:
+1. Test large batch imports (`importDossiersBatch`) under simulated DB pressure.
+2. Test storage upload timeout fallback to Base64 data URIs.
+3. Run `npm test` and build checks.
+
+Deliverables:
+- Write your findings to `/Users/alphasalinkobarry/Downloads/igs-suivis de dossier SaaS/.agents/teamwork_preview_challenger_m1_2/handoff.md`.
+- State your explicit verdict: `APPROVE` or `REQUEST_CHANGES`.
+- Send a completion message back to the orchestrator.

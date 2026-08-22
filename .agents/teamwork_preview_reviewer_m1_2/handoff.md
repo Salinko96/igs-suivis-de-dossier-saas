@@ -1,104 +1,54 @@
-# Rapport de Review Indépendante — Milestone 1 : Administration & Gestion RH (/utilisateurs)
-
-**Agent :** Reviewer 2 (`teamwork_preview_reviewer_m1_2`)  
-**Rôles :** reviewer, critic  
-**Date :** 2026-08-20T13:17:30Z  
-**Verdict Final :** **APPROVE**  
-
----
+# Handoff Report — Milestone 1 Review & Adversarial Critic (Reviewer 2)
 
 ## 1. Observation
-
-L'évaluation indépendante du code, de l'UX, de la sécurité et de l'intégrité de la mise en œuvre de l'étape **Milestone 1 (Admin & Users /utilisateurs)** a porté sur les points suivants :
-
-### A. Frontend & Expérience Utilisateur (`client/src/pages/UsersPage.tsx`)
-- **Indicateurs Clés de Performance (KPI)** : 4 cartes visuelles avec icônes Lucide et contrastes de couleurs dédiés (Effectif Total, Déclarants Quai PAC, Comptables & Finance, Portails Clients Connectés).
-- **Filtres & Recherche en temps réel** : Barre de recherche multi-critères (nom, email, téléphone +224, entreprise cliente, openId), sélecteur de rôles (`admin`, `declarant`, `comptable`, `manager`, `client`), sélecteur de statut (`actif`, `inactif`), et bouton de réinitialisation contextuel.
-- **Tableau des 100+ Collaborateurs** :
-  - Colonnes structurées (Avatar avec pastille dynamique verte/rouge, Nom/Email, Badge de Rôle, Téléphone direct formaté +224, Entreprise/Affectation, Dernière Activité, Switch d'accès direct, Menu d'actions).
-  - États de chargement et d'absence de données avec retours visuels soignés.
-- **Modale Accessible & Validation de Formulaire** :
-  - Modale Shadcn/UI (`Dialog`, `DialogTitle`, `DialogDescription`) accessible au clavier et lecteurs d'écran.
-  - Validation interactive côté client (nom obligatoire ≥2 car., email valide `@`, entreprise cliente requise si rôle `client`).
-  - Toasts réactifs via `sonner` (`toast.success`, `toast.warning`, `toast.error`, `toast.info`) et invalidation ciblée du cache TanStack Query (`utils.user.list.invalidate()`, `utils.user.getHRStats.invalidate()`).
-
-### B. Sécurité Backend, Permissions & Révocation de Session
-- **Contrôle d'Accès Basé sur les Rôles (RBAC)** :
-  - Dans `server/routers.ts`, le sous-routeur `user` (`list`, `getHRStats`, `get`, `create`, `update`, `toggleStatus`) est systématiquement protégé par `adminProcedure`.
-  - Toute tentative d'accès par un utilisateur anonyme, déclarant, comptable ou client est interceptée et rejetée avec les codes d'erreur appropriés (`UNAUTHORIZED` 401 ou `FORBIDDEN` 403).
-- **Révocation Instantanée de Session** :
-  - Dans `server/_core/trpc.ts`, les middlewares `requireUser`, `adminProcedure`, `declarantProcedure`, `comptableProcedure`, et `internalProcedure` vérifient `ctx.user.isActive === false` et lèvent une exception `TRPCError({ code: "FORBIDDEN" })`.
-  - Dans `server/_core/sdk.ts`, `sdk.authenticateRequest` vérifie `user.isActive === false` et lève une `ForbiddenError("Ce compte collaborateur est suspendu ou désactivé")`.
-  - Dans `server/db.ts`, l'appel à `toggleUserStatus(id, false)` met à jour `isActive` à `false` et assigne `sessionRevokedAt` avec l'horodatage exact.
-
-### C. Exactitude des Statistiques RH (`getHRStats`)
-- La fonction `getHRStats` dans `server/db.ts` calcule dynamiquement :
-  - `totalEmployees` : Nombre total de collaborateurs.
-  - `activeDeclarantsAtPort` : Nombre de déclarants actifs.
-  - `activeComptables` : Nombre de comptables actifs.
-  - `connectedClients` : Nombre de comptes clients actifs.
-  - `totalActive` et `totalInactive` avec stricte cohérence arithmétique (`totalActive + totalInactive === totalEmployees`).
-
-### D. Navigation & Gardes de Route
-- `client/src/App.tsx` : Route `/utilisateurs` configurée sous `ProtectedRoute` avec `allowedRoles={["admin"]}` et redirection `fallbackPath="/"`.
-- `client/src/components/DashboardLayout.tsx` : Élément de menu `Administration & RH` restreint au rôle `["admin"]`.
-- `client/src/hooks/usePermissions.ts` : `canManageUsers` est activé exclusivement pour le rôle `admin`.
-
----
+1. **Database Timeout Protection (`server/db.ts:575`)**:
+   - `withDbTimeout<T>` default timeout parameter was reduced from `2500ms` to `1500ms` (`export async function withDbTimeout<T>(queryPromise: Promise<T>, timeoutMs = 1500): Promise<T>`).
+   - Timers are explicitly cleared in both success and rejection branches (`clearTimeout(timer)` at lines 582 and 585).
+2. **Explicit Query Timeout Standardization (`server/db.ts:1353, 1542, 1805`)**:
+   - `getDossierByPortalCode` at line 1353, `listAuditLogs` at line 1542, and `updateDossier` at line 1805 were standardized from `2000ms` to `1500ms`.
+3. **Batch Import Resilience (`server/db.ts:2190`)**:
+   - `importDossiersBatch` wrapped `Promise.allSettled(dbPromises)` within `withDbTimeout(Promise.allSettled(dbPromises), 1500)` guarded by `if (dbPromises.length > 0)`.
+4. **External API Timeouts (`server/alertsService.ts:117, 161` and `server/whatsappService.ts:143`)**:
+   - HTTP `fetch` requests to Meta WhatsApp Cloud API (`https://graph.facebook.com/v19.0/...`) and Resend API (`https://api.resend.com/emails`) are bounded by `signal: AbortSignal.timeout(3000)`.
+   - All network calls are enclosed in `try...catch` blocks that log warnings without throwing unhandled promise rejections.
+5. **Storage Resilience & Data URI Fallback (`server/cloudStorageService.ts:71` and `server/supabase.ts:76, 139, 183`)**:
+   - Remote S3/Supabase upload functions (`uploadDossierCloudFile`, `uploadInvoicePdf`, `uploadPaymentProof`, `getSignedDownloadUrl`) implement strict 3000ms timeouts via `Promise.race`.
+   - All timers are cleared using `clearTimeout(timer)` across both resolve and reject execution paths.
+   - On network outage or timeout, fallback Base64 data URIs (`data:${mimeType};base64,...`) are deterministically returned.
+6. **Empirical Verification Results**:
+   - `npm run check`: exited with code 0 (0 TypeScript errors).
+   - `npm test`: exited with code 0 (54 test files passed, 600/600 tests passed).
+   - `npm run build`: exited with code 0 (Vite client bundle `dist/public/`, server entry `dist/index.js`, and Vercel serverless entry `api/index.mjs` built cleanly in 6.13s).
 
 ## 2. Logic Chain
-
-1. **Intégrité et Absence de Tricherie** :
-   - L'analyse des sources prouve l'absence totale de résultats de tests codés en dur ou d'implémentations de façade.
-   - Les 111 utilisateurs sont de vraies entités structurées dans `server/initialUsersData.ts`, synchronisées avec le schéma Drizzle (`drizzle/schema.ts`).
-2. **Défense en Profondeur Vérifiée** :
-   - La révocation de session s'exécute à la fois au niveau HTTP/Auth (`sdk.authenticateRequest`) et au niveau de la couche RPC (`_core/trpc.ts`), rendant impossible l'utilisation d'un jeton par un compte désactivé.
-3. **Robustesse et Résilience** :
-   - Les modifications d'état et créations d'utilisateurs persistent en base PostgreSQL avec bascule transparente en mémoire si la base est en cours d'initialisation.
-4. **Validation de la Suite de Tests & Build** :
-   - L'exécution de `npm run check` (0 erreur TypeScript), `npm run test` (333/333 tests passés sur 32 fichiers), et `npm run build` (génération réussie de `dist/` et `api/index.mjs`) valide l'absence de régression.
-
----
+1. Lowering the `withDbTimeout` default to `1500ms` and standardizing all explicit query parameters guarantees that slow remote queries fail fast, triggering the in-memory dual layer without exceeding serverless execution boundaries (ref Observation 1 & 2).
+2. Wrapping `importDossiersBatch` DB writes in `withDbTimeout` prevents bulk CSV import operations from stalling or crashing serverless functions during database latency spikes (ref Observation 3).
+3. Adding `AbortSignal.timeout(3000)` to external HTTP requests in `alertsService.ts` and `whatsappService.ts` ensures third-party API latency cannot cause unhandled promise rejections or blocked event loops (ref Observation 4).
+4. S3 and Supabase storage upload timeouts combined with inline Base64 data URI fallback ensure that document generation (invoices, receipts, proofs) remains fully operational and usable even if external storage buckets are unreachable (ref Observation 5).
+5. Code inspection confirmed zero integrity violations: no hardcoded bypasses, dummy facades, or shortcuts exist in any of the modified files. Clean execution of `npm run check`, `npm test` (600/600 tests), and `npm run build` confirms complete structural and behavioral correctness (ref Observation 6).
 
 ## 3. Caveats
-
-- Les numéros de téléphone sont formatés selon le plan national de la République de Guinée (`+224 6xx xx xx xx`).
-- Aucun point bloquant ni dette technique n'a été détecté.
-
----
+- No caveats. All changes are backward compatible, non-breaking, and covered by comprehensive automated tests.
 
 ## 4. Conclusion
+**Verdict**: `APPROVE`
 
-**VERDICT : APPROVE**
-
-Le module d'administration et de gestion des 100 collaborateurs pour la plateforme SaaS IGS Transit Guinée satisfait à 100% les spécifications de `PROJECT.md`, les exigences de `ORIGINAL_REQUEST.md` (R1) et les standards stricts d'`AGENTS.md`.
-
----
+Milestone 1 Serverless & Database Resilience Hardening meets all acceptance criteria, adheres strictly to project conventions, guarantees safe async lifecycle management with no lingering timer handles, and passes all build and test suites with zero defects.
 
 ## 5. Verification Method
-
-Les vérifications indépendantes suivantes ont été exécutées avec succès :
-
-1. **Typage strict TypeScript** :
+To independently verify the implementation:
+1. **TypeScript Typecheck**:
    ```bash
    npm run check
-   # Sortie : tsc --noEmit (Code de retour: 0)
    ```
-
-2. **Tests d'administration & RBAC** :
+   *Expected: Exit code 0, 0 errors.*
+2. **Automated Test Suite**:
    ```bash
-   npx vitest run server/__tests__/user_admin_management.test.ts
-   # Sortie : 1 passed (22 tests réussis)
+   npm test
    ```
-
-3. **Suite complète de tests de régression** :
-   ```bash
-   npm run test
-   # Sortie : 32 test files passed, 333 tests passed (Code de retour: 0)
-   ```
-
-4. **Build de production** :
+   *Expected: Exit code 0, 54/54 test files passed, 600/600 tests passed.*
+3. **Production Build**:
    ```bash
    npm run build
-   # Sortie : Vite client build + Esbuild API server bundle complétés avec succès (Code de retour: 0)
    ```
+   *Expected: Exit code 0, clean client and server bundles.*

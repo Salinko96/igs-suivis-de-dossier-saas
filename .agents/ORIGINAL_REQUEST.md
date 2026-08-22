@@ -111,3 +111,41 @@ Integrity mode: development
 ### Tests & Déploiement
 - [ ] Tous les tests unitaires et d'intégration passent (`npm run test`).
 - [ ] Build de production sans aucune erreur TypeScript (`npm run build`).
+
+## 2026-08-22T13:01:01Z
+
+Comprehensive audit and resilience hardening of the IGS Logistics Dossier SaaS application to eliminate all potential serverless function invocation timeouts, DB connection stalls, unhandled promise rejections, and performance bottlenecks across every feature (Dossiers, Customs, Port Autonome de Conakry, Finance & Invoicing, Audit Trail, Client Portal, Team Tasks, Notifications, and Users & RBAC).
+
+Working directory: /Users/alphasalinkobarry/Downloads/igs-suivis de dossier SaaS
+Integrity mode: development
+
+## Requirements
+
+### R1. Full End-to-End Serverless & Database Resilience
+Audit all tRPC routers (`server/routers.ts`), database access layers (`server/db.ts`), auth middlewares (`server/auth.ts`), and external integrations (cron jobs, Terminal49, PDF/Excel engines) to ensure 100% of asynchronous operations and DB queries are wrapped with fail-safe timeouts (`withDbTimeout`), graceful fallbacks, and non-blocking background workers.
+
+### R2. Frontend Query & Mutation Stability
+Audit all frontend pages and hooks (`client/src/pages/`, `client/src/hooks/`) to verify that all TanStack Query/tRPC queries and mutations handle errors gracefully, invalidate relevant caches properly, provide informative user feedback without infinite loading spinners, and implement retry/reconnection strategies.
+
+### R3. Business Logic, Financial & Customs Rules Validation
+Verify that all calculation engines (demurrage risks, customs regimes, PAC storage fees, VAT/GNF currencies, exchange rates, pro-forma and definitive invoices) execute deterministically with zero unhandled exceptions.
+
+### R4. Automated Testing & Verification
+Ensure comprehensive unit and integration test coverage across all routers, utilities, and components with 100% test pass rate (`npm test`), zero TypeScript compilation errors (`npm run check`), and clean production build (`npm run build`).
+
+## Acceptance Criteria
+
+### Serverless & Database Reliability
+- [ ] Zero unhandled promises or blocking operations across all procedures in `server/routers.ts` and `server/db.ts`.
+- [ ] Every database interaction executes within strict timeouts (<= 1500ms) with seamless in-memory fallback.
+- [ ] Heavy batch tasks (syncAllStates, bulk import, demurrage scans) execute asynchronously or finish in under 500ms.
+
+### Frontend & UI Stability
+- [ ] All interactive actions (filters, exports, status toggles, deletions, edits) across all 8 modules execute with instant user feedback.
+- [ ] No chunk loading failures or dynamic import breakages upon new deployments.
+
+### Quality & Build Verification
+- [ ] All Vitest test suites pass (`npm test`).
+- [ ] TypeScript strict check passes with 0 errors (`npm run check`).
+- [ ] Production build succeeds cleanly (`npm run build`).
+

@@ -1,45 +1,41 @@
-# BRIEFING — 2026-08-20T13:02:28Z
+# BRIEFING — 2026-08-22T13:16:00Z
 
 ## Mission
-Investigate codebase for R1: Module d'Administration & Gestion des 100 Employés (/utilisateurs) in IGS Transit & Douane Guinée SaaS.
+Comprehensive technical survey of the BACKEND serverless and database resilience for IGS Logistics Dossier SaaS.
 
 ## 🔒 My Identity
-- Archetype: Explorer
-- Roles: Codebase Investigator, Architecture Analyst, Survey Reporter
+- Archetype: explorer
+- Roles: survey, analysis, backend resilience auditing
 - Working directory: /Users/alphasalinkobarry/Downloads/igs-suivis de dossier SaaS/.agents/teamwork_preview_explorer_survey_1
-- Original parent: f7bcce2f-9a8f-4812-bea3-9b914f48ebb1
-- Milestone: Survey & Investigation for R1 (User & HR Management)
+- Original parent: 3f128489-7ffd-45f8-b155-c4ce0f6de320
+- Milestone: Survey & Analysis
 
 ## 🔒 Key Constraints
-- Read-only investigation — do NOT implement production code
-- Write only to .agents/teamwork_preview_explorer_survey_1/ (metadata, survey_report.md, handoff.md, progress.md)
-- Adhere strictly to AGENTS.md rules & Handoff Protocol
+- Read-only investigation — do NOT implement code changes in the main application codebase
+- Adhere strictly to file workspace conventions (write only in .agents/teamwork_preview_explorer_survey_1/)
+- Deliver rigorous, evidence-backed findings with exact file paths and line numbers
 
 ## Current Parent
-- Conversation ID: f7bcce2f-9a8f-4812-bea3-9b914f48ebb1
-- Updated: 2026-08-20T13:02:28Z
+- Conversation ID: 3f128489-7ffd-45f8-b155-c4ce0f6de320
+- Updated: 2026-08-22T13:16:00Z
 
 ## Investigation State
-- **Explored paths**:
-  - `drizzle/schema.ts` & SQL migrations (`users`, `clients`, `dossiers` tables)
-  - `server/db.ts` (storage, memory users, CRUD queries)
-  - `server/_core/sdk.ts`, `server/_core/context.ts`, `server/_core/trpc.ts` (JWT verification, RBAC procedures)
-  - `server/routers.ts` (tRPC routers and existing auth routes)
-  - `client/src/App.tsx`, `client/src/components/ProtectedRoute.tsx`, `client/src/hooks/usePermissions.ts`
-  - `client/src/components/DashboardLayout.tsx` (sidebar menus, role switching)
-  - `server/__tests__` suite (31 test files, 311 tests passing)
+- **Explored paths**: `server/db.ts`, `server/routers.ts`, `server/supabase.ts`, `server/_core/` (sdk, trpc, app, context, env), `server/restRoutes.ts`, `server/alertsService.ts`, `server/whatsappService.ts`, `server/terminal49Client.ts`, `server/cronDemurrageReminders.ts`, `server/exchangeRateService.ts`, `server/cloudStorageService.ts`, `server/clientReportService.ts`, `server/seed.ts`, `server/storage.ts`.
 - **Key findings**:
-  1. `users` table needs `isActive` (boolean) and `sessionRevokedAt` (timestamp) fields to support instant suspension and session revocation.
-  2. `sdk.authenticateRequest` and `requireUser` currently do not check `user.isActive`, which is a security gap to patch during implementation.
-  3. `server/routers.ts` requires new `adminProcedure` endpoints: `user.list`, `user.create`, `user.update`, `user.toggleStatus`, `user.getHRStats`.
-  4. Frontend needs new page `client/src/pages/UsersPage.tsx` protected by `<ProtectedRoute component={UsersPage} allowedRoles={["admin"]} />`, plus sidebar link in `DashboardLayout.tsx`.
-- **Unexplored areas**: None for R1 survey scope.
+  1. Default timeout in `withDbTimeout` is 2500ms (should be <= 1500ms). Several queries explicitly use 2000ms.
+  2. Batch DB writes in `importDossiersBatch` (`server/db.ts:2170-2189`) push raw Drizzle promises to `Promise.allSettled` without `withDbTimeout`.
+  3. External `fetch` calls in `alertsService.ts` (Meta & Resend) and `whatsappService.ts` lack `AbortController` timeout protection.
+  4. S3 command execution in `cloudStorageService.ts` lacks millisecond timeout.
+  5. 100% test pass rate (54 suites, 600 tests passed). Zero TypeScript errors. Production build succeeds cleanly.
+- **Unexplored areas**: None (full backend survey completed).
 
 ## Key Decisions Made
-- Produced comprehensive `survey_report.md` detailing DB schema additions, session revocation architecture, tRPC endpoints design, frontend UI blueprint, and test matrix.
+- Completed full audit of all database access methods and 18 tRPC routers.
+- Published exhaustive `analysis.md` and 5-component `handoff.md`.
 
 ## Artifact Index
-- DISPATCH.md — Initial mission dispatch
-- progress.md — Liveness and step tracking
-- survey_report.md — Comprehensive R1 survey report
-- handoff.md — 5-component handoff report
+- `.agents/teamwork_preview_explorer_survey_1/DISPATCH.md` — Initial dispatch message
+- `.agents/teamwork_preview_explorer_survey_1/BRIEFING.md` — Agent briefing and persistent context
+- `.agents/teamwork_preview_explorer_survey_1/progress.md` — Progress tracker
+- `.agents/teamwork_preview_explorer_survey_1/analysis.md` — In-depth analysis
+- `.agents/teamwork_preview_explorer_survey_1/handoff.md` — 5-component handoff report

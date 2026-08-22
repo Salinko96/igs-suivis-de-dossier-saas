@@ -34,47 +34,70 @@ export function isSupabaseConfigured(): boolean {
 
 /**
  * Uploads a generated Invoice PDF to Supabase Storage in the 'factures' bucket.
- * Returns the public or signed URL of the uploaded document.
+ * Returns the public or signed URL of the uploaded document, with Base64 data URI fallback.
  */
 export async function uploadInvoicePdf(
   invoiceNumber: string,
   pdfBuffer: Buffer | Uint8Array,
   mimeType: string = "application/pdf"
 ): Promise<string | null> {
+  const base64Data = Buffer.from(pdfBuffer).toString("base64");
+  const fallbackDataUrl = `data:${mimeType};base64,${base64Data}`;
+
   const supabase = getSupabaseServerClient();
-  if (!supabase) return null;
+  if (!supabase) return fallbackDataUrl;
 
   const cleanNumber = invoiceNumber.replace(/[^a-zA-Z0-9_-]/g, "_");
   const fileName = `facture_${cleanNumber}_${Date.now()}.pdf`;
   const filePath = `invoices/${fileName}`;
 
   try {
-    const { data, error } = await supabase.storage
-      .from("factures")
-      .upload(filePath, pdfBuffer, {
-        contentType: mimeType,
-        upsert: true,
-      });
+    const uploadPromise = (async (): Promise<string | null> => {
+      const { data, error } = await supabase.storage
+        .from("factures")
+        .upload(filePath, pdfBuffer, {
+          contentType: mimeType,
+          upsert: true,
+        });
 
-    if (error) {
-      console.warn("[Supabase Storage] Error uploading invoice PDF:", error.message);
-      return null;
+      if (error) {
+        console.warn("[Supabase Storage] Error uploading invoice PDF:", error.message);
+        return fallbackDataUrl;
+      }
+
+      const { data: publicUrlData } = supabase.storage
+        .from("factures")
+        .getPublicUrl(data.path);
+
+      return publicUrlData.publicUrl || fallbackDataUrl;
+    })();
+
+    let timer: any;
+    const timeoutPromise = new Promise<string>((resolve) => {
+      timer = setTimeout(() => {
+        console.warn("[Supabase Storage] Invoice PDF upload timed out after 3000ms, using Base64 fallback");
+        resolve(fallbackDataUrl);
+      }, 3000);
+    });
+
+    try {
+      const res = await Promise.race([uploadPromise, timeoutPromise]);
+      clearTimeout(timer);
+      return res || fallbackDataUrl;
+    } catch (raceErr) {
+      clearTimeout(timer);
+      console.warn("[Supabase Storage] Exception during invoice PDF upload race:", raceErr);
+      return fallbackDataUrl;
     }
-
-    const { data: publicUrlData } = supabase.storage
-      .from("factures")
-      .getPublicUrl(data.path);
-
-    return publicUrlData.publicUrl;
   } catch (err) {
     console.warn("[Supabase Storage] Exception during invoice PDF upload:", err);
-    return null;
+    return fallbackDataUrl;
   }
 }
 
 /**
  * Uploads a Payment Proof (Bank receipt, check photo, douane slip) to Supabase Storage.
- * Returns the access URL of the proof.
+ * Returns the access URL of the proof, with Base64 data URI fallback.
  */
 export async function uploadPaymentProof(
   invoiceId: number,
@@ -82,33 +105,56 @@ export async function uploadPaymentProof(
   originalFileName: string,
   mimeType: string = "image/jpeg"
 ): Promise<string | null> {
+  const base64Data = Buffer.from(fileBuffer).toString("base64");
+  const fallbackDataUrl = `data:${mimeType};base64,${base64Data}`;
+
   const supabase = getSupabaseServerClient();
-  if (!supabase) return null;
+  if (!supabase) return fallbackDataUrl;
 
   const ext = originalFileName.split(".").pop() || "jpg";
   const filePath = `payments/invoice_${invoiceId}_${Date.now()}.${ext}`;
 
   try {
-    const { data, error } = await supabase.storage
-      .from("preuves_paiement")
-      .upload(filePath, fileBuffer, {
-        contentType: mimeType,
-        upsert: true,
-      });
+    const uploadPromise = (async (): Promise<string | null> => {
+      const { data, error } = await supabase.storage
+        .from("preuves_paiement")
+        .upload(filePath, fileBuffer, {
+          contentType: mimeType,
+          upsert: true,
+        });
 
-    if (error) {
-      console.warn("[Supabase Storage] Error uploading payment proof:", error.message);
-      return null;
+      if (error) {
+        console.warn("[Supabase Storage] Error uploading payment proof:", error.message);
+        return fallbackDataUrl;
+      }
+
+      const { data: publicUrlData } = supabase.storage
+        .from("preuves_paiement")
+        .getPublicUrl(data.path);
+
+      return publicUrlData.publicUrl || fallbackDataUrl;
+    })();
+
+    let timer: any;
+    const timeoutPromise = new Promise<string>((resolve) => {
+      timer = setTimeout(() => {
+        console.warn("[Supabase Storage] Payment proof upload timed out after 3000ms, using Base64 fallback");
+        resolve(fallbackDataUrl);
+      }, 3000);
+    });
+
+    try {
+      const res = await Promise.race([uploadPromise, timeoutPromise]);
+      clearTimeout(timer);
+      return res || fallbackDataUrl;
+    } catch (raceErr) {
+      clearTimeout(timer);
+      console.warn("[Supabase Storage] Exception during payment proof upload race:", raceErr);
+      return fallbackDataUrl;
     }
-
-    const { data: publicUrlData } = supabase.storage
-      .from("preuves_paiement")
-      .getPublicUrl(data.path);
-
-    return publicUrlData.publicUrl;
   } catch (err) {
     console.warn("[Supabase Storage] Exception during payment proof upload:", err);
-    return null;
+    return fallbackDataUrl;
   }
 }
 
@@ -124,12 +170,23 @@ export async function getSignedDownloadUrl(
   if (!supabase) return null;
 
   try {
-    const { data, error } = await supabase.storage
-      .from(bucket)
-      .createSignedUrl(filePath, expiresInSeconds);
+    const fetchPromise = (async () => {
+      const { data, error } = await supabase.storage
+        .from(bucket)
+        .createSignedUrl(filePath, expiresInSeconds);
 
-    if (error || !data?.signedUrl) return null;
-    return data.signedUrl;
+      if (error || !data?.signedUrl) return null;
+      return data.signedUrl;
+    })();
+
+    let timer: any;
+    const timeoutPromise = new Promise<null>((resolve) => {
+      timer = setTimeout(() => resolve(null), 3000);
+    });
+
+    const res = await Promise.race([fetchPromise, timeoutPromise]);
+    clearTimeout(timer);
+    return res;
   } catch {
     return null;
   }

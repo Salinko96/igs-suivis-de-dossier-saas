@@ -1,21 +1,19 @@
-## 2026-08-20T12:58:14Z
-You are Explorer 3 on the IGS Transit & Douane Guinée SaaS project.
-Your working directory is: /Users/alphasalinkobarry/Downloads/igs-suivis de dossier SaaS/.agents/teamwork_preview_explorer_survey_3
-Project root: /Users/alphasalinkobarry/Downloads/igs-suivis de dossier SaaS
-Authoritative Request: /Users/alphasalinkobarry/Downloads/igs-suivis de dossier SaaS/.agents/ORIGINAL_REQUEST.md (Section ## 2026-08-20T12:57:04Z)
+## 2026-08-22T13:02:53Z
+
+Authoritative request: /Users/alphasalinkobarry/Downloads/igs-suivis de dossier SaaS/.agents/ORIGINAL_REQUEST.md
 
 Mission:
-Investigate codebase for R4 (PWA & Offline Quai Mode), Navigation, and Testing/Build:
-1. Investigate Frontend Layout and Navigation:
-   - client/src/components/DashboardLayout.tsx or navigation components: how is sidebar structured, what menu items exist, how to add /utilisateurs for admins.
-   - Routing in client/src/App.tsx or Wouter router.
-2. Investigate PWA & Offline Support:
-   - manifest.json / webmanifest: presence, icon assets, theme_color (#0b3b32), display: standalone.
-   - Service Worker setup (Vite PWA plugin, workbox, or custom sw.js): caching strategies for static assets and API/dossiers for unstable 3G/4G on the docks (Port de Conakry).
-   - PWA Install prompt / banner component and online/offline network indicator (navigator.onLine, useOnlineStatus hook).
-3. Investigate Test & Build setup:
-   - package.json scripts (npm run test, npm run build, npm run lint, etc.).
-   - Existing tests and framework (vitest, testing-library).
-4. Write your comprehensive survey report to:
-   /Users/alphasalinkobarry/Downloads/igs-suivis de dossier SaaS/.agents/teamwork_preview_explorer_survey_3/survey_report.md
-5. When done, write handoff.md and send a completion message back to the orchestrator.
+Execute a comprehensive technical survey of the BUSINESS LOGIC, FINANCIAL/CUSTOMS CALCULATION ENGINES, and AUTOMATED TEST SUITE of the IGS Logistics Dossier SaaS application.
+
+Scope:
+1. Examine business calculation logic in `server/services/`, `client/src/lib/`, `shared/`, and calculation helpers:
+   - Demurrage risk calculations and port detention fees
+   - Customs regime handling (DDI, SYDONIA, BLD, BAD, BAE, PAC exit)
+   - PAC storage fee calculation curves and tariff schedules
+   - Currency calculations (GNF vs USD/EUR, exchange rates, VAT/TVA 18%, rounding, total amounts)
+   - Pro-forma and definitive invoice generators (PDF/Excel data preparation)
+2. Audit the test suite, build setup, and type checking:
+   - Current test setup in `vitest.config.ts`, `package.json`, `server/__tests__/`, `client/src/__tests__/`
+   - Run baseline analysis: inspect test scripts, identify what tests currently exist, and assess coverage gaps across all tRPC routers and calculation engines
+   - Inspect TypeScript build configuration (`tsconfig.json`, `npm run check`, `npm run build`) and identify any typing ambiguities or compilation risks.
+3. Identify missing test cases (Tier 1 Feature Coverage, Tier 2 Boundary/Corner, Tier 3 Cross-Feature, Tier 4 Real-World Workloads) needed to guarantee 100% reliability.
