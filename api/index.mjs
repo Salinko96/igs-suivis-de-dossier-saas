@@ -5218,7 +5218,7 @@ async function logPortalAccess(input) {
   const db = await getDb();
   if (db) {
     try {
-      await db.insert(portalAccessLogs).values(logEntry);
+      await withDbTimeout(db.insert(portalAccessLogs).values(logEntry), 1e3);
     } catch (e) {
       console.warn("[DB] Failed to insert portal access log to database:", e);
     }
@@ -5266,7 +5266,7 @@ async function requestClientOtp(input) {
   const db = await getDb();
   if (db) {
     try {
-      await db.insert(clientAccessSessions).values(session);
+      await withDbTimeout(db.insert(clientAccessSessions).values(session), 1e3);
     } catch (e) {
     }
   }
@@ -5402,7 +5402,10 @@ async function createDossier(input, userId, authorName) {
   const db = await getDb();
   if (db) {
     try {
-      await db.insert(dossiers).values({ ...input, version: 1, dossierNumber: num, portalAccessCode: portalCode, ...state, createdById: userId, updatedById: userId });
+      await withDbTimeout(
+        db.insert(dossiers).values({ ...input, version: 1, dossierNumber: num, portalAccessCode: portalCode, ...state, createdById: userId, updatedById: userId }),
+        1500
+      );
     } catch (e) {
       console.warn("[DB] Failed to insert dossier in DB, stored in memory");
     }
@@ -5550,15 +5553,24 @@ async function syncAllDossierStates() {
         ...enriched,
         updatedAt: now
       };
-      await logAuditEvent({
+      _memoryHistory.unshift({
+        id: _memoryHistory.length + 1,
         dossierId: enriched.id,
-        userName: "Syst\xE8me IGS (Analyse & Mise \xE0 Jour Globale)",
+        changedById: 1,
+        authorName: "Syst\xE8me IGS (Moteur d'Analyse)",
         userRole: "system",
         action: "SYNCHRONISATION_STATUTS_GLOBAL",
+        entityType: "dossier",
+        entityId: enriched.id,
         fieldChanged: "Statuts, D\xE9lais Quai & Priorit\xE9",
         previousValue: `${original.calculatedStatus} (${original.daysOnQuay ?? 0}j quai - ${original.calculatedPriority})`,
         newValue: `${enriched.calculatedStatus} (${enriched.daysOnQuay ?? 0}j quai - ${enriched.calculatedPriority})`,
-        comment: `Mise \xE0 jour automatique par le moteur d'analyse op\xE9rationnelle IGS (${now.toLocaleDateString("fr-FR")})`
+        beforeData: null,
+        afterData: null,
+        comment: `Mise \xE0 jour automatique des d\xE9lais de quai PAC et de la priorit\xE9 (${now.toLocaleDateString("fr-FR")})`,
+        ipAddress: null,
+        metadata: null,
+        createdAt: now
       });
     }
     if (enriched.calculatedStatus === "R\xE9gularis\xE9") regularizedCount++;
@@ -5566,7 +5578,9 @@ async function syncAllDossierStates() {
     const daysOnQuayNum = enriched.daysOnQuay ?? 0;
     if (!enriched.goodsReleaseDate && daysOnQuayNum > 7) overdueDemurrageCount++;
     else if (!enriched.goodsReleaseDate && daysOnQuayNum >= 5) warningJ2Count++;
-    await ensureProformaInvoiceForDossier(_memoryDossiers[i]);
+    if (!_memoryInvoices.some((inv) => inv.dossierId === enriched.id)) {
+      await ensureProformaInvoiceForDossier(_memoryDossiers[i]);
+    }
     details.push({
       dossierId: enriched.id,
       dossierNumber: enriched.dossierNumber,
@@ -5581,7 +5595,8 @@ async function syncAllDossierStates() {
   }
   try {
     const { runDemurrageReminderJob: runDemurrageReminderJob2 } = await Promise.resolve().then(() => (init_cronDemurrageReminders(), cronDemurrageReminders_exports));
-    await runDemurrageReminderJob2();
+    runDemurrageReminderJob2().catch(() => {
+    });
   } catch (e) {
   }
   invalidateDossiersCache();
@@ -5609,7 +5624,7 @@ async function importDossiersBatch(items, userId, authorName) {
   }
   if (db) {
     try {
-      const dbAll = await db.select().from(dossiers);
+      const dbAll = await withDbTimeout(db.select().from(dossiers), 1500);
       for (const d of dbAll) {
         if (d.blLtaNumber) existingMapByBL.set(d.blLtaNumber.trim().toUpperCase(), d);
         if (d.clientDossierNumber) existingMapByClientRef.set(d.clientDossierNumber.trim().toUpperCase(), d);
@@ -5829,7 +5844,7 @@ async function deleteDossier(id) {
   const db = await getDb();
   if (db) {
     try {
-      await db.delete(dossiers).where(eq(dossiers.id, id));
+      await withDbTimeout(db.delete(dossiers).where(eq(dossiers.id, id)), 1500);
     } catch (e) {
     }
   }
@@ -6033,7 +6048,7 @@ async function deleteDocument(id, userId, authorName) {
   const db = await getDb();
   if (db) {
     try {
-      await db.delete(documents).where(eq(documents.id, id));
+      await withDbTimeout(db.delete(documents).where(eq(documents.id, id)), 1e3);
     } catch (e) {
     }
   }
@@ -6067,7 +6082,7 @@ async function logAuditEvent(params) {
   const db = await getDb();
   if (db) {
     try {
-      await db.insert(dossierStatusHistory).values(entry);
+      await withDbTimeout(db.insert(dossierStatusHistory).values(entry), 1e3);
     } catch (e) {
       console.warn("[DB] Failed to insert audit log entry into DB:", e);
     }
@@ -6078,7 +6093,10 @@ async function listDossierHistory(dossierId) {
   const db = await getDb();
   if (db) {
     try {
-      return await db.select().from(dossierStatusHistory).where(eq(dossierStatusHistory.dossierId, dossierId)).orderBy(desc(dossierStatusHistory.createdAt));
+      return await withDbTimeout(
+        db.select().from(dossierStatusHistory).where(eq(dossierStatusHistory.dossierId, dossierId)).orderBy(desc(dossierStatusHistory.createdAt)),
+        1500
+      );
     } catch (e) {
     }
   }
@@ -6274,7 +6292,10 @@ async function createInvoice(input) {
   const db = await getDb();
   if (db) {
     try {
-      await db.insert(invoices).values({ ...input, invoiceNumber: invNum, disbursementsAmount: disbursements, amountHt, amountTva, amountTtc, receiptNumber: inv.receiptNumber, paidAt: inv.paidAt });
+      await withDbTimeout(
+        db.insert(invoices).values({ ...input, invoiceNumber: invNum, disbursementsAmount: disbursements, amountHt, amountTva, amountTtc, receiptNumber: inv.receiptNumber, paidAt: inv.paidAt }),
+        1500
+      );
     } catch (e) {
     }
   }
@@ -6303,14 +6324,14 @@ async function updateInvoice(id, input) {
   const db = await getDb();
   if (db) {
     try {
-      await db.update(invoices).set(updatedData).where(eq(invoices.id, id));
+      await withDbTimeout(db.update(invoices).set(updatedData).where(eq(invoices.id, id)), 1500);
     } catch (e) {
     }
   }
   let result = idx >= 0 ? _memoryInvoices[idx] : null;
   if (!result && db) {
     try {
-      const rows = await db.select().from(invoices).where(eq(invoices.id, id)).limit(1);
+      const rows = await withDbTimeout(db.select().from(invoices).where(eq(invoices.id, id)).limit(1), 1500);
       if (rows.length > 0) result = rows[0];
     } catch (e) {
     }
@@ -6381,10 +6402,10 @@ async function recordInvoicePayment(id, data) {
   const db = await getDb();
   if (db) {
     try {
-      await db.update(invoices).set(updatePayload).where(eq(invoices.id, id));
-      await db.insert(invoicePayments).values(paymentEntry);
+      await withDbTimeout(db.update(invoices).set(updatePayload).where(eq(invoices.id, id)), 1500);
+      await withDbTimeout(db.insert(invoicePayments).values(paymentEntry), 1500);
       if (!invoice) {
-        const rows = await db.select().from(invoices).where(eq(invoices.id, id)).limit(1);
+        const rows = await withDbTimeout(db.select().from(invoices).where(eq(invoices.id, id)).limit(1), 1500);
         if (rows.length > 0) invoice = rows[0];
       }
     } catch (e) {
@@ -6433,7 +6454,10 @@ async function listInvoicePayments(invoiceId) {
   const db = await getDb();
   if (db) {
     try {
-      return await db.select().from(invoicePayments).where(invoiceId ? eq(invoicePayments.invoiceId, invoiceId) : void 0).orderBy(desc(invoicePayments.paymentDate));
+      return await withDbTimeout(
+        db.select().from(invoicePayments).where(invoiceId ? eq(invoicePayments.invoiceId, invoiceId) : void 0).orderBy(desc(invoicePayments.paymentDate)),
+        1500
+      );
     } catch (e) {
     }
   }
@@ -6444,7 +6468,10 @@ async function listPacDisbursements(dossierId) {
   const db = await getDb();
   if (db) {
     try {
-      return await db.select().from(pacDisbursements).where(dossierId ? eq(pacDisbursements.dossierId, dossierId) : void 0).orderBy(desc(pacDisbursements.createdAt));
+      return await withDbTimeout(
+        db.select().from(pacDisbursements).where(dossierId ? eq(pacDisbursements.dossierId, dossierId) : void 0).orderBy(desc(pacDisbursements.createdAt)),
+        1500
+      );
     } catch (e) {
     }
   }
@@ -6492,7 +6519,7 @@ async function createPacDisbursement(input, userId, authorName, userRole = "comp
   const db = await getDb();
   if (db) {
     try {
-      await db.insert(pacDisbursements).values(entry);
+      await withDbTimeout(db.insert(pacDisbursements).values(entry), 1e3);
     } catch (e) {
     }
   }
@@ -6661,7 +6688,7 @@ async function getExchangeRate() {
   const db = await getDb();
   if (db) {
     try {
-      const rows = await db.select().from(referenceItems).where(eq(referenceItems.category, "exchange_rate")).limit(1);
+      const rows = await withDbTimeout(db.select().from(referenceItems).where(eq(referenceItems.category, "exchange_rate")).limit(1), 1e3);
       if (rows.length > 0) {
         const val = parseInt(rows[0].label, 10) || rows[0].sortOrder || 8650;
         _currentExchangeRate = val;
@@ -6678,11 +6705,11 @@ async function setExchangeRate(rate) {
   const db = await getDb();
   if (db) {
     try {
-      const rows = await db.select().from(referenceItems).where(eq(referenceItems.category, "exchange_rate")).limit(1);
+      const rows = await withDbTimeout(db.select().from(referenceItems).where(eq(referenceItems.category, "exchange_rate")).limit(1), 1e3);
       if (rows.length > 0) {
-        await db.update(referenceItems).set({ label: String(rate), sortOrder: rate }).where(eq(referenceItems.id, rows[0].id));
+        await withDbTimeout(db.update(referenceItems).set({ label: String(rate), sortOrder: rate }).where(eq(referenceItems.id, rows[0].id)), 1e3);
       } else {
-        await db.insert(referenceItems).values({ category: "exchange_rate", label: String(rate), sortOrder: rate });
+        await withDbTimeout(db.insert(referenceItems).values({ category: "exchange_rate", label: String(rate), sortOrder: rate }), 1e3);
       }
     } catch (e) {
     }
@@ -6716,7 +6743,10 @@ async function listTasks(filterOrDossierId) {
       if (filter.dossierId) conditions.push(eq(dossierTasks.dossierId, filter.dossierId));
       if (filter.status) conditions.push(eq(dossierTasks.status, filter.status));
       if (filter.assignedTo) conditions.push(like(dossierTasks.assignedTo, `%${filter.assignedTo}%`));
-      return await db.select().from(dossierTasks).where(conditions.length > 0 ? and(...conditions) : void 0).orderBy(desc(dossierTasks.createdAt));
+      return await withDbTimeout(
+        db.select().from(dossierTasks).where(conditions.length > 0 ? and(...conditions) : void 0).orderBy(desc(dossierTasks.createdAt)),
+        1500
+      );
     } catch (e) {
     }
   }
@@ -6746,7 +6776,7 @@ async function createTask(input) {
   const db = await getDb();
   if (db) {
     try {
-      await db.insert(dossierTasks).values(input);
+      await withDbTimeout(db.insert(dossierTasks).values(input), 1e3);
     } catch (e) {
     }
   }
@@ -6765,7 +6795,7 @@ async function updateTaskStatus(id, status) {
   const db = await getDb();
   if (db) {
     try {
-      await db.update(dossierTasks).set({ status, completedAt }).where(eq(dossierTasks.id, id));
+      await withDbTimeout(db.update(dossierTasks).set({ status, completedAt }).where(eq(dossierTasks.id, id)), 1e3);
     } catch (e) {
     }
   }
@@ -6781,7 +6811,10 @@ async function listComments(dossierId) {
   const db = await getDb();
   if (db) {
     try {
-      return await db.select().from(dossierComments).where(eq(dossierComments.dossierId, dossierId)).orderBy(asc(dossierComments.createdAt));
+      return await withDbTimeout(
+        db.select().from(dossierComments).where(eq(dossierComments.dossierId, dossierId)).orderBy(asc(dossierComments.createdAt)),
+        1500
+      );
     } catch (e) {
     }
   }
@@ -6800,7 +6833,7 @@ async function addComment(input) {
   const db = await getDb();
   if (db) {
     try {
-      await db.insert(dossierComments).values(input);
+      await withDbTimeout(db.insert(dossierComments).values(input), 1e3);
     } catch (e) {
     }
   }
@@ -6824,7 +6857,7 @@ async function addNotification(input) {
   const db = await getDb();
   if (db) {
     try {
-      await db.insert(notifications).values(entry);
+      await withDbTimeout(db.insert(notifications).values(entry), 1e3);
     } catch (e) {
     }
   }
@@ -6845,7 +6878,7 @@ async function markNotificationAsRead(id) {
   const db = await getDb();
   if (db) {
     try {
-      await db.update(notifications).set({ isRead: 1 }).where(eq(notifications.id, id));
+      await withDbTimeout(db.update(notifications).set({ isRead: 1 }).where(eq(notifications.id, id)), 1e3);
     } catch (e) {
     }
   }
@@ -6860,7 +6893,7 @@ async function markAllNotificationsAsRead() {
   const db = await getDb();
   if (db) {
     try {
-      await db.update(notifications).set({ isRead: 1 });
+      await withDbTimeout(db.update(notifications).set({ isRead: 1 }), 1e3);
     } catch (e) {
     }
   }
@@ -6900,7 +6933,7 @@ async function createReferenceItem(input) {
   const db = await getDb();
   if (db) {
     try {
-      await db.insert(referenceItems).values(input);
+      await withDbTimeout(db.insert(referenceItems).values(input), 1e3);
     } catch (e) {
     }
   }
